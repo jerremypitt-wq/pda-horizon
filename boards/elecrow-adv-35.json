@@ -1,0 +1,34 @@
+{
+  "build": {
+    "arduino": {
+      "memory_type": "qio_opi"
+    },
+    "core": "esp32",
+    "extra_flags": [
+      "-DARDUINO_ELECROW_CROWPANEL_ADV_35",
+      "-DBOARD_HAS_PSRAM"
+    ],
+    "f_cpu": "240000000L",
+    "f_flash": "80000000L",
+    "flash_mode": "qio",
+    "mcu": "esp32s3",
+    "variant": "esp32s3"
+  },
+  "connectivity": [
+    "wifi"
+  ],
+  "frameworks": [
+    "arduino",
+    "espidf"
+  ],
+  "name": "Elecrow CrowPanel Advance 3.5 (ESP32-S3, 16MB flash)",
+  "upload": {
+    "flash_size": "16MB",
+    "maximum_ram_size": 327680,
+    "maximum_size": 16777216,
+    "protocol": "esptool",
+    "speed": 460800
+  },
+  "url": "https://www.elecrow.com/crowpanel-advance-3-5-hmi-esp32-ai-display-480x320.html",
+  "vendor": "Elecrow"
+}
