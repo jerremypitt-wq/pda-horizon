@@ -11,6 +11,9 @@
 #define LGFX_DRIVER LGFX_ELECROW_ADV_35
 #endif
 
+// config.h is force-included by the build. Keep C translation units from
+// parsing the C++-only LovyanGFX headers and class declaration.
+#ifdef __cplusplus
 #include <LovyanGFX.hpp>
 
 class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
@@ -25,7 +28,7 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
     {
         { // SPI-шина дисплея (из firmware-варианта: SCK42 MOSI39 DC41 CS40)
             auto cfg = _bus.config();
-            cfg.spi_host    = SPI3_HOST;     // на S3 свободен (SPI2 занят радио/прочим)
+            cfg.spi_host    = SPI3_HOST;
             cfg.spi_mode    = 0;
             cfg.freq_write  = 40000000;
             cfg.freq_read   = 16000000;
@@ -42,7 +45,7 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
         { // Панель ILI9488 480x320
             auto cfg = _panel.config();
             cfg.pin_cs   = 40;
-            cfg.pin_rst  = -1;               // у проекта сброс на EN-плате; проверить
+            cfg.pin_rst  = -1;
             cfg.pin_busy = -1;
             cfg.memory_width  = 320;
             cfg.memory_height = 480;
@@ -50,10 +53,10 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
             cfg.panel_height  = 480;
             cfg.offset_x = 0;
             cfg.offset_y = 0;
-            cfg.invert   = true;             // типично для ILI9488; при «негативе» -> false
+            cfg.invert   = true;
             cfg.rgb_order = false;
             _panel.config(cfg);
-            _panel.setRotation(1);           // ландшафт 480x320
+            _panel.setRotation(1);
         }
         { // Подсветка BL=38
             auto cfg = _light.config();
@@ -81,9 +84,9 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
         setPanel(&_panel);
     }
 };
+#endif // __cplusplus
 
-// Серийный линк к LoRa-узлу (режим PROTO) — вывести на свободные GPIO,
-// который подтверждён схемой CrowPanel Advance (см. silk-печать разъёмов).
+// Серийный линк к LoRa-узлу (режим PROTO).
 #ifndef SERIAL_RX
 #define SERIAL_RX 44
 #endif
