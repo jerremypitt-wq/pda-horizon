@@ -24,6 +24,13 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
     lgfx::Touch_GT911   _touch;
 
   public:
+    // Logical panel dimensions after rotation: native landscape orientation.
+    const uint16_t screenWidth = 480;
+    const uint16_t screenHeight = 320;
+
+    // This display has touch input but no physical button exposed by this driver.
+    bool hasButton(void) { return false; }
+
     LGFX_ELECROW_ADV_35(void)
     {
         { // SPI-шина дисплея (из firmware-варианта: SCK42 MOSI39 DC41 CS40)
