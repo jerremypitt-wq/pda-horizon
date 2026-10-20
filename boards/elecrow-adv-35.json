@@ -27,8 +27,12 @@
     "maximum_ram_size": 327680,
     "maximum_size": 16777216,
     "protocol": "esptool",
-    "speed": 460800
+    "speed": 460800,
+    "require_upload_port": true
   },
   "url": "https://www.elecrow.com/crowpanel-advance-3-5-hmi-esp32-ai-display-480x320.html",
-  "vendor": "Elecrow"
+  "vendor": "Elecrow",
+  "platforms": [
+    "espressif32"
+  ]
 }
