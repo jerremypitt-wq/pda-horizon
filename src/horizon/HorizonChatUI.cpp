@@ -388,7 +388,7 @@ void HorizonUI::rebuildContactsList(void)
         const HorizonConvo *dm = view->getStore().findDmConvo(r.id);
         if (dm && dm->unread > 0) {
             lv_obj_t *ub = lv_label_create(b);
-            lv_label_set_text_fmt(ub, "✉%u", (unsigned)dm->unread);
+            lv_label_set_text_fmt(ub, "%s%u", kGlyphMail, (unsigned)dm->unread);
             lv_obj_set_style_bg_color(ub, hzColor(p.accent), LV_PART_MAIN);
             lv_obj_set_style_bg_opa(ub, LV_OPA_COVER, LV_PART_MAIN);
             lv_obj_set_style_text_color(ub, hzColor(p.accentText), LV_PART_MAIN);
@@ -484,6 +484,15 @@ void HorizonUI::buildOpenChats(void)
         char prev[96];
         strncpy(prev, last.text.c_str(), sizeof(prev) - 1);
         prev[sizeof(prev) - 1] = '\0';
+        // не разрывать UTF-8 символ на границе
+        {
+            size_t pl = strlen(prev);
+            while (pl > 0 && (((unsigned char)prev[pl - 1] & 0xC0) == 0x80))
+                pl--;
+            if (pl > 0 && ((unsigned char)prev[pl - 1] & 0x80))
+                pl--;
+            prev[pl] = '\0';
+        }
         for (char *q = prev; *q; q++) {
             if (*q == '\n' || *q == '\r')
                 *q = ' ';
@@ -491,7 +500,7 @@ void HorizonUI::buildOpenChats(void)
         lv_obj_t *pv = lv_label_create(b);
         lv_label_set_long_mode(pv, LV_LABEL_LONG_DOT);
         if (c->unread > 0)
-            lv_label_set_text_fmt(pv, "✉%u  %s%s", (unsigned)c->unread, last.outgoing ? "Вы: " : "", prev);
+            lv_label_set_text_fmt(pv, "%s%u  %s%s", kGlyphMail, (unsigned)c->unread, last.outgoing ? "Вы: " : "", prev);
         else
             lv_label_set_text_fmt(pv, "%s%s", last.outgoing ? "Вы: " : "", prev);
         lv_obj_set_style_text_font(pv, HorizonTheme::fontSmall(), LV_PART_MAIN);

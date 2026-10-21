@@ -63,17 +63,24 @@ extern const uint8_t kTimeoutCount;
 constexpr uint8_t kSimpleKeyCount = 12;
 extern const char *const kSimpleKeys[kSimpleKeyCount];
 
-// Глифы для плиток (есть в шрифтах: Emoji/Misc ranges)
-constexpr const char *kGlyphGeneral = "✉";   // общий чат
-constexpr const char *kGlyphGroup = "★";     // чат группировки
-constexpr const char *kGlyphAnnounce = "☢";  // объявления
-constexpr const char *kGlyphContacts = "☰";  // контакты
+// Глифы для плиток и значков.
+// ВАЖНО: шрифты ui_font_montserrat_16/20 содержат только латиницу, Latin-1,
+// греческий и кириллицу — БЕЗ символов и эмодзи. Шрифты 12/14 дополнительно
+// содержат эмодзи U+1F300..U+1F6C6, но НЕ содержат Misc Symbols/Georgian/Dingbats
+// (★ ☢ ☰ ⚠ ⚙ ✉ отсутствуют ВО ВСЕХ размерах — проверено по cmap шрифтов).
+// Поэтому: значки — только эмодзи из U+1F300..U+1F6C6 и только шрифтами 12/14.
+constexpr const char *kGlyphGeneral = "📢"; // общий чат (мегафон)
+constexpr const char *kGlyphGroup = "⭐";    // чат группировки (звезда)
+constexpr const char *kGlyphAnnounce = "📣"; // объявления (рупор)
+constexpr const char *kGlyphContacts = "👥"; // контакты (люди)
 constexpr const char *kGlyphChats = "💬";    // открытые чаты
 constexpr const char *kGlyphDossier = "📋";  // досье
-constexpr const char *kGlyphSettings = "⚙";  // настройки
+constexpr const char *kGlyphSettings = "🔧"; // настройки (ключ)
 constexpr const char *kGlyphLock = "🔒";
 constexpr const char *kGlyphUnlock = "🔓";
-constexpr const char *kGlyphWarn = "⚠";
+constexpr const char *kGlyphMail = "📩";  // непрочитанные/тосты
+constexpr const char *kGlyphClock = "🕐"; // часы в статусбаре
+constexpr const char *kGlyphWarn = "!";   // ASCII: misc-символов нет в шрифтах
 
 } // namespace HorizonStrings
 

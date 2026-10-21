@@ -136,13 +136,13 @@ void HorizonUI::refreshStatus(void)
     char buf[48];
     // время
     fmtTime(view->getActTime(), buf, sizeof(buf));
-    lv_label_set_text_fmt(stTime, "☢ %s", buf);
+    lv_label_set_text_fmt(stTime, "%s %s", kGlyphClock, buf);
     // онлайн
     lv_label_set_text_fmt(stOnline, "В сети: %u", (unsigned)view->onlineCount());
     // непрочитанные (только привязанные чаты + лички)
     uint32_t u = visibleUnread();
     if (u > 0)
-        lv_label_set_text_fmt(stUnread, "✉ %u", (unsigned)u);
+        lv_label_set_text_fmt(stUnread, "%s %u", kGlyphMail, (unsigned)u);
     else
         lv_label_set_text(stUnread, "");
     // батарея
@@ -382,7 +382,7 @@ void HorizonUI::pinPress(const char *key)
     }
     if (pinDots && lv_obj_is_valid(pinDots)) {
         char dots[32] = "";
-        for (size_t i = 0; i < 4; i++)
+        for (size_t i = 0; i < 8; i++)
             strcat(dots, i < pinEntry.size() ? "* " : "- ");
         lv_label_set_text(pinDots, dots);
     }
@@ -641,11 +641,15 @@ void HorizonUI::showBoot(void)
     lv_obj_set_flex_align(box, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(box, 6, LV_PART_MAIN);
 
-    lv_obj_t *g = lv_label_create(box);
-    lv_label_set_text(g, kGlyphAnnounce);
-    lv_obj_set_style_text_font(g, HorizonTheme::fontBig(), LV_PART_MAIN);
-    lv_obj_set_style_text_color(g, hzColor(p.accent), LV_PART_MAIN);
-    lv_obj_set_style_text_align(g, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    // Шрифт 20 не содержит эмодзи (см. HorizonStrings.h), поэтому вместо
+    // значка — акцентная плашка-разделитель «под прибор».
+    lv_obj_t *rule = lv_obj_create(box);
+    lv_obj_set_size(rule, 120, 4);
+    lv_obj_set_style_bg_color(rule, hzColor(p.accent), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(rule, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(rule, 2, LV_PART_MAIN);
+    lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *name = lv_label_create(box);
     lv_label_set_text(name, kAppName);
@@ -743,8 +747,10 @@ void HorizonUI::buildMenu(void)
         // Последняя плитка — на всю ширину ряда
         int span = 1;
         if (i == 6) {
+            // Последняя плитка — широкая: в ландшафте занимает свободные
+            // колонки 2-3 нижнего ряда (col=1 перекрыл бы плитку 5!).
             if (!isPortrait())
-                col = 1;
+                col = 2;
             span = 2;
         }
         lv_obj_t *t = lv_btn_create(grid);
@@ -757,8 +763,8 @@ void HorizonUI::buildMenu(void)
 
         lv_obj_t *g = lv_label_create(t);
         lv_label_set_text(g, tiles[i].glyph);
-        lv_obj_set_style_text_font(g, isPortrait() ? HorizonTheme::fontBig() : HorizonTheme::fontMedium(),
-                                   LV_PART_MAIN);
+        // Значки-эмодзи есть только в шрифтах 12/14 (см. HorizonStrings.h).
+        lv_obj_set_style_text_font(g, HorizonTheme::fontNormal(), LV_PART_MAIN);
         lv_obj_set_style_text_color(g, hzColor(p.accent), LV_PART_MAIN);
         lv_obj_align(g, LV_ALIGN_CENTER, 0, isPortrait() ? -16 : -12);
 
@@ -904,7 +910,7 @@ static bool isMappedChannel(uint8_t ch)
     return ch == cfg.generalCh || ch == cfg.groupCh || ch == cfg.announceCh;
 }
 
-void HorizonUI::onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *text)
+void HorizonUI::onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *text, uint32_t msgtime)
 {
     bool isBroadcast = (to == 0xFFFFFFFFu);
     // Шум с непривязанных каналов — тихо в хранилище, без тостов
@@ -918,7 +924,7 @@ void HorizonUI::onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *te
             isOpen = true;
     }
     if (isOpen) {
-        appendChatBubble(from, text, view->getActTime(), from == view->getMyNodeNum());
+        appendChatBubble(from, text, msgtime, from == view->getMyNodeNum());
         HorizonStore &st = view->getStore();
         if (chatIsChannel)
             st.markRead(st.channelConvo(chatCh));
@@ -931,6 +937,15 @@ void HorizonUI::onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *te
     char preview[72];
     strncpy(preview, text ? text : "", sizeof(preview) - 1);
     preview[sizeof(preview) - 1] = '\0';
+    // не разрывать UTF-8 символ на границе
+    {
+        size_t pl = strlen(preview);
+        while (pl > 0 && (((unsigned char)preview[pl - 1] & 0xC0) == 0x80))
+            pl--;
+        if (pl > 0 && ((unsigned char)preview[pl - 1] & 0x80))
+            pl--;
+        preview[pl] = '\0';
+    }
     // убрать переносы строк
     for (char *p = preview; *p; p++) {
         if (*p == '\n' || *p == '\r')
@@ -938,9 +953,9 @@ void HorizonUI::onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *te
     }
     const char *who = view->nodeLongName(from);
     if (isBroadcast)
-        toast("✉ %s [%s]: %s", who, view->channelLabel(ch), preview);
+        toast("%s %s [%s]: %s", kGlyphMail, who, view->channelLabel(ch), preview);
     else
-        toast("✉ %s (лично): %s", who, preview);
+        toast("%s %s (лично): %s", kGlyphMail, who, preview);
     toastHasTarget = true;
     toastIsChannel = isBroadcast;
     toastCh = ch;

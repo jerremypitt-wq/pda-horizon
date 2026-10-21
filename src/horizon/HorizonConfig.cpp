@@ -5,6 +5,7 @@
 #include "horizon/HorizonStrings.h"
 #include "util/ILog.h"
 #include <stdio.h>
+#include <stdlib.h> // atoi
 #include <string.h>
 
 #if defined(ARCH_PORTDUINO)
@@ -28,6 +29,14 @@ void copyField(char *dst, size_t cap, const char *src)
     size_t n = strlen(dst);
     while (n > 0 && (dst[n - 1] == '\r' || dst[n - 1] == '\n'))
         dst[--n] = '\0';
+    // Не оставлять разорванный UTF-8 символ на границе буфера (файл могли
+    // править вручную): отступить через байты-продолжения и осиротевший
+    // ведущий байт.
+    while (n > 0 && (((unsigned char)dst[n - 1] & 0xC0) == 0x80))
+        n--;
+    if (n > 0 && ((unsigned char)dst[n - 1] & 0x80))
+        n--;
+    dst[n] = '\0';
 }
 
 int parseInt(const char *s, int fallback, int lo, int hi)

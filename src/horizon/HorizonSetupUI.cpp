@@ -394,6 +394,16 @@ void HorizonUI::saveDossier(void)
     cfg.charName[sizeof(cfg.charName) - 1] = '\0';
     strncpy(cfg.callsign, cs, sizeof(cfg.callsign) - 1);
     cfg.callsign[sizeof(cfg.callsign) - 1] = '\0';
+    // Не разрывать UTF-8 символ на границе буфера (30 символов кириллицы
+    // не влезут в 40 байт).
+    for (char *f : {cfg.charName, cfg.callsign}) {
+        size_t fl = strlen(f);
+        while (fl > 0 && (((unsigned char)f[fl - 1] & 0xC0) == 0x80))
+            fl--;
+        if (fl > 0 && ((unsigned char)f[fl - 1] & 0x80))
+            fl--;
+        f[fl] = '\0';
+    }
     if (editRank)
         cfg.rank = (uint8_t)lv_dropdown_get_selected(editRank);
     if (editGroup)
@@ -502,11 +512,16 @@ void HorizonUI::buildSetChannels(void)
     }
     lv_obj_set_width(setAnnounceName, lv_pct(100));
     lv_obj_set_height(setAnnounceName, 40);
-    lv_obj_set_height(setAnnounceName, 40);
     lv_obj_add_event_cb(setAnnounceName, cbInputFocus, LV_EVENT_FOCUSED, this);
     lv_obj_add_event_cb(setAnnounceName, cbInputFocus, LV_EVENT_DEFOCUSED, this);
     sectionLabel(body, "Ключ канала объявлений");
     setAnnounceKey = simpleKeyDropdown(body, currentKeyIndex(view, cfg.announceCh));
+    if (hasCustomKey(view, cfg.announceCh)) {
+        lv_obj_t *w = lv_label_create(body);
+        lv_label_set_text(w, "Внимание: на канале свой длинный ключ, он будет заменён.");
+        lv_obj_set_style_text_font(w, HorizonTheme::fontSmall(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(w, hzColor(HorizonTheme::current().danger), LV_PART_MAIN);
+    }
 
     lv_obj_t *hint = lv_label_create(body);
     lv_label_set_text(hint, "Закрытый чат: поставь одинаковый ключ\nгруппы на всех ПДА группировки.");

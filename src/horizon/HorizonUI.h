@@ -21,7 +21,7 @@ class HorizonUI
 
     void init(void); // построить заставку
     void tick(void); // периодика (вызывать из task_handler)
-    void onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *text);
+    void onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *text, uint32_t msgtime);
 
     void toast(const char *fmt, ...);
 

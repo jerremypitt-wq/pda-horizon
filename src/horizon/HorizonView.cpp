@@ -5,6 +5,7 @@
 #include "graphics/common/ViewController.h"
 #include "graphics/driver/DisplayDriver.h"
 #include "graphics/driver/DisplayDriverFactory.h"
+#include "horizon/HorizonSound.h"
 #include "horizon/HorizonUI.h"
 #include "util/ILog.h"
 #include <string.h>
@@ -52,11 +53,17 @@ void HorizonView::init(IClientBase *client)
 {
     ILOG_INFO("Horizon: init...");
     MeshtasticView::init(client);
+    // У Горизонта своя заставка, а ViewController шлёт want_config только при
+    // state >= eBootScreenDone (см. ViewController::runOnce). Штатный TFTView
+    // выставляет это состояние из таймера заставки — делаем то же самое здесь,
+    // иначе конфиг/ноды/сообщения никогда не придут.
+    state = MeshtasticView::eBootScreenDone;
     // Яркость/таймаут из конфига
     if (displaydriver) {
         displaydriver->setBrightness(HorizonConfig::instance().brightness);
         displaydriver->setScreenTimeout(HorizonConfig::instance().timeoutSec);
     }
+    HorizonSound::instance().init();
     ui = new HorizonUI(this);
     ui->init();
     ILOG_INFO("Horizon: init done");
@@ -65,6 +72,7 @@ void HorizonView::init(IClientBase *client)
 void HorizonView::task_handler(void)
 {
     MeshtasticView::task_handler();
+    HorizonSound::instance().tick();
     if (ui)
         ui->tick();
 }
@@ -195,7 +203,10 @@ void HorizonView::newMessage(uint32_t from, uint32_t to, uint8_t ch, const char 
     store.addMessage(from, to, ch, msgtime, msg, !restore);
     msgsDirty = true;
     if (!restore && ui)
-        ui->onMessage(from, to, ch, msg);
+        ui->onMessage(from, to, ch, msg, msgtime);
+    // Короткий одиночный бип на входящее (свои эхо-пакеты не пищим).
+    if (!restore && from != ownNode)
+        HorizonSound::instance().play(to == 0xFFFFFFFFu ? HorizonSound::MESSAGE : HorizonSound::DIRECT);
 }
 
 void HorizonView::restoreMessage(const LogMessage &msg)
@@ -454,6 +465,13 @@ void HorizonView::applyOwnerFromDossier(void)
     strncpy(user.long_name, ln.c_str(), sizeof(user.long_name) - 1);
     strncpy(user.short_name, sn.c_str(), sizeof(user.short_name) - 1);
     user.hw_model = meshtastic_HardwareModel_UNSET;
+    // Не затирать модель железа и флаг лицензии на узле (у штатного UI тут
+    // TODO "don't overwrite is_licensed" — делаем сразу правильно).
+    const NodeRecord *self = nodeStore.find(ownNode);
+    if (self && self->hasUser) {
+        user.hw_model = self->user.hw_model;
+        user.is_licensed = self->user.is_licensed;
+    }
     ILOG_INFO("Horizon: set owner '%s' / '%s'", user.long_name, user.short_name);
     controller->sendConfig(user, ownNode);
 }
@@ -474,6 +492,15 @@ void HorizonView::applyChannelSettings(uint8_t idx, const char *name, uint8_t si
     if (name) {
         strncpy(ch.settings.name, name, sizeof(ch.settings.name) - 1);
         ch.settings.name[sizeof(ch.settings.name) - 1] = '\0';
+        // Не разрывать UTF-8 символ на границе буфера (11 кириллических
+        // символов = 22 байта при name[12]): сначала отступаем через висячие
+        // байты-продолжения, затем убираем осиротевший ведущий байт.
+        size_t nl = strlen(ch.settings.name);
+        while (nl > 0 && (((unsigned char)ch.settings.name[nl - 1] & 0xC0) == 0x80))
+            nl--;
+        if (nl > 0 && ((unsigned char)ch.settings.name[nl - 1] & 0x80))
+            nl--;
+        ch.settings.name[nl] = '\0';
     }
     if (simpleKey != 0xFF) {
         if (simpleKey == 0) {
