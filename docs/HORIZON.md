@@ -15,6 +15,12 @@ pio run -e elecrow-adv-35-horizon -t upload  # прошивка
 
 Версия прошивки: `1.0.0-horizon` (`src/main.cpp`, ветка `HORIZON_UI`).
 
+Windows: путь к проекту — только латиница без пробелов (пиннутый
+xtensa GCC 8.4.0 не открывает абсолютные пути с кириллицей, падает
+`ld: cannot open map file`). Best-effort обход уже в репозитории
+(`bin/ld_map_workaround.py` подменяет абсолютный `-Map` относительным),
+но ASCII-путь остаётся гарантированным решением.
+
 Аппаратные параметры сверены с официальным `LovyanGFX_Driver.h` Elecrow
 (V1.2/1.3/1.4) и схемой V1.4: RST LCD = GPIO2, подсветка = GPIO38 (PWM,
 active-high), тач GT911 320x480 (addr 0x14, SDA15/SCL16, INT47/RST48),
