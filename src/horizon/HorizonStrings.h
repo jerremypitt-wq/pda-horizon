@@ -1,5 +1,5 @@
 #pragma once
-// ПДА «Горизонт» — строки интерфейса, группировки, ранги, темы.
+// ПДА «Горизонт» - строки интерфейса, группировки, ранги, темы.
 // Всё в UTF-8. Шрифты ui_font_montserrat_* содержат кириллицу и базовые эмодзи.
 
 #ifdef HORIZON_UI
@@ -23,8 +23,6 @@ constexpr uint8_t kGroupCount = 10;
 extern const char *const kGroups[kGroupCount];
 // Короткие теги группировок для отображения в сети (видны другим игрокам)
 extern const char *const kGroupTags[kGroupCount];
-// Значки группировок (эмодзи U+1F300..U+1F6FC, наличие проверено по cmap 12/14)
-extern const char *const kGroupGlyphs[kGroupCount];
 
 // Цветовые темы оформления
 constexpr uint8_t kThemeCount = 5;
@@ -57,7 +55,7 @@ extern const uint8_t kRoleCount;
 // Таймауты экрана
 struct TimeoutEntry {
     const char *name;
-    int seconds; // 0 — никогда
+    int seconds; // 0 - никогда
 };
 extern const TimeoutEntry kTimeouts[];
 extern const uint8_t kTimeoutCount;
@@ -68,12 +66,12 @@ extern const char *const kSimpleKeys[kSimpleKeyCount];
 
 // Глифы для плиток и значков.
 // ВАЖНО: шрифты ui_font_montserrat_16/20 содержат только латиницу, Latin-1,
-// греческий и кириллицу — БЕЗ символов и эмодзи. Шрифты 12/14 дополнительно
+// греческий и кириллицу - БЕЗ символов и эмодзи. Шрифты 12/14 дополнительно
 // содержат эмодзи U+1F300..U+1F6C6, но НЕ содержат Misc Symbols/Georgian/Dingbats
-// (★ ☢ ☰ ⚠ ⚙ ✉ отсутствуют ВО ВСЕХ размерах — проверено по cmap шрифтов).
-// Поэтому: значки — только эмодзи из U+1F300..U+1F6C6 и только шрифтами 12/14.
+// (★ ⭐ ☢ ☰ ⚠ ⚙ ✉ отсутствуют ВО ВСЕХ размерах - проверено по cmap шрифтов).
+// Поэтому: значки - только эмодзи из U+1F300..U+1F6C6 и только шрифтами 12/14.
 constexpr const char *kGlyphGeneral = "📢"; // общий чат (мегафон)
-constexpr const char *kGlyphGroup = "⭐";    // чат группировки (звезда)
+constexpr const char *kGlyphGroup = "🌟";    // чат группировки (звезда; ⭐ U+2B50 нет в шрифтах)
 constexpr const char *kGlyphAnnounce = "📣"; // объявления (рупор)
 constexpr const char *kGlyphContacts = "👥"; // контакты (люди)
 constexpr const char *kGlyphChats = "💬";    // открытые чаты

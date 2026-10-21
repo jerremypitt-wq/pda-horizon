@@ -1,5 +1,5 @@
 #pragma once
-// ПДА «Горизонт» — вид (View) в MVC device-ui: принимает данные от радиомодуля
+// ПДА «Горизонт» - вид (View) в MVC device-ui: принимает данные от радиомодуля
 // через ViewController и отдаёт их интерфейсу HorizonUI.
 
 #ifdef HORIZON_UI
@@ -13,6 +13,7 @@
 #include "horizon/HorizonConfig.h"
 #include "horizon/HorizonStore.h"
 #include <string>
+#include <vector>
 
 class HorizonUI;
 
@@ -49,6 +50,12 @@ class HorizonView : public MeshtasticView
     void updateDeviceConfig(const meshtastic_Config_DeviceConfig &cfg) override;
     void updateLoRaConfig(const meshtastic_Config_LoRaConfig &cfg) override;
 
+    void handleResponse(uint32_t from, uint32_t id, const meshtastic_Routing &routing,
+                        const meshtastic_MeshPacket &p) override;
+    void handleResponse(uint32_t from, uint32_t id, const meshtastic_RouteDiscovery &route) override;
+    void handlePositionResponse(uint32_t from, uint32_t request_id, int32_t rx_rssi, float rx_snr,
+                                bool isNeighbor) override;
+
     void updateTime(uint32_t timeVal) override;
     void notifyConnected(const char *info) override;
     void notifyDisconnected(const char *info) override;
@@ -57,6 +64,68 @@ class HorizonView : public MeshtasticView
     void notifyReboot(bool show) override;
     void notifyShutdown(void) override;
 
+    // --- Инструменты Mesh: лог пакетов ---
+    struct HzPacketEntry {
+        uint32_t time = 0;
+        uint32_t from = 0;
+        uint32_t to = 0;
+        uint8_t ch = 0;
+        uint16_t port = 0;
+        uint16_t size = 0;
+        int16_t rssi = 0;
+        float snr = 0;
+    };
+    static constexpr size_t kPacketLogMax = 30;
+    const std::vector<HzPacketEntry> &packetLog(void) const { return pktLog; }
+    void clearPacketLog(void)
+    {
+        pktLog.clear();
+        toolsDirty = true;
+    }
+    // --- Инструменты Mesh: статистика по узлам ---
+    struct HzNodeStats {
+        uint32_t node = 0;
+        uint16_t txt = 0;
+        uint16_t pos = 0;
+        uint16_t inf = 0;
+        uint16_t trc = 0;
+        uint16_t tel = 0;
+        uint16_t nbr = 0;
+        uint32_t sum = 0;
+    };
+    std::vector<HzNodeStats> nodeStatsSorted(void) const;
+    void clearNodeStats(void);
+    uint32_t statsTotal(void) const { return statsTotal_; }
+    // --- Инструменты Mesh: сканер сигналов (состояние читает интерфейс) ---
+    bool scanRunning = false;
+    uint32_t scanNode = 0;
+    uint8_t scanCount = 0; // отправлено замеров
+    uint8_t scanWant = 8;  // всего замеров
+    bool scanGot = false;  // был хоть один ответ
+    int32_t scanRssi = 0;
+    float scanSnr = 0;
+    bool scanDirect = false; // ответ пришёл напрямую (сосед)
+    void startScan(uint32_t node);
+    void stopScan(void);
+    // --- Инструменты Mesh: трассировка маршрута ---
+    struct HzTraceResult {
+        bool valid = false;
+        uint32_t fwd[8] = {0};
+        uint8_t fwdN = 0;
+        uint32_t back[8] = {0};
+        uint8_t backN = 0;
+    };
+    bool traceRunning = false;
+    uint32_t traceNode = 0;
+    uint32_t traceStartMs = 0;
+    bool traceGot = false;
+    bool traceFail = false;
+    HzTraceResult trace;
+    void startTrace(uint32_t node);
+    void stopTrace(void);
+    void pollTools(uint32_t nowMs); // темп сканера + таймаут маршрута (из UI tick)
+    bool takeToolsDirty(void);
+
     // --- Доступ для интерфейса ---
     HorizonStore &getStore(void) { return store; }
     NodeStore &getNodes(void) { return nodeStore; }
@@ -64,8 +133,10 @@ class HorizonView : public MeshtasticView
     HorizonUI *getUI(void) { return ui; }
 
     uint32_t getActTime(void) const { return actTime; }
+    void persistTime(void);             // сохранить actTime в /horizon.time (если валидно)
+    void setManualTime(uint32_t epoch); // ручная установка времени из настроек
     bool radioConnected(void) const { return connected; }
-    int myBattery(void) const { return battery; } // -1 — неизвестно
+    int myBattery(void) const { return battery; } // -1 - неизвестно
 
     bool bootReady(void) const; // можно уходить с заставки
 
@@ -131,6 +202,16 @@ class HorizonView : public MeshtasticView
     bool nodesDirty = false;
     bool msgsDirty = false;
     bool channelsDirty = false;
+    bool toolsDirty = false;
+
+    std::vector<HzPacketEntry> pktLog;
+    std::vector<HzNodeStats> nodeStats_;
+    uint32_t statsTotal_ = 0;
+    uint32_t scanReq = 0;
+    uint32_t scanNextMs = 0;
+    uint32_t traceReq = 0;
+
+    void notePacketTools(const meshtastic_MeshPacket &p); // лог+статистика из packetReceived
 
     void upsertNodeUser(uint32_t nodeNum, uint8_t channel, uint32_t lastHeard, const meshtastic_User &cfg,
                         bool viaMqtt);

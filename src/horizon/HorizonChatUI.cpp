@@ -1,4 +1,4 @@
-// ПДА «Горизонт» — экраны чатов, контактов и открытых диалогов.
+// ПДА «Горизонт» - экраны чатов, контактов и открытых диалогов.
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonConfig.h"
@@ -207,7 +207,7 @@ void HorizonUI::sendChatInput(void)
         return;
     if (chatIsChannel && chatCh == HorizonConfig::instance().announceCh &&
         HorizonConfig::instance().rank < kRankVeteran) {
-        toast("Объявления — с ранга Ветеран");
+        toast("Объявления - с ранга Ветеран");
         return;
     }
     if (chatIsChannel) {
@@ -242,7 +242,7 @@ void HorizonUI::cbInputFocus(lv_event_t *e)
     } else if (code == LV_EVENT_DEFOCUSED) {
         // Тап по самой клавиатуре (панель/клавиши без CLICK_FOCUSABLE)
         // фокус не отбирает, но на всякий случай проверяем: если нажат
-        // объект внутри kbd — клавиатуру не прячем, иначе буква потеряется.
+        // объект внутри kbd - клавиатуру не прячем, иначе буква потеряется.
         if (self->kbdVisible()) {
             bool onKbd = false;
             lv_obj_t *act = lv_indev_get_active_obj();

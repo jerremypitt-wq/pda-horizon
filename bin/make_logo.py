@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # ПДА «Горизонт» — конвертер логотипа заставки.
-# assets/horizon-logo.png (тёмный лайн-арт на белом) -> инверсия -> RGB565 ->
+# assets/horizon-logo.png (тёмный лайн-арт на белом) -> альфа-маска A8 ->
 # src/horizon/HorizonLogo.h + src/horizon/HorizonLogo.c (lv_image_dsc_t, LVGL v9).
+# Фона у картинки НЕТ (только контур вышки): на заставке маска красится
+# в акцент текущей темы через image_recolor (см. HorizonUI::showBoot).
 # Перегенерация:  python3 bin/make_logo.py
 import os
 from PIL import Image
@@ -13,27 +15,33 @@ TARGET_H = 132   # высота лого на заставке 480x320/320x480 (
 MARGIN = 24      # поля вокруг контента, px исходника
 GAIN = 1.35      # усиление тонких линий после даунскейла
 
-img = Image.open(SRC).convert('L')
-mask = img.point(lambda v: 255 if v < 128 else 0)
+img = Image.open(SRC).convert('RGBA')
+# Своя прозрачность у PNG есть - берём её; иначе маска из яркости
+# (тёмные пиксели - контур, белый фон - дыра).
+if img.getchannel('A').getextrema()[0] < 250:
+    work = img.getchannel('A')
+    mask = work.point(lambda v: 255 if v > 128 else 0)
+    invert = False
+else:
+    work = img.convert('L')
+    mask = work.point(lambda v: 255 if v < 128 else 0)
+    invert = True
 l, t, r, b = mask.getbbox()
 l = max(0, l - MARGIN); t = max(0, t - MARGIN)
 r = min(img.width, r + MARGIN); b = min(img.height, b + MARGIN)
-img = img.crop((l, t, r, b))
-w = max(1, round(img.width * TARGET_H / img.height))
-img = img.resize((w, TARGET_H), Image.LANCZOS)
-px = bytearray(img.tobytes())
+work = work.crop((l, t, r, b))
+w = max(1, round(work.width * TARGET_H / work.height))
+work = work.resize((w, TARGET_H), Image.LANCZOS)
+px = bytearray(work.tobytes())
 for i in range(len(px)):
-    px[i] = min(255, int((255 - px[i]) * GAIN))  # инверсия в светлое на чёрном
-img_out = Image.frombytes('L', img.size, bytes(px))
+    v = 255 - px[i] if invert else px[i]
+    px[i] = min(255, int(v * GAIN))  # усиление тонких линий
+img_out = Image.frombytes('L', work.size, bytes(px))
 img_out.save('/tmp/hz_logo_preview.png')
 
 w, h = img_out.size
-raw = bytearray()
-for v in px:
-    r5, g6, b5 = (v >> 3) & 31, (v >> 2) & 63, (v >> 3) & 31
-    rgb565 = (r5 << 11) | (g6 << 5) | b5
-    raw += bytes((rgb565 & 0xFF, rgb565 >> 8))
-assert len(raw) == w * h * 2
+raw = bytes(px)  # A8: один байт альфы на пиксель
+assert len(raw) == w * h
 
 with open(DST_H, 'w', encoding='utf-8') as f:
     f.write('''#pragma once
@@ -51,15 +59,15 @@ extern const lv_image_dsc_t hzLogo;
 ''')
 
 with open(DST_C, 'w', encoding='utf-8') as f:
-    f.write('// Логотип заставки ПДА «Горизонт» (%dx%d RGB565, bin/make_logo.py).\n' % (w, h))
+    f.write('// Логотип заставки ПДА «Горизонт» (%dx%d A8 альфа-маска, bin/make_logo.py).\n' % (w, h))
     f.write('#ifdef HORIZON_UI\n\n#include "horizon/HorizonLogo.h"\n\n')
     f.write('LV_ATTRIBUTE_MEM_ALIGN const uint8_t hzLogo_map[] = {\n')
     for i in range(0, len(raw), 12):
         f.write('    ' + ', '.join('0x%02X' % b for b in raw[i:i+12]) + ',\n')
     f.write('};\n\nconst lv_image_dsc_t hzLogo = {\n')
     f.write('    .header.magic = LV_IMAGE_HEADER_MAGIC,\n')
-    f.write('    .header.cf = LV_COLOR_FORMAT_RGB565,\n')
+    f.write('    .header.cf = LV_COLOR_FORMAT_A8,\n')
     f.write('    .header.flags = 0,\n')
-    f.write('    .header.w = %d,\n    .header.h = %d,\n    .header.stride = %d,\n' % (w, h, w * 2))
+    f.write('    .header.w = %d,\n    .header.h = %d,\n    .header.stride = %d,\n' % (w, h, w))
     f.write('    .data_size = %d,\n    .data = hzLogo_map,\n};\n\n#endif // HORIZON_UI\n' % len(raw))
-print('logo %dx%d (%d bytes RGB565) -> %s' % (w, h, len(raw), DST_C))
+print('logo %dx%d (%d bytes A8) -> %s' % (w, h, len(raw), DST_C))

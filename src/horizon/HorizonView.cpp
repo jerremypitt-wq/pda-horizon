@@ -1,4 +1,4 @@
-// ПДА «Горизонт» — реализация вида.
+// ПДА «Горизонт» - реализация вида.
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonView.h"
@@ -18,14 +18,14 @@ HorizonView *HorizonView::gui = nullptr;
 namespace {
 // Маяк досье: широковещательный текст в общем канале, который Горизонты
 // перехватывают и не показывают. Формат: HZ:DOSSIER:<rank>:<group>:<callsign>
-// rank 0..3, group 0..9, позывной — остаток строки (может содержать ':').
+// rank 0..3, group 0..9, позывной - остаток строки (может содержать ':').
 constexpr const char *kDossierBeaconPrefix = "HZ:DOSSIER:";
 constexpr size_t kDossierBeaconPrefixLen = sizeof("HZ:DOSSIER:") - 1;
 constexpr uint32_t kBeaconMinIntervalMs = 5000; // rate-limit маяков
 } // namespace
 
 // Ориентация для конструктора панели (variants/elecrow-adv-35/config.h).
-// Вызывается из LGFX-ctor при создании драйвера — к этому моменту
+// Вызывается из LGFX-ctor при создании драйвера - к этому моменту
 // HorizonView::instance() уже выполнил HorizonConfig::load(), так что
 // читаем значение из памяти, без файловой системы.
 bool horizonIsPortrait(void)
@@ -62,7 +62,7 @@ void HorizonView::init(IClientBase *client)
     MeshtasticView::init(client);
     // У Горизонта своя заставка, а ViewController шлёт want_config только при
     // state >= eBootScreenDone (см. ViewController::runOnce). Штатный TFTView
-    // выставляет это состояние из таймера заставки — делаем то же самое здесь,
+    // выставляет это состояние из таймера заставки - делаем то же самое здесь,
     // иначе конфиг/ноды/сообщения никогда не придут.
     state = MeshtasticView::eBootScreenDone;
     // Яркость/таймаут из конфига
@@ -71,6 +71,22 @@ void HorizonView::init(IClientBase *client)
         displaydriver->setScreenTimeout(HorizonConfig::instance().timeoutSec);
     }
     HorizonSound::instance().init();
+    // Время: восстановить сохранённое (перезагрузка без сети не должна
+    // ронять часы в нули). Mesh-синхронизация позже уточнит через updateTime.
+    HorizonConfig::instance().loadTime();
+    {
+        HorizonConfig &tcfg = HorizonConfig::instance();
+        if (tcfg.savedEpoch > 1000000) {
+            uint32_t now = millis();
+            // Дельту засчитываем только вперёд и не больше 2 суток: после
+            // перезагрузки millis сбрасывается - тогда время просто «стоит».
+            uint32_t dt = 0;
+            if (now >= tcfg.savedMs && now - tcfg.savedMs < 172800000UL)
+                dt = (now - tcfg.savedMs) / 1000;
+            actTime = tcfg.savedEpoch + dt;
+            ILOG_INFO("Horizon: time restored %u (+%us)", (unsigned)tcfg.savedEpoch, (unsigned)dt);
+        }
+    }
     ui = new HorizonUI(this);
     ui->init();
     ILOG_INFO("Horizon: init done");
@@ -188,6 +204,7 @@ void HorizonView::packetReceived(const meshtastic_MeshPacket &p)
     MeshtasticView::packetReceived(p);
     if (actTime < 1000000 && p.rx_time > 1000000)
         actTime = p.rx_time;
+    notePacketTools(p);
 }
 
 void HorizonView::removeNode(uint32_t nodeNum)
@@ -230,7 +247,7 @@ void HorizonView::restoreMessage(const LogMessage &msg)
     memcpy(buf, msg.bytes, n);
     buf[n] = '\0';
     uint32_t t = (uint32_t)msg.time;
-    // Восстановленные — без непрочитанных
+    // Восстановленные - без непрочитанных
     newMessage(msg.from, msg.to, msg.ch, buf, t, true);
 }
 
@@ -264,6 +281,21 @@ void HorizonView::updateLoRaConfig(const meshtastic_Config_LoRaConfig &cfg)
 {
     lora = cfg;
     gotLoRa = true;
+}
+
+void HorizonView::persistTime(void)
+{
+    if (actTime > 1000000)
+        HorizonConfig::instance().saveTime(actTime, millis());
+}
+
+void HorizonView::setManualTime(uint32_t epoch)
+{
+    if (epoch < 1000000)
+        return;
+    actTime = epoch;
+    persistTime();
+    ILOG_INFO("Horizon: manual time %u", (unsigned)epoch);
 }
 
 void HorizonView::updateTime(uint32_t timeVal)
@@ -535,7 +567,7 @@ void HorizonView::applyOwnerFromDossier(void)
     strncpy(user.short_name, sn.c_str(), sizeof(user.short_name) - 1);
     user.hw_model = meshtastic_HardwareModel_UNSET;
     // Не затирать модель железа и флаг лицензии на узле (у штатного UI тут
-    // TODO "don't overwrite is_licensed" — делаем сразу правильно).
+    // TODO "don't overwrite is_licensed" - делаем сразу правильно).
     const NodeRecord *self = nodeStore.find(ownNode);
     if (self && self->hasUser) {
         user.hw_model = self->user.hw_model;
@@ -629,6 +661,246 @@ void HorizonView::resetNodeDb(void)
 void HorizonView::factoryResetNode(void)
 {
     controller->requestReset(true, ownNode);
+}
+
+// ---------------- инструменты Mesh ----------------
+
+namespace {
+constexpr uint32_t kScanIntervalMs = 2500; // темп замеров сканера
+constexpr uint32_t kTraceTimeoutMs = 20000; // ожидание ответа маршрута
+constexpr uint8_t kScanCount = 8;           // замеров за один проход
+constexpr size_t kStatsMaxNodes = 40;       // лимит таблицы статистики
+} // namespace
+
+void HorizonView::notePacketTools(const meshtastic_MeshPacket &p)
+{
+    if (p.from == 0)
+        return;
+    // Лог: свои админские пакеты не пишем (как в штатном виде).
+    if (!(p.from == ownNode && p.decoded.portnum == meshtastic_PortNum_ADMIN_APP)) {
+        HzPacketEntry e;
+        e.time = actTime;
+        e.from = p.from;
+        e.to = p.to;
+        e.ch = (uint8_t)p.channel;
+        e.port = (uint16_t)p.decoded.portnum;
+        e.size = (uint16_t)p.decoded.payload.size;
+        e.rssi = (int16_t)p.rx_rssi;
+        e.snr = p.rx_snr;
+        pktLog.push_back(e);
+        while (pktLog.size() > kPacketLogMax)
+            pktLog.erase(pktLog.begin());
+    }
+    // Статистика по узлу-отправителю.
+    HzNodeStats *st = nullptr;
+    for (auto &s : nodeStats_) {
+        if (s.node == p.from) {
+            st = &s;
+            break;
+        }
+    }
+    if (!st) {
+        if (nodeStats_.size() >= kStatsMaxNodes)
+            return;
+        HzNodeStats ns;
+        ns.node = p.from;
+        nodeStats_.push_back(ns);
+        st = &nodeStats_.back();
+    }
+    switch (p.decoded.portnum) {
+    case meshtastic_PortNum_TEXT_MESSAGE_APP:
+    case meshtastic_PortNum_RANGE_TEST_APP:
+        st->txt++;
+        break;
+    case meshtastic_PortNum_POSITION_APP:
+        st->pos++;
+        break;
+    case meshtastic_PortNum_NODEINFO_APP:
+        st->inf++;
+        break;
+    case meshtastic_PortNum_ROUTING_APP:
+    case meshtastic_PortNum_TRACEROUTE_APP:
+        st->trc++;
+        break;
+    case meshtastic_PortNum_TELEMETRY_APP:
+        if (p.from == ownNode)
+            return; // свои батарейные пакеты не считаем (как в штатном виде)
+        st->tel++;
+        break;
+    case meshtastic_PortNum_NEIGHBORINFO_APP:
+        st->nbr++;
+        break;
+    default:
+        break;
+    }
+    st->sum++;
+    statsTotal_++;
+    toolsDirty = true;
+}
+
+std::vector<HorizonView::HzNodeStats> HorizonView::nodeStatsSorted(void) const
+{
+    std::vector<HzNodeStats> v = nodeStats_;
+    // Пузырьком: узлов мало, зато без <algorithm>.
+    for (size_t i = 0; i < v.size(); i++) {
+        for (size_t j = i + 1; j < v.size(); j++) {
+            if (v[j].sum > v[i].sum) {
+                HzNodeStats t = v[i];
+                v[i] = v[j];
+                v[j] = t;
+            }
+        }
+    }
+    return v;
+}
+
+void HorizonView::clearNodeStats(void)
+{
+    nodeStats_.clear();
+    statsTotal_ = 0;
+    toolsDirty = true;
+}
+
+bool HorizonView::takeToolsDirty(void)
+{
+    bool d = toolsDirty;
+    toolsDirty = false;
+    return d;
+}
+
+void HorizonView::startScan(uint32_t node)
+{
+    stopTrace();
+    scanNode = node;
+    scanCount = 0;
+    scanWant = kScanCount;
+    scanGot = false;
+    scanRssi = 0;
+    scanSnr = 0;
+    scanDirect = false;
+    scanReq = 0;
+    scanNextMs = 0; // первый замер сразу
+    scanRunning = true;
+    toolsDirty = true;
+    ILOG_INFO("Horizon: scan start %08x", (unsigned)node);
+}
+
+void HorizonView::stopScan(void)
+{
+    if (scanReq)
+        requests.removeRequest(scanReq);
+    scanReq = 0;
+    scanRunning = false;
+    toolsDirty = true;
+}
+
+void HorizonView::startTrace(uint32_t node)
+{
+    stopScan();
+    traceNode = node;
+    traceGot = false;
+    traceFail = false;
+    trace = HzTraceResult();
+    if (!controller) {
+        traceFail = true;
+        return;
+    }
+    traceReq = requests.addRequest(node, ResponseHandler::TraceRouteRequest, nullptr, nullptr);
+    controller->traceRoute(node, nodeChannel(node), nodeHopLimit(node), traceReq);
+    traceStartMs = millis();
+    traceRunning = true;
+    toolsDirty = true;
+    ILOG_INFO("Horizon: trace start %08x", (unsigned)node);
+}
+
+void HorizonView::stopTrace(void)
+{
+    if (traceReq)
+        requests.removeRequest(traceReq);
+    traceReq = 0;
+    traceRunning = false;
+    toolsDirty = true;
+}
+
+void HorizonView::pollTools(uint32_t nowMs)
+{
+    if (scanRunning) {
+        if (scanCount >= scanWant) {
+            scanRunning = false; // замеры кончились - экран покажет итог
+            toolsDirty = true;
+        } else if ((int32_t)(nowMs - scanNextMs) >= 0) {
+            if (scanReq)
+                requests.removeRequest(scanReq);
+            scanReq = requests.addRequest(scanNode, ResponseHandler::PositionRequest, nullptr, nullptr);
+            if (controller)
+                controller->requestPosition(scanNode, nodeChannel(scanNode), scanReq);
+            scanCount++;
+            scanNextMs = nowMs + kScanIntervalMs;
+            toolsDirty = true;
+        }
+    }
+    if (traceRunning && nowMs - traceStartMs >= kTraceTimeoutMs) {
+        traceFail = true;
+        traceRunning = false;
+        if (traceReq)
+            requests.removeRequest(traceReq);
+        traceReq = 0;
+        toolsDirty = true;
+    }
+}
+
+void HorizonView::handleResponse(uint32_t from, uint32_t id, const meshtastic_Routing &routing,
+                                 const meshtastic_MeshPacket &p)
+{
+    (void)from;
+    (void)p;
+    if (!traceRunning || id != traceReq)
+        return;
+    // Ошибка доставки - маршрут не построить. Чистый ACK игнорируем:
+    // следом придёт RouteDiscovery.
+    if (routing.which_variant == meshtastic_Routing_error_reason_tag &&
+        routing.error_reason != meshtastic_Routing_Error_NONE) {
+        traceFail = true;
+        traceRunning = false;
+        requests.removeRequest(id);
+        traceReq = 0;
+        toolsDirty = true;
+    }
+}
+
+void HorizonView::handleResponse(uint32_t from, uint32_t id, const meshtastic_RouteDiscovery &route)
+{
+    (void)from;
+    if (!traceRunning || id != traceReq)
+        return;
+    trace = HzTraceResult();
+    trace.valid = true;
+    trace.fwdN = route.route_count > 8 ? 8 : (uint8_t)route.route_count;
+    for (uint8_t i = 0; i < trace.fwdN; i++)
+        trace.fwd[i] = route.route[i];
+    trace.backN = route.route_back_count > 8 ? 8 : (uint8_t)route.route_back_count;
+    for (uint8_t i = 0; i < trace.backN; i++)
+        trace.back[i] = route.route_back[i];
+    traceGot = true;
+    traceRunning = false;
+    requests.removeRequest(id);
+    traceReq = 0;
+    toolsDirty = true;
+    ILOG_INFO("Horizon: trace reply fwd=%u back=%u", trace.fwdN, trace.backN);
+}
+
+void HorizonView::handlePositionResponse(uint32_t from, uint32_t request_id, int32_t rx_rssi, float rx_snr,
+                                         bool isNeighbor)
+{
+    if (!scanRunning || request_id != scanReq || from != scanNode)
+        return;
+    scanRssi = rx_rssi;
+    scanSnr = rx_snr;
+    scanDirect = isNeighbor;
+    scanGot = true;
+    requests.removeRequest(request_id);
+    scanReq = 0;
+    toolsDirty = true;
 }
 
 #endif // HORIZON_UI

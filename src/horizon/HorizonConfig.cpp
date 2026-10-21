@@ -1,4 +1,4 @@
-// ПДА «Горизонт» — загрузка/сохранение настроек.
+// ПДА «Горизонт» - загрузка/сохранение настроек.
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonConfig.h"
@@ -18,11 +18,12 @@ static fs::FS &cfgFs = LittleFS;
 
 namespace {
 constexpr const char *kPath = "/horizon.cfg";
+constexpr const char *kTimePath = "/horizon.time";
 
 void copyField(char *dst, size_t cap, const char *src)
 {
     if (!src || !*src)
-        return; // пустое значение — оставляем текущее
+        return; // пустое значение - оставляем текущее
     strncpy(dst, src, cap - 1);
     dst[cap - 1] = '\0';
     // убрать \r \n на конце
@@ -79,6 +80,7 @@ void HorizonConfig::resetToDefaults(void)
     timeoutSec = 60;
     orientation = 0;
     theme = 0;
+    silent = false;
     strcpy(charName, "Сталкер");
     strcpy(callsign, "Новичок");
     rank = 0;
@@ -119,6 +121,8 @@ void HorizonConfig::load(void)
             orientation = (uint8_t)parseInt(val, 0, 0, 1);
         else if (!strcmp(key, "theme"))
             theme = (uint8_t)parseInt(val, 0, 0, (int)HorizonStrings::kThemeCount - 1);
+        else if (!strcmp(key, "silent"))
+            silent = parseInt(val, 0, 0, 1) != 0;
         else if (!strcmp(key, "charName"))
             copyField(charName, sizeof(charName), val);
         else if (!strcmp(key, "callsign"))
@@ -148,12 +152,44 @@ void HorizonConfig::save(void) const
     f.printf("timeoutSec=%u\n", timeoutSec);
     f.printf("orientation=%u\n", orientation);
     f.printf("theme=%u\n", theme);
+    f.printf("silent=%u\n", silent ? 1 : 0);
     f.printf("charName=%s\n", charName);
     f.printf("callsign=%s\n", callsign);
     f.printf("rank=%u\n", rank);
     f.printf("group=%u\n", group);
     f.close();
     ILOG_INFO("Horizon: config saved");
+}
+
+void HorizonConfig::loadTime(void)
+{
+    savedEpoch = 0;
+    savedMs = 0;
+    File f = cfgFs.open(kTimePath, "r");
+    if (!f)
+        return;
+    char line[48];
+    size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
+    f.close();
+    line[n] = '\0';
+    unsigned long ep = 0, ms = 0;
+    if (sscanf(line, "%lu %lu", &ep, &ms) == 2 && ep > 1000000) {
+        savedEpoch = (uint32_t)ep;
+        savedMs = (uint32_t)ms;
+    }
+}
+
+void HorizonConfig::saveTime(uint32_t epoch, uint32_t ms) const
+{
+    if (epoch < 1000000)
+        return; // мусор не персистим
+    File f = cfgFs.open(kTimePath, "w");
+    if (!f) {
+        ILOG_ERROR("Horizon: cannot write time file");
+        return;
+    }
+    f.printf("%lu %lu\n", (unsigned long)epoch, (unsigned long)ms);
+    f.close();
 }
 
 bool HorizonConfig::checkPin(const char *pin) const
@@ -168,7 +204,7 @@ void HorizonConfig::setPin(const char *pin)
 
 std::string HorizonConfig::meshLongName(void) const
 {
-    // Формат: "Позывной [ТЕГ]", лимит — 24 байта UTF-8 (прошивка обрежет лишнее).
+    // Формат: "Позывной [ТЕГ]", лимит - 24 байта UTF-8 (прошивка обрежет лишнее).
     std::string tag = "[";
     tag += HorizonStrings::kGroupTags[group < HorizonStrings::kGroupCount ? group : 0];
     tag += "]";

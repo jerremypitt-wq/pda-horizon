@@ -1,7 +1,8 @@
-// ПДА «Горизонт» — досье персонажа и настройки.
+// ПДА «Горизонт» - досье персонажа и настройки.
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonConfig.h"
+#include "horizon/HorizonSound.h"
 #include "horizon/HorizonStrings.h"
 #include "horizon/HorizonTheme.h"
 #include "horizon/HorizonUI.h"
@@ -21,6 +22,83 @@ using namespace HorizonStrings;
 namespace {
 constexpr int16_t kStatusH = 22;
 constexpr int16_t kHeaderH = 40;
+
+// Степпер [-] значение [+]: idBase+0 - минус, idBase+1 - плюс.
+// Возвращает label значения (обновлять из колбэка).
+lv_obj_t *makeStepper(lv_obj_t *parent, const char *title, int val, int idBase, lv_event_cb_t cb, void *self)
+{
+    const HorizonPalette &p = HorizonTheme::current();
+    lv_obj_t *row = lv_obj_create(parent);
+    HorizonTheme::stylePanel(row);
+    lv_obj_set_width(row, lv_pct(100));
+    lv_obj_set_height(row, 52);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(row, 6, LV_PART_MAIN);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *t = lv_label_create(row);
+    lv_label_set_text(t, title);
+    lv_obj_set_style_text_color(t, hzColor(p.textDim), LV_PART_MAIN);
+    lv_obj_t *valLbl = nullptr;
+    for (int k = 0; k < 3; k++) {
+        if (k == 1) {
+            valLbl = lv_label_create(row);
+            char vb[8];
+            snprintf(vb, sizeof(vb), "%02d", val);
+            lv_label_set_text(valLbl, vb);
+            lv_obj_set_style_text_font(valLbl, HorizonTheme::fontMedium(), LV_PART_MAIN);
+            lv_obj_set_width(valLbl, 44);
+            lv_obj_set_style_text_align(valLbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        } else {
+            lv_obj_t *b = lv_btn_create(row);
+            HorizonTheme::styleButton(b, false);
+            lv_obj_set_size(b, 56, 38);
+            lv_obj_t *bl = lv_label_create(b);
+            lv_label_set_text(bl, k == 0 ? "-" : "+");
+            lv_obj_set_style_text_font(bl, HorizonTheme::fontMedium(), LV_PART_MAIN);
+            lv_obj_center(bl);
+            lv_obj_set_user_data(b, (void *)(intptr_t)(idBase + (k == 0 ? 0 : 1)));
+            lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, self);
+        }
+    }
+    return valLbl;
+}
+
+// epoch полуночи даты сборки (__DATE__ вида "Mmm dd yyyy", UTC).
+uint32_t buildEpoch(void)
+{
+    static const char *mons = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    char m[4] = {0};
+    int d = 1, y = 2026;
+    if (sscanf(__DATE__, "%3s %d %d", m, &d, &y) != 3)
+        return 1767225600UL; // 01.01.2026 - если парсер удивился
+    int mi = 0;
+    const char *p = strstr(mons, m);
+    if (p)
+        mi = (int)(p - mons) / 3 + 1;
+    if (mi < 1 || mi > 12 || d < 1 || d > 31 || y < 2020 || y > 2100)
+        return 1767225600UL;
+    int yy = (mi <= 2) ? y - 1 : y; // days_from_civil (Hinnant)
+    int64_t era = (yy >= 0 ? yy : yy - 399) / 400;
+    unsigned yoe = (unsigned)(yy - era * 400);
+    unsigned doy = (153 * (unsigned)(mi + (mi > 2 ? -3 : 9)) + 2) / 5 + (unsigned)d - 1;
+    unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    int64_t days = era * 146097 + (int64_t)doe - 719468;
+    return (uint32_t)(days * 86400);
+}
+
+// База для ручной установки времени: валидные часы ПДА, иначе сохранённые,
+// иначе дата сборки прошивки. Часы/минуты степперов лягут поверх даты базы.
+uint32_t manualTimeBase(HorizonView *view)
+{
+    uint32_t t = view->getActTime();
+    if (t > 1000000)
+        return t;
+    uint32_t s = HorizonConfig::instance().savedEpoch;
+    if (s > 1000000)
+        return s;
+    return buildEpoch();
+}
 } // namespace
 
 // ---------------- общие хелперы ----------------
@@ -111,7 +189,7 @@ static uint8_t currentKeyIndex(HorizonView *view, uint8_t ch)
         return 0;
     if (c->settings.psk.size == 1 && c->settings.psk.bytes[0] < kSimpleKeyCount)
         return c->settings.psk.bytes[0];
-    return 1; // свой длинный ключ — в списке нет, будет заменён
+    return 1; // свой длинный ключ - в списке нет, будет заменён
 }
 
 static bool hasCustomKey(HorizonView *view, uint8_t ch)
@@ -149,6 +227,15 @@ void HorizonUI::cbRow(lv_event_t *e)
         self->buildSetReset();
         break;
     case 5:
+        self->buildSetTime();
+        break;
+    case 6:
+        self->buildSetSound();
+        break;
+    case 7:
+        self->buildSetTools();
+        break;
+    case 8:
         self->buildSetAbout();
         break;
     default:
@@ -218,7 +305,10 @@ void HorizonUI::buildDossier(void)
     lv_obj_center(al);
 
     lv_obj_t *col = lv_obj_create(card);
-    lv_obj_set_flex_grow(col, 1);
+    // Ширина - точная, иначе проценты от flex-родителя не дают обёртке
+    // границ и длинные имя/позывной режутся: аватар 64 + зазор 12 +
+    // пады карточки 20 + пады body 16.
+    lv_obj_set_width(col, W() - 112);
     lv_obj_set_height(col, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(col, 0, LV_PART_MAIN);
@@ -246,13 +336,12 @@ void HorizonUI::buildDossier(void)
     char netbuf[64];
     snprintf(netbuf, sizeof(netbuf), "%s / %s", cfg.meshLongName().c_str(), cfg.meshShortName().c_str());
     char groupbuf[48];
-    snprintf(groupbuf, sizeof(groupbuf), "%s %s", kGroupGlyphs[cfg.group < kGroupCount ? cfg.group : 0],
-             kGroups[cfg.group < kGroupCount ? cfg.group : 0]);
+    snprintf(groupbuf, sizeof(groupbuf), "%s", kGroups[cfg.group < kGroupCount ? cfg.group : 0]);
     Field fields[] = {
         {"Ранг", kRanks[cfg.rank < kRankCount ? cfg.rank : 0]},
         {"Группировка", groupbuf},
-        {"ID узла", idbuf},
-        {"В сети видно как", netbuf},
+        {"ID в сети", idbuf},
+        {"Имя в эфире", netbuf},
     };
     for (auto &f : fields) {
         lv_obj_t *row = lv_obj_create(body);
@@ -454,7 +543,184 @@ void HorizonUI::buildSettings(void)
     rowButton(body, "Экран и тема", kThemes[cfg.theme], 2);
     rowButton(body, "Мастер-пароль", "Смена PIN", 3);
     rowButton(body, "Сброс", "ПДА, NodeDB, заводской", 4);
-    rowButton(body, "О ПДА", "Версия и состояние", 5);
+    char timesub[16];
+    fmtTime(view->getActTime(), timesub, sizeof(timesub));
+    rowButton(body, "Время", timesub, 5);
+    rowButton(body, "Звук", cfg.silent ? "Бесшумный режим" : "Звук включён", 6);
+    rowButton(body, "Инструменты Mesh", "Детектор, сканер, маршрут", 7);
+    rowButton(body, "О ПДА", "Версия и состояние", 8);
+}
+
+// ---------------- настройки: время ----------------
+
+void HorizonUI::buildSetTime(void)
+{
+    clearScreen(Screen::SET_TIME);
+    addStatusBar(scr);
+    addNavHeader(scr, "Время", "Часы ПДА");
+
+    lv_obj_t *body = lv_obj_create(scr);
+    lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
+    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 2);
+    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(body, 6, LV_PART_MAIN);
+
+    sectionLabel(body, "Текущее время");
+    timeCur = lv_label_create(body);
+    lv_obj_set_style_text_font(timeCur, HorizonTheme::fontMedium(), LV_PART_MAIN);
+    {
+        char tb[16];
+        fmtTime(view->getActTime(), tb, sizeof(tb));
+        lv_label_set_text_fmt(timeCur, "Сейчас: %s", tb);
+    }
+    {
+        char db[16];
+        fmtDate(manualTimeBase(view), db, sizeof(db));
+        lv_obj_t *dl = lv_label_create(body);
+        lv_label_set_text_fmt(dl, "Дата: %s", db);
+        lv_obj_set_style_text_font(dl, HorizonTheme::fontSmall(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(dl, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
+    }
+
+    // Черновик - из текущих часов (или 12:00, если часы не идут).
+    uint32_t t = view->getActTime();
+    if (t > 1000000) {
+        time_t tt = (time_t)t;
+        struct tm tmv;
+        gmtime_r(&tt, &tmv);
+        timeH = tmv.tm_hour;
+        timeM = tmv.tm_min;
+    } else {
+        timeH = 12;
+        timeM = 0;
+    }
+    sectionLabel(body, "Установить время");
+    timeHVal = makeStepper(body, "Часы", timeH, 0, cbTimeStep, this);
+    timeMVal = makeStepper(body, "Минуты", timeM, 2, cbTimeStep, this);
+
+    lv_obj_t *apply = lv_btn_create(body);
+    HorizonTheme::styleButton(apply, true);
+    lv_obj_set_width(apply, lv_pct(100));
+    lv_obj_set_height(apply, 44);
+    lv_obj_t *al = lv_label_create(apply);
+    lv_label_set_text(al, "Применить");
+    lv_obj_center(al);
+    lv_obj_add_event_cb(apply, cbTimeApply, LV_EVENT_CLICKED, this);
+
+    lv_obj_t *hint = lv_label_create(body);
+    lv_label_set_text(hint, "Дата - из сети или прошивки. Часы сохраняются раз в минуту и переживают "
+                            "перезагрузку; после долгого выключения их подправит сеть.");
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(hint, lv_pct(100));
+    lv_obj_set_style_text_font(hint, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(hint, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
+}
+
+void HorizonUI::cbTimeStep(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    if (id == 0)
+        self->timeH = (self->timeH + 23) % 24;
+    else if (id == 1)
+        self->timeH = (self->timeH + 1) % 24;
+    else if (id == 2)
+        self->timeM = (self->timeM + 59) % 60;
+    else if (id == 3)
+        self->timeM = (self->timeM + 1) % 60;
+    else
+        return;
+    char vb[8];
+    snprintf(vb, sizeof(vb), "%02d", id < 2 ? self->timeH : self->timeM);
+    lv_obj_t *lbl = id < 2 ? self->timeHVal : self->timeMVal;
+    if (lbl && lv_obj_is_valid(lbl))
+        lv_label_set_text(lbl, vb);
+}
+
+void HorizonUI::cbTimeApply(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    uint32_t base = manualTimeBase(self->view);
+    uint32_t epoch =
+        base - (base % 86400) + (uint32_t)self->timeH * 3600 + (uint32_t)self->timeM * 60;
+    self->view->setManualTime(epoch);
+    self->toast("Время установлено");
+    self->buildSetTime();
+}
+
+// ---------------- настройки: звук ----------------
+
+void HorizonUI::buildSetSound(void)
+{
+    clearScreen(Screen::SET_SOUND);
+    HorizonConfig &cfg = HorizonConfig::instance();
+    addStatusBar(scr);
+    addNavHeader(scr, "Звук", "Уведомления");
+
+    lv_obj_t *body = lv_obj_create(scr);
+    lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
+    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 2);
+    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(body, 6, LV_PART_MAIN);
+
+    sectionLabel(body, "Режим");
+    lv_obj_t *row = lv_obj_create(body);
+    HorizonTheme::stylePanel(row);
+    lv_obj_set_width(row, lv_pct(100));
+    lv_obj_set_height(row, 52);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(row, 8, LV_PART_MAIN);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *t = lv_label_create(row);
+    lv_label_set_text(t, "Бесшумный режим");
+    lv_obj_t *sw = lv_switch_create(row);
+    if (cfg.silent)
+        lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, cbSoundToggle, LV_EVENT_VALUE_CHANGED, this);
+
+    sectionLabel(body, "Проверка");
+    lv_obj_t *test = lv_btn_create(body);
+    HorizonTheme::styleButton(test, false);
+    lv_obj_set_width(test, lv_pct(100));
+    lv_obj_set_height(test, 44);
+    lv_obj_t *tl = lv_label_create(test);
+    lv_label_set_text(tl, "Проверить звук");
+    lv_obj_center(tl);
+    lv_obj_add_event_cb(test, cbSoundTest, LV_EVENT_CLICKED, this);
+
+    lv_obj_t *hint = lv_label_create(body);
+    lv_label_set_text(hint, "Бесшумный режим глушит бипы сообщений. Тосты на экране остаются.");
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(hint, lv_pct(100));
+    lv_obj_set_style_text_font(hint, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(hint, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
+}
+
+void HorizonUI::cbSoundToggle(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    lv_obj_t *sw = (lv_obj_t *)lv_event_get_target(e);
+    bool on = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    HorizonConfig::instance().silent = on;
+    HorizonConfig::instance().save();
+    self->toast(on ? "Бесшумный режим включён" : "Звук включён");
+}
+
+void HorizonUI::cbSoundTest(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    if (HorizonConfig::instance().silent) {
+        self->toast("Сейчас бесшумный режим");
+        return;
+    }
+    HorizonSound::instance().play(HorizonSound::MESSAGE);
 }
 
 // ---------------- настройки: каналы ----------------
@@ -489,7 +755,7 @@ void HorizonUI::buildSetChannels(void)
         snprintf(sub, sizeof(sub), "%s · %s", view->channelLabel(rows[i].ch),
                  view->channelIsLocked(rows[i].ch) ? kGlyphLock : kGlyphUnlock);
         lv_obj_t *b = rowButton(body, rows[i].title, sub, i);
-        // rowButton вешает cbRow (работает только на экране SETTINGS) —
+        // rowButton вешает cbRow (работает только на экране SETTINGS) -
         // переназначить на выбор канала.
         lv_obj_remove_event_cb(b, cbRow);
         lv_obj_add_event_cb(b, cbSetChannelPick, LV_EVENT_CLICKED, this);
@@ -517,7 +783,7 @@ void HorizonUI::buildSetChannelDetail(void)
 {
     clearScreen(Screen::SET_CHANNEL_DETAIL);
     HorizonConfig &cfg = HorizonConfig::instance();
-    static const char *titles[3] = {"Общий чат — канал", "Чат группировки — канал", "Объявления — канал"};
+    static const char *titles[3] = {"Общий чат - канал", "Чат группировки - канал", "Объявления - канал"};
     static const char *defaults[3] = {"GENERAL", "GROUP", "INFO"};
     uint8_t kind = setDetailKind > 2 ? 0 : setDetailKind;
     uint8_t cur = kind == 0 ? cfg.generalCh : (kind == 1 ? cfg.groupCh : cfg.announceCh);
@@ -589,7 +855,7 @@ void HorizonUI::cbSetApplyChannelDetail(lv_event_t *e)
         return;
     }
     if (kind != 0 && ch == 0) {
-        self->toast("Канал 0 — только для общего чата");
+        self->toast("Канал 0 - только для общего чата");
         return;
     }
     if (kind == 0)

@@ -1,4 +1,4 @@
-// ПДА «Горизонт» — ядро интерфейса: каркас, заставка, меню, тосты, PIN, клавиатура.
+// ПДА «Горизонт» - ядро интерфейса: каркас, заставка, меню, тосты, PIN, клавиатура.
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonUI.h"
@@ -86,8 +86,15 @@ void HorizonUI::clearScreen(Screen s)
     setRegion = setPreset = setHops = setRole = setTx = nullptr;
     setBrightness = setBrightnessVal = setTimeout = setOrientation = setTheme = nullptr;
     pinOld = pinNew1 = pinNew2 = nullptr;
+    timeHVal = timeMVal = timeCur = nullptr;
+    detList = detSub = nullptr;
+    scanBig = scanPct = scanProg = nullptr;
+    routeStatus = routeBox = nullptr;
+    statsList = statsSub = nullptr;
+    logList = nullptr;
     for (int i = 0; i < 7; i++)
         menuBadges[i] = nullptr;
+    kbdShift = false;
     // Охранник сна живёт на lv_layer_top и смену экрана не переживает.
     hideSleepGuard();
     kbdSuppressClick = false;
@@ -479,33 +486,50 @@ void HorizonUI::cbModalBlock(lv_event_t *e)
 // ---------------- клавиатура ----------------
 
 namespace {
-// Раскладки: ровно kKbdCols*kKbdRows ключей; "" — пустая клетка.
-// Широкие клавиши (" " и "СТЕРЕТЬ") пишутся дубликатами подряд и
-// склеиваются в одну (см. kbdSetLayout). "ё"/"ъ" — долгое нажатие е/ь.
+// Раскладки: ровно kKbdCols*kKbdRows ключей; "" - пустая клетка.
+// Широкий пробел пишется дубликатами подряд и склеивается (см. kbdSetLayout).
+// "Aa" - Shift разового действия (следующий символ - из Shift-карты),
+// "<<" - стереть символ. RU - стандартный ЙЦУКЕН; "э" живёт в нижнем ряду.
 const char *const kKbdEn[] = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", //
                               "a", "s", "d", "f", "g", "h", "j", "k", "l", "",  //
-                              "RU", "z", "x", "c", "v", "b", "n", "m", "СТЕРЕТЬ", "СТЕРЕТЬ", //
-                              "123", " ", " ", " ", " ", " ", " ", ".", "OK", ""};
+                              "Aa", "z", "x", "c", "v", "b", "n", "m", "'", "-", //
+                              "123", "RU", " ", " ", " ", " ", ",", ".", "OK", "<<"};
+const char *const kKbdEnShift[] = {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", //
+                                   "A", "S", "D", "F", "G", "H", "J", "K", "L", "",  //
+                                   "Aa", "Z", "X", "C", "V", "B", "N", "M", "\"", "_", //
+                                   "123", "RU", " ", " ", " ", " ", ";", ":", "OK", "<<"};
 const char *const kKbdRu[] = {"й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", //
-                              "х", "ф", "ы", "в", "а", "п", "р", "о", "л", "д", //
-                              "ж", "э", "я", "ч", "с", "м", "и", "т", "ь", "б", //
-                              "ю", "123", "EN", " ", " ", " ", ".", "OK", "СТЕРЕТЬ", "СТЕРЕТЬ"};
+                              "ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", //
+                              "Aa", "я", "ч", "с", "м", "и", "т", "ь", "б", "ю", //
+                              "123", "EN", " ", " ", " ", "э", ",", ".", "OK", "<<"};
+const char *const kKbdRuShift[] = {"Й", "Ц", "У", "К", "Е", "Н", "Г", "Ш", "Щ", "З", //
+                                   "Ф", "Ы", "В", "А", "П", "Р", "О", "Л", "Д", "Ж", //
+                                   "Aa", "Я", "Ч", "С", "М", "И", "Т", "Ь", "Б", "Ю", //
+                                   "123", "EN", " ", " ", " ", "Э", ";", ":", "OK", "<<"};
 const char *const kKbdNum[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", //
-                               "-", "/", ":", ";", "(", ")", "+", "=", "", "", //
+                               "-", "/", ":", ";", "(", ")", "+", "=", "", "<<", //
                                "АБВ", ",", "?", "!", ".", "@", "#", "%", "'", "", //
-                               "", "СТЕРЕТЬ", "СТЕРЕТЬ", " ", " ", " ", " ", " ", "OK", ""};
+                               "", " ", " ", " ", " ", " ", " ", " ", "OK", ""};
 constexpr int kKbdCols = 10;
 constexpr int kKbdRows = 4;
 static_assert(sizeof(kKbdEn) / sizeof(kKbdEn[0]) == (size_t)(kKbdCols * kKbdRows), "EN map size");
+static_assert(sizeof(kKbdEnShift) / sizeof(kKbdEnShift[0]) == (size_t)(kKbdCols * kKbdRows),
+              "EN-shift map size");
 static_assert(sizeof(kKbdRu) / sizeof(kKbdRu[0]) == (size_t)(kKbdCols * kKbdRows), "RU map size");
+static_assert(sizeof(kKbdRuShift) / sizeof(kKbdRuShift[0]) == (size_t)(kKbdCols * kKbdRows),
+              "RU-shift map size");
 static_assert(sizeof(kKbdNum) / sizeof(kKbdNum[0]) == (size_t)(kKbdCols * kKbdRows), "NUM map size");
-// Долгое нажатие: альтернативная буква (ё и ъ не влезли в сетку 10x4).
+// Долгое нажатие: альтернативная буква (ё/ъ не влезли в сетку 10x4).
 const char *kbdLongAlt(const char *key)
 {
     if (!strcmp(key, "е"))
         return "ё";
+    if (!strcmp(key, "Е"))
+        return "Ё";
     if (!strcmp(key, "ь"))
         return "ъ";
+    if (!strcmp(key, "Ь"))
+        return "Ъ";
     return nullptr;
 }
 } // namespace
@@ -523,7 +547,7 @@ void HorizonUI::kbdShow(lv_obj_t *ta)
         lv_obj_remove_flag(kbd, LV_OBJ_FLAG_CLICK_FOCUSABLE);
         int16_t kh = isPortrait() ? 190 : 148;
         lv_obj_set_size(kbd, lv_pct(100), kh);
-        // В чате — над строкой ввода, иначе — у нижнего края
+        // В чате - над строкой ввода, иначе - у нижнего края
         if (current == Screen::CHAT)
             lv_obj_align(kbd, LV_ALIGN_BOTTOM_MID, 0, -kInputH);
         else
@@ -564,9 +588,11 @@ void HorizonUI::kbdSetLayout(uint8_t layout)
     lv_obj_clean(kbd);
     const char *const *map = kKbdEn;
     if (kbdLayout == 1)
-        map = kKbdRu;
+        map = kbdShift ? kKbdRuShift : kKbdRu;
     else if (kbdLayout == 2)
-        map = kKbdNum;
+        map = kKbdNum; // у цифр Shift нет
+    else if (kbdShift)
+        map = kKbdEnShift;
 
     static lv_coord_t col_dsc[kKbdCols + 1];
     static lv_coord_t row_dsc[kKbdRows + 1];
@@ -581,34 +607,36 @@ void HorizonUI::kbdSetLayout(uint8_t layout)
     lv_obj_set_style_grid_column_dsc_array(kbd, col_dsc, LV_PART_MAIN);
     lv_obj_set_style_grid_row_dsc_array(kbd, row_dsc, LV_PART_MAIN);
 
-    // Широкие клавиши (" " и "СТЕРЕТЬ") занимают все подряд идущие
-    // дубликаты в строке; повторные вхождения пропускаем.
-    bool wideDone[2] = {false, false};
+    // Широкий пробел занимает все подряд идущие дубликаты в строке;
+    // повторные вхождения пропускаем.
+    bool spaceDone = false;
     int cells = kKbdCols * kKbdRows;
     for (int i = 0; i < cells; i++) {
         const char *key = map[i];
         if (!key || !*key)
             continue;
-        int wide = !strcmp(key, " ") ? 0 : (!strcmp(key, "СТЕРЕТЬ") ? 1 : -1);
-        if (wide >= 0 && wideDone[wide])
+        bool wide = !strcmp(key, " ");
+        if (wide && spaceDone)
             continue;
         int col = i % kKbdCols;
         int row = i / kKbdCols;
         int span = 1;
-        if (wide >= 0) {
+        if (wide) {
             for (int j = i + 1; j < (row + 1) * kKbdCols && !strcmp(map[j], key); j++)
                 span++;
-            wideDone[wide] = true;
+            spaceDone = true;
         }
         lv_obj_t *b = lv_btn_create(kbd);
-        bool accent = !strcmp(key, "OK");
+        // OK всегда акцентная; "Aa" подсвечена, пока Shift взведён.
+        bool accent = !strcmp(key, "OK") || (!strcmp(key, "Aa") && kbdShift);
         HorizonTheme::styleButton(b, accent);
         // Клавиши не отбирают фокус у поля ввода (см. kbdShow).
         lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICK_FOCUSABLE);
         lv_obj_set_grid_cell(b, LV_GRID_ALIGN_STRETCH, col, span, LV_GRID_ALIGN_STRETCH, row, 1);
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, !strcmp(key, " ") ? "ПРОБЕЛ" : key);
-        if (wide >= 0 || !strcmp(key, "123") || !strcmp(key, "АБВ"))
+        if (wide || !strcmp(key, "123") || !strcmp(key, "АБВ") || !strcmp(key, "EN") || !strcmp(key, "RU") ||
+            !strcmp(key, "Aa") || !strcmp(key, "<<"))
             lv_obj_set_style_text_font(l, HorizonTheme::fontSmall(), LV_PART_MAIN);
         lv_obj_center(l);
         lv_obj_set_user_data(b, (void *)key);
@@ -622,19 +650,31 @@ void HorizonUI::kbdPress(const char *txt)
     if (!txt)
         return;
     if (!strcmp(txt, "RU")) {
+        kbdShift = false;
         kbdSetLayout(1);
         return;
     }
     if (!strcmp(txt, "EN")) {
+        kbdShift = false;
         kbdSetLayout(0);
         return;
     }
     if (!strcmp(txt, "АБВ")) {
+        kbdShift = false;
         kbdSetLayout(1);
         return;
     }
     if (!strcmp(txt, "123")) {
+        kbdShift = false;
         kbdSetLayout(2);
+        return;
+    }
+    if (!strcmp(txt, "Aa")) {
+        // Shift разового действия (в 123 не работает - там его нет).
+        if (kbdLayout != 2) {
+            kbdShift = !kbdShift;
+            kbdSetLayout(kbdLayout);
+        }
         return;
     }
     if (!strcmp(txt, "OK")) {
@@ -643,11 +683,16 @@ void HorizonUI::kbdPress(const char *txt)
     }
     if (!kbdTarget || !lv_obj_is_valid(kbdTarget))
         return;
-    if (!strcmp(txt, "СТЕРЕТЬ")) {
+    if (!strcmp(txt, "<<")) {
         lv_textarea_delete_char(kbdTarget);
         return;
     }
     lv_textarea_add_text(kbdTarget, txt);
+    if (kbdShift) {
+        // Shift разовый: после вставленного символа - назад к строчным.
+        kbdShift = false;
+        kbdSetLayout(kbdLayout);
+    }
 }
 
 void HorizonUI::cbKbd(lv_event_t *e)
@@ -701,7 +746,7 @@ void HorizonUI::cbSleepWake(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     // Удаление на PRESSED гарантирует: отпущенная кнопка уже мертва,
-    // CLICKED никуда не уйдёт — нажатие только будит устройство.
+    // CLICKED никуда не уйдёт - нажатие только будит устройство.
     self->hideSleepGuard();
 }
 
@@ -724,6 +769,9 @@ void HorizonUI::showBoot(void)
     // Логотип (бинарник собран bin/make_logo.py из assets/horizon-logo.png).
     lv_obj_t *logo = lv_image_create(box);
     lv_image_set_src(logo, &hzLogo);
+    // Лого - альфа-маска (A8 без фона): красим в акцент текущей темы.
+    lv_obj_set_style_image_recolor(logo, hzColor(p.accent), LV_PART_MAIN);
+    lv_obj_set_style_image_recolor_opa(logo, LV_OPA_COVER, LV_PART_MAIN);
 
     lv_obj_t *name = lv_label_create(box);
     lv_label_set_text(name, kAppName);
@@ -775,8 +823,13 @@ void HorizonUI::buildMenu(void)
     lv_obj_set_pos(title, 0, kStatusH);
     lv_obj_remove_flag(title, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *tl = lv_label_create(title);
-    lv_label_set_text_fmt(tl, "%s  //  %s %s", kAppName, cfg.callsign,
-                          kGroupGlyphs[cfg.group < kGroupCount ? cfg.group : 0]);
+    // Титул: "позывной" // группировка // ранг. Ширина фиксирована,
+    // длинный позывной уходит в точки, а не под край экрана.
+    lv_label_set_text_fmt(tl, "\"%s\" // %s // %s", cfg.callsign,
+                          kGroups[cfg.group < kGroupCount ? cfg.group : 0],
+                          kRanks[cfg.rank < kRankCount ? cfg.rank : 0]);
+    lv_obj_set_width(tl, W() - 16);
+    lv_label_set_long_mode(tl, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(tl, HorizonTheme::fontNormal(), LV_PART_MAIN);
     lv_obj_set_style_text_color(tl, hzColor(p.accent), LV_PART_MAIN);
     lv_obj_align(tl, LV_ALIGN_LEFT_MID, 8, 0);
@@ -820,7 +873,7 @@ void HorizonUI::buildMenu(void)
     for (int i = 0; i < 8; i++) {
         int col = i % cols;
         int row = i / cols;
-        bool locked = (i == 7); // карта — заглушка «Позже»
+        bool locked = (i == 7); // карта - заглушка «Позже»
         lv_obj_t *t = lv_btn_create(grid);
         HorizonTheme::styleTile(t);
         lv_obj_set_grid_cell(t, LV_GRID_ALIGN_STRETCH, col, 1, LV_GRID_ALIGN_STRETCH, row, 1);
@@ -867,7 +920,7 @@ void HorizonUI::buildMenu(void)
         lv_obj_add_event_cb(t, cbTile, LV_EVENT_CLICKED, this);
     }
 
-    addFooterHint(scr, "ПДА Горизонт // выбери раздел");
+    addFooterHint(scr, kAppName);
     refreshMenuBadges();
     refreshStatus();
 }
@@ -882,7 +935,7 @@ void HorizonUI::refreshMenuBadges(void)
     const HorizonConvo *c0 = st.findChannelConvo(cfg.generalCh);
     const HorizonConvo *c1 = st.findChannelConvo(cfg.groupCh);
     const HorizonConvo *c2 = st.findChannelConvo(cfg.announceCh);
-    // Если два раздела смотрят в один канал — показать счётчик один раз
+    // Если два раздела смотрят в один канал - показать счётчик один раз
     counts[0] = c0 ? c0->unread : 0;
     counts[1] = (c1 && cfg.groupCh != cfg.generalCh) ? c1->unread : 0;
     counts[2] = (c2 && cfg.announceCh != cfg.generalCh && cfg.announceCh != cfg.groupCh) ? c2->unread : 0;
@@ -957,7 +1010,24 @@ void HorizonUI::cbBack(lv_event_t *e)
     case Screen::SET_PIN:
     case Screen::SET_RESET:
     case Screen::SET_ABOUT:
+    case Screen::SET_TIME:
+    case Screen::SET_SOUND:
+    case Screen::SET_TOOLS:
         self->showSettings();
+        break;
+    case Screen::TOOL_SCAN:
+        self->view->stopScan();
+        self->buildToolPick();
+        break;
+    case Screen::TOOL_ROUTE:
+        self->view->stopTrace();
+        self->buildToolPick();
+        break;
+    case Screen::TOOL_DETECTOR:
+    case Screen::TOOL_PICK:
+    case Screen::TOOL_STATS:
+    case Screen::TOOL_LOG:
+        self->buildSetTools();
         break;
     case Screen::DOSSIER_EDIT:
         self->showDossier();
@@ -996,7 +1066,7 @@ static bool isMappedChannel(uint8_t ch)
 void HorizonUI::onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *text, uint32_t msgtime)
 {
     bool isBroadcast = (to == 0xFFFFFFFFu);
-    // Шум с непривязанных каналов — тихо в хранилище, без тостов
+    // Шум с непривязанных каналов - тихо в хранилище, без тостов
     if (isBroadcast && !isMappedChannel(ch))
         return;
     bool isOpen = false;
@@ -1098,6 +1168,17 @@ void HorizonUI::tick(void)
         lastSlowMs = now;
         refreshStatus();
         refreshMenuBadges();
+        view->pollTools(now);
+        refreshTools();
+        if (now - lastTimeSaveMs >= 60000) {
+            lastTimeSaveMs = now;
+            view->persistTime(); // часы переживут перезагрузку
+        }
+        if (current == Screen::SET_TIME && timeCur && lv_obj_is_valid(timeCur)) {
+            char tb[16];
+            fmtTime(view->getActTime(), tb, sizeof(tb));
+            lv_label_set_text_fmt(timeCur, "Сейчас: %s", tb);
+        }
         if (view->takeMsgsDirty()) {
             if (current == Screen::OPENCHATS)
                 buildOpenChats();
@@ -1158,6 +1239,18 @@ void HorizonUI::fmtTime(uint32_t t, char *out, size_t cap)
     struct tm tmv;
     gmtime_r(&tt, &tmv);
     snprintf(out, cap, "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+}
+
+void HorizonUI::fmtDate(uint32_t t, char *out, size_t cap)
+{
+    if (t < 1000000) {
+        snprintf(out, cap, "--.--.----");
+        return;
+    }
+    time_t tt = (time_t)t;
+    struct tm tmv;
+    gmtime_r(&tt, &tmv);
+    snprintf(out, cap, "%02d.%02d.%04d", tmv.tm_mday, tmv.tm_mon + 1, tmv.tm_year + 1900);
 }
 
 void HorizonUI::fmtLastHeard(HorizonView *v, uint32_t lh, char *out, size_t cap)

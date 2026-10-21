@@ -1,5 +1,5 @@
 #pragma once
-// ПДА «Горизонт» — хранилище сообщений и диалогов (оперативная память).
+// ПДА «Горизонт» - хранилище сообщений и диалогов (оперативная память).
 // Долговременное хранение делает ViewController (LittleFS /messages).
 
 #ifdef HORIZON_UI
@@ -33,7 +33,7 @@ struct HorizonDossierInfo {
     char callsign[40] = "";
     uint8_t rank = 0;
     uint8_t group = 0;
-    uint32_t updated = 0; // actTime получения (0 — неизвестно)
+    uint32_t updated = 0; // actTime получения (0 - неизвестно)
 };
 
 // Информация о канале радиомодуля

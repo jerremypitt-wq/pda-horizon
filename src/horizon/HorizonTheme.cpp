@@ -1,4 +1,4 @@
-// ПДА «Горизонт» — палитры и стили.
+// ПДА «Горизонт» - палитры и стили.
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonTheme.h"
@@ -6,7 +6,7 @@
 
 namespace {
 const HorizonPalette kPalettes[] = {
-    // STALKER_DARK — фосфорный янтарь на тёмном (по умолчанию)
+    // STALKER_DARK - фосфорный янтарь на тёмном (по умолчанию)
     {.bg = 0x0D0F0C,
      .panel = 0x181B16,
      .panel2 = 0x10130E,
@@ -21,7 +21,7 @@ const HorizonPalette kPalettes[] = {
      .ok = 0x7DBB4E,
      .headerBg = 0x1E221A,
      .tileEnd = 0x23261E},
-    // LIGHT — светлая дневная
+    // LIGHT - светлая дневная
     {.bg = 0xD8D2C0,
      .panel = 0xECE7D4,
      .panel2 = 0xF7F3E6,
@@ -36,7 +36,7 @@ const HorizonPalette kPalettes[] = {
      .ok = 0x3E7A2A,
      .headerBg = 0xC9C2AB,
      .tileEnd = 0xD5CFBA},
-    // DUTY — Долг: красное на чёрном
+    // DUTY - Долг: красное на чёрном
     {.bg = 0x0E0C0C,
      .panel = 0x1C1512,
      .panel2 = 0x120E0D,
@@ -51,7 +51,7 @@ const HorizonPalette kPalettes[] = {
      .ok = 0x7DBB4E,
      .headerBg = 0x241614,
      .tileEnd = 0x2A1A16},
-    // FREEDOM — Свобода: жёлто-зелёное
+    // FREEDOM - Свобода: жёлто-зелёное
     {.bg = 0x101208,
      .panel = 0x1B1E12,
      .panel2 = 0x14160C,
@@ -66,7 +66,7 @@ const HorizonPalette kPalettes[] = {
      .ok = 0x6ABE30,
      .headerBg = 0x222412,
      .tileEnd = 0x262A16},
-    // LONERS — Одиночки: тёмно-зелёный хаки
+    // LONERS - Одиночки: тёмно-зелёный хаки
     {.bg = 0x141712,
      .panel = 0x232A1E,
      .panel2 = 0x1A2018,
@@ -128,6 +128,8 @@ void HorizonTheme::styleField(lv_obj_t *obj)
     lv_obj_set_style_border_color(obj, hzColor(p.border), LV_PART_MAIN);
     lv_obj_set_style_border_width(obj, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(obj, 3, LV_PART_MAIN);
+    // Однострочные поля и кнопки списков: скроллбару тут не место.
+    lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_style_text_color(obj, hzColor(p.text), LV_PART_MAIN);
     lv_obj_set_style_text_font(obj, fontNormal(), LV_PART_MAIN);
     // курсор/выделение textarea
@@ -152,7 +154,7 @@ void HorizonTheme::styleButton(lv_obj_t *obj, bool accent)
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(obj, 4, LV_PART_MAIN);
     lv_obj_set_style_text_font(obj, fontNormal(), LV_PART_MAIN);
-    // нажатое состояние — инверсия
+    // нажатое состояние - инверсия
     lv_obj_set_style_bg_color(obj, hzColor(accent ? p.text : p.accent), LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_set_style_text_color(obj, hzColor(accent ? p.panel : p.accentText), LV_PART_MAIN | LV_STATE_PRESSED);
 }

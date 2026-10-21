@@ -1,6 +1,6 @@
 #pragma once
-// ПДА «Горизонт» — настройки и досье игрока, хранение в /horizon.cfg (LittleFS).
-// Формат файла — простые строки key=value в UTF-8.
+// ПДА «Горизонт» - настройки и досье игрока, хранение в /horizon.cfg (LittleFS).
+// Формат файла - простые строки key=value в UTF-8.
 
 #ifdef HORIZON_UI
 
@@ -20,9 +20,16 @@ class HorizonConfig
 
     // --- Экран ---
     uint8_t brightness = 180; // 20..255
-    uint16_t timeoutSec = 60; // 0 — никогда
-    uint8_t orientation = 0;  // 0 — альбомная, 1 — книжная (применяется после перезагрузки)
+    uint16_t timeoutSec = 60; // 0 - никогда
+    uint8_t orientation = 0;  // 0 - альбомная, 1 - книжная (применяется после перезагрузки)
     uint8_t theme = 0;        // 0..4, см. HorizonStrings::kThemes
+
+    // --- Звук ---
+    bool silent = false; // бесшумный режим (без бипов уведомлений)
+
+    // --- Время (персист между перезагрузками, отдельный файл /horizon.time) ---
+    uint32_t savedEpoch = 0; // последний известный epoch (UTC)
+    uint32_t savedMs = 0;    // millis() в момент записи savedEpoch
 
     // --- Досье персонажа ---
     char charName[40] = "Сталкер";
@@ -34,6 +41,8 @@ class HorizonConfig
 
     void load(void);
     void save(void) const;
+    void loadTime(void);  // прочитать /horizon.time в savedEpoch/savedMs
+    void saveTime(uint32_t epoch, uint32_t ms) const; // записать /horizon.time
     void resetToDefaults(void);
 
     bool checkPin(const char *pin) const;

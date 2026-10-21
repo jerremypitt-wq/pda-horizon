@@ -1,4 +1,4 @@
-// ПДА «Горизонт» — хранилище сообщений.
+// ПДА «Горизонт» - хранилище сообщений.
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonStore.h"
@@ -43,7 +43,7 @@ HorizonConvo &HorizonStore::dmConvo(uint32_t peer)
             }
         }
         if (victim >= dms.size())
-            break; // все непрочитаны — оставляем
+            break; // все непрочитаны - оставляем
         dms.erase(dms.begin() + victim);
     }
     for (auto &cc : dms) {

@@ -1,5 +1,5 @@
 #pragma once
-// ПДА «Горизонт» — интерфейс на LVGL: меню-плитки, чаты, контакты, досье, настройки.
+// ПДА «Горизонт» - интерфейс на LVGL: меню-плитки, чаты, контакты, досье, настройки.
 
 #ifdef HORIZON_UI
 
@@ -51,6 +51,15 @@ class HorizonUI
         SET_PIN,
         SET_RESET,
         SET_ABOUT,
+        SET_TIME,
+        SET_SOUND,
+        SET_TOOLS,
+        TOOL_DETECTOR,
+        TOOL_PICK,
+        TOOL_SCAN,
+        TOOL_ROUTE,
+        TOOL_STATS,
+        TOOL_LOG,
     };
 
     HorizonView *view = nullptr;
@@ -128,6 +137,24 @@ class HorizonUI
     void buildSetPin(void);
     void buildSetReset(void);
     void buildSetAbout(void);
+    void buildSetTime(void);
+    void buildSetSound(void);
+    void buildSetTools(void);
+
+    // --- Инструменты Mesh ---
+    void buildToolDetector(void);
+    void buildToolPick(void); // выбор узла для сканера/маршрута (toolPickMode)
+    void buildToolScan(void);
+    void buildToolRoute(void);
+    void buildToolStats(void);
+    void buildToolLog(void);
+    void refreshTools(void); // тик-обновление открытого инструмента
+    lv_obj_t *toolBody(void); // тело экрана инструмента (под шапкой)
+    void refreshDetector(void);
+    void refreshScan(void);
+    void refreshRoute(void);
+    void refreshStats(void);
+    void refreshLog(void);
 
     lv_obj_t *rowButton(lv_obj_t *parent, const char *title, const char *sub, int id);
     lv_obj_t *sectionLabel(lv_obj_t *parent, const char *text);
@@ -154,6 +181,25 @@ class HorizonUI
     lv_obj_t *pinOld = nullptr;
     lv_obj_t *pinNew1 = nullptr;
     lv_obj_t *pinNew2 = nullptr;
+    // Время: черновик часов/минут + указатели экрана
+    int timeH = 12;
+    int timeM = 0;
+    lv_obj_t *timeHVal = nullptr;
+    lv_obj_t *timeMVal = nullptr;
+    lv_obj_t *timeCur = nullptr;
+    uint32_t lastTimeSaveMs = 0;
+    // Инструменты Mesh: состояние экранов
+    uint8_t toolPickMode = 0; // 0 - сканер, 1 - маршрут
+    lv_obj_t *detList = nullptr;
+    lv_obj_t *detSub = nullptr;
+    lv_obj_t *scanBig = nullptr;
+    lv_obj_t *scanPct = nullptr;
+    lv_obj_t *scanProg = nullptr;
+    lv_obj_t *routeStatus = nullptr;
+    lv_obj_t *routeBox = nullptr;
+    lv_obj_t *statsList = nullptr;
+    lv_obj_t *statsSub = nullptr;
+    lv_obj_t *logList = nullptr;
 
     // --- Тост ---
     lv_obj_t *toastBtn = nullptr;
@@ -184,6 +230,7 @@ class HorizonUI
     lv_obj_t *kbdMatrix = nullptr; // buttonmatrix
     lv_obj_t *kbdTarget = nullptr; // textarea
     uint8_t kbdLayout = 1;         // 0=EN 1=RU 2=123 (по умолчанию RU)
+    bool kbdShift = false;         // Shift разового действия (только EN/RU)
     bool kbdSuppressClick = false; // долгое нажатие уже вставило символ
     void kbdShow(lv_obj_t *ta);
     void kbdHide(void);
@@ -199,6 +246,7 @@ class HorizonUI
     // --- Утилиты ---
     void formatSender(uint32_t node, char *out, size_t cap); // «позывной, ранг» или имя узла
     static void fmtTime(uint32_t t, char *out, size_t cap); // HH:MM
+    static void fmtDate(uint32_t t, char *out, size_t cap); // DD.MM.YYYY
     static void fmtLastHeard(HorizonView *v, uint32_t lh, char *out, size_t cap);
     uint32_t visibleUnread(void);
 
@@ -236,6 +284,16 @@ class HorizonUI
     static void cbFilter(lv_event_t *e);
     static void cbClearChats(lv_event_t *e);
     static void cbRebootNow(lv_event_t *e);
+    static void cbTimeStep(lv_event_t *e);
+    static void cbTimeApply(lv_event_t *e);
+    static void cbSoundToggle(lv_event_t *e);
+    static void cbSoundTest(lv_event_t *e);
+    static void cbToolRow(lv_event_t *e);
+    static void cbToolPick(lv_event_t *e);
+    static void cbScanStop(lv_event_t *e);
+    static void cbTraceStop(lv_event_t *e);
+    static void cbStatsClear(lv_event_t *e);
+    static void cbLogClear(lv_event_t *e);
 
     HorizonUI(const HorizonUI &) = delete;
     HorizonUI &operator=(const HorizonUI &) = delete;

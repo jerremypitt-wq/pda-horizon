@@ -1,7 +1,8 @@
-// ПДА «Горизонт» — звук уведомлений через активный зуммер платы.
+// ПДА «Горизонт» - звук уведомлений через активный зуммер платы.
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonSound.h"
+#include "horizon/HorizonConfig.h"
 
 #if defined(ARCH_ESP32)
 #include <Arduino.h>
@@ -11,7 +12,7 @@ namespace {
 // Зуммер CrowPanel Advance 3.5 (B1) через Q4, активный HIGH.
 constexpr uint8_t kBeepPin = 8;
 
-// Паттерны: миллисекунды вкл/выкл по очереди, 0 — конец. Каждый звучит один раз.
+// Паттерны: миллисекунды вкл/выкл по очереди, 0 - конец. Каждый звучит один раз.
 constexpr uint16_t kMsgSteps[] = {90, 70, 90, 70, 180, 0}; // «ди-ди-дит» ПДА
 constexpr uint16_t kDmSteps[] = {70, 90, 140, 0};           // двойной блип лички
 } // namespace
@@ -43,6 +44,8 @@ void HorizonSound::init(void)
 
 void HorizonSound::play(Pattern p)
 {
+    if (HorizonConfig::instance().silent)
+        return; // бесшумный режим: ни звука
     steps = (p == DIRECT) ? kDmSteps : kMsgSteps;
     pos = 0;
     stepUntil = millis() + steps[0];
@@ -63,7 +66,7 @@ void HorizonSound::tick(void)
         return;
     }
     stepUntil = now + steps[pos];
-    beepOn((pos % 2) == 0); // чётные шаги — вкл, нечётные — пауза
+    beepOn((pos % 2) == 0); // чётные шаги - вкл, нечётные - пауза
 }
 
 #endif // HORIZON_UI
