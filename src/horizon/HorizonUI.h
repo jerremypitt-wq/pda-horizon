@@ -174,7 +174,9 @@ class HorizonUI
     void pinPress(const char *key);
     // Подтверждение
     std::function<void(void)> confirmOk;
-    void askConfirm(const char *text, const char *okLabel, std::function<void(void)> onOk);
+    std::function<void(void)> confirmCancel;
+    void askConfirm(const char *text, const char *okLabel, std::function<void(void)> onOk,
+                    std::function<void(void)> onCancel = nullptr);
 
     // --- Экранная клавиатура (своя, RU/EN/123) ---
     lv_obj_t *kbd = nullptr;       // панель с матрицей

@@ -395,10 +395,12 @@ void HorizonUI::cbPinBtn(lv_event_t *e)
     self->pinPress(key);
 }
 
-void HorizonUI::askConfirm(const char *text, const char *okLabel, std::function<void(void)> onOk)
+void HorizonUI::askConfirm(const char *text, const char *okLabel, std::function<void(void)> onOk,
+                    std::function<void(void)> onCancel)
 {
     closeModal();
     confirmOk = onOk;
+    confirmCancel = onCancel;
 
     modal = lv_obj_create(lv_layer_top());
     lv_obj_set_size(modal, lv_pct(100), lv_pct(100));
@@ -459,7 +461,11 @@ void HorizonUI::cbConfirmOk(lv_event_t *e)
 void HorizonUI::cbConfirmCancel(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    auto cb = self->confirmCancel;
+    self->confirmCancel = nullptr;
     self->closeModal();
+    if (cb)
+        cb();
 }
 
 void HorizonUI::cbModalBlock(lv_event_t *e)

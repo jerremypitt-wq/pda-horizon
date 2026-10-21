@@ -25,8 +25,13 @@
 #ifdef __cplusplus
 #include <LovyanGFX.hpp>
 
-#if defined(HORIZON_UI) && defined(ARCH_ESP32)
-#include "LittleFS.h"
+#if defined(HORIZON_UI)
+// Определена в src/horizon/HorizonView.cpp: возвращает orientation из уже
+// загруженного в память HorizonConfig. Именно extern-функция, а не чтение
+// файла: этот заголовок force-include'ится во все единицы трансляции,
+// включая исходники LovyanGFX, где LDF не подхватывает LittleFS
+// (fatal error: LittleFS.h: No such file or directory).
+bool horizonIsPortrait(void);
 #endif
 
 class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
@@ -47,8 +52,8 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
     LGFX_ELECROW_ADV_35(void)
     {
         bool portrait = false;
-#if defined(HORIZON_UI) && defined(ARCH_ESP32)
-        portrait = horizonPortrait();
+#if defined(HORIZON_UI)
+        portrait = horizonIsPortrait();
 #endif
         { // SPI-шина дисплея (из firmware-варианта: SCK42 MOSI39 DC41 CS40)
             auto cfg = _bus.config();
@@ -128,32 +133,6 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
         }
         setPanel(&_panel);
     }
-
-  private:
-#if defined(HORIZON_UI) && defined(ARCH_ESP32)
-    // Читать ориентацию из настроек Горизонта (LittleFS уже смонтирована:
-    // HorizonView::instance() вызывается после FSBegin()). Формат файла —
-    // key=value, ищем строку "orientation=1".
-    static bool horizonPortrait(void)
-    {
-        File f = LittleFS.open("/horizon.cfg", "r");
-        if (!f)
-            return false;
-        char line[64];
-        bool portrait = false;
-        while (f.available()) {
-            size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
-            line[n] = '\0';
-            if (line[0] == 'o' && !strncmp(line, "orientation=1", 13) &&
-                (line[13] == '\0' || line[13] == '\r')) {
-                portrait = true;
-                break;
-            }
-        }
-        f.close();
-        return portrait;
-    }
-#endif
 };
 #endif // __cplusplus
 

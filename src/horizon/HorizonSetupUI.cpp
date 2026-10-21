@@ -866,14 +866,23 @@ void HorizonUI::cbSetApplyDisplay(lv_event_t *e)
         dd->setScreenTimeout(cfg.timeoutSec);
     }
     if (cfg.orientation != oldOrient) {
-        self->askConfirm("Перезагрузить ПДА для смены ориентации?", "Да", [self]() {
+        self->askConfirm(
+            "Перезагрузить ПДА для смены ориентации?", "Да",
+            [self]() {
 #if defined(ARCH_ESP32)
-            delay(300);
-            ESP.restart();
+                delay(300);
+                ESP.restart();
 #else
-            self->toast("Перезапусти приложение");
+                self->toast("Перезапусти приложение");
 #endif
-        });
+            },
+            [self, oldOrient]() {
+                // Отмена: вернуть прежнюю ориентацию, иначе она применится
+                // при следующей перезагрузке, несмотря на отказ.
+                HorizonConfig::instance().orientation = oldOrient;
+                HorizonConfig::instance().save();
+                self->buildSetDisplay();
+            });
         return;
     }
     if (cfg.theme != oldTheme) {

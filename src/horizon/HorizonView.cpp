@@ -22,6 +22,15 @@
 
 HorizonView *HorizonView::gui = nullptr;
 
+// Ориентация для конструктора панели (variants/elecrow-adv-35/config.h).
+// Вызывается из LGFX-ctor при создании драйвера — к этому моменту
+// HorizonView::instance() уже выполнил HorizonConfig::load(), так что
+// читаем значение из памяти, без файловой системы.
+bool horizonIsPortrait(void)
+{
+    return HorizonConfig::instance().orientation == 1;
+}
+
 HorizonView &HorizonView::instance(void)
 {
     if (!gui) {
