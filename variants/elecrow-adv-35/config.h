@@ -10,14 +10,16 @@
 // на 180 градусов — тогда нужен 2); тач на i2c_port=1 (у вендора 0, но шина 1
 // свободна от Arduino Wire и потому безопаснее — см. комментарий ниже).
 //
-// Этот файл force-include'ится сборкой -mui окружения (см. platformio.ini),
-// поэтому C++-код спрятан за #ifdef __cplusplus, чтобы не ломать Си-файлы.
+// Этот файл инклудится явно там, где нужен класс панели (HorizonDisplay.cpp,
+// фабрика device-ui после применения docs/patches/device-ui-elecrow35-factory.patch).
+// Глобальный -include НЕ используется (ломал LDF и давал конфликт `fonts`).
+// C++-код спрятан за #ifdef __cplusplus, чтобы не ломать Си-файлы.
 
 #include <stdint.h>
 #include <string.h>
 
-// config.h is force-included by the -mui build. Keep C translation units from
-// parsing the C++-only LovyanGFX headers and class declaration.
+// Keep C translation units from parsing the C++-only LovyanGFX headers
+// and class declaration.
 #ifdef __cplusplus
 #include <LovyanGFX.hpp>
 
