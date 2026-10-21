@@ -16,10 +16,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#ifndef LGFX_DRIVER
-#define LGFX_DRIVER LGFX_ELECROW_ADV_35
-#endif
-
 // config.h is force-included by the -mui build. Keep C translation units from
 // parsing the C++-only LovyanGFX headers and class declaration.
 #ifdef __cplusplus
