@@ -84,6 +84,19 @@ cp .pio/build/native-mui/program $HOME/.local/bin/native-mui
 .pio/build/native-mui/program -p /dev/ttyACM0
 ```
 
+## PDA "Horizon" (Elecrow CrowPanel Advance 3.5")
+
+This fork adds the **PDA "Horizon"** firmware — a S.T.A.L.K.E.R.-styled
+mesh communicator for live-action roleplay, targeting the
+Elecrow CrowPanel Advance 3.5" (ESP32-S3) all-in-one board.
+
+```bash
+pio run -e elecrow-adv-35-horizon -t upload
+```
+
+See [docs/HORIZON.md](docs/HORIZON.md) for screens, settings,
+master password, Meshtastic integration and host syntax-check details.
+
 ## Stats
 
 ![Alt](https://repobeats.axiom.co/api/embed/7caf5492ebef98d9b88747eba781e592a9682f9d.svg "Repobeats analytics image")
