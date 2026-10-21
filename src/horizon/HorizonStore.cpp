@@ -3,6 +3,7 @@
 
 #include "horizon/HorizonStore.h"
 #include <algorithm>
+#include <string.h>
 
 HorizonConvo &HorizonStore::channelConvo(uint8_t ch)
 {
@@ -99,6 +100,42 @@ std::vector<const HorizonConvo *> HorizonStore::dmList(void) const
     std::sort(out.begin(), out.end(),
               [](const HorizonConvo *a, const HorizonConvo *b) { return a->lastActivity > b->lastActivity; });
     return out;
+}
+
+void HorizonStore::upsertDossier(uint32_t node, const char *callsign, uint8_t rank, uint8_t group, uint32_t now)
+{
+    if (!node || !callsign || !*callsign)
+        return;
+    HorizonDossierInfo &d = dossierDir[node];
+    strncpy(d.callsign, callsign, sizeof(d.callsign) - 1);
+    d.callsign[sizeof(d.callsign) - 1] = '\0';
+    // Не разрывать UTF-8 символ на границе буфера.
+    size_t n = strlen(d.callsign);
+    while (n > 0 && (((unsigned char)d.callsign[n - 1] & 0xC0) == 0x80))
+        n--;
+    if (n > 0 && ((unsigned char)d.callsign[n - 1] & 0x80))
+        n--;
+    d.callsign[n] = '\0';
+    d.rank = rank;
+    d.group = group;
+    d.updated = now;
+    // Не раздувать ОЗУ: вытеснить самую старую запись.
+    while (dossierDir.size() > kMaxDossierDir) {
+        auto victim = dossierDir.begin();
+        for (auto it = dossierDir.begin(); it != dossierDir.end(); ++it) {
+            if (it->second.updated < victim->second.updated)
+                victim = it;
+        }
+        if (victim->first == node)
+            break;
+        dossierDir.erase(victim);
+    }
+}
+
+const HorizonDossierInfo *HorizonStore::findDossier(uint32_t node) const
+{
+    auto it = dossierDir.find(node);
+    return it != dossierDir.end() ? &it->second : nullptr;
 }
 
 void HorizonStore::markRead(HorizonConvo &c)

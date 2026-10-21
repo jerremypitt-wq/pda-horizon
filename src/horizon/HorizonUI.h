@@ -45,6 +45,7 @@ class HorizonUI
         DOSSIER_EDIT,
         SETTINGS,
         SET_CHANNELS,
+        SET_CHANNEL_DETAIL,
         SET_DEVICE,
         SET_DISPLAY,
         SET_PIN,
@@ -119,7 +120,9 @@ class HorizonUI
 
     // --- Настройки ---
     void buildSettings(void);
+    void openSettingsGated(void); // вход в настройки через мастер-PIN
     void buildSetChannels(void);
+    void buildSetChannelDetail(void);
     void buildSetDevice(void);
     void buildSetDisplay(void);
     void buildSetPin(void);
@@ -132,13 +135,6 @@ class HorizonUI
     lv_obj_t *simpleKeyDropdown(lv_obj_t *parent, uint8_t selected);
 
     // состояние экранов настроек
-    lv_obj_t *setChGeneral = nullptr;
-    lv_obj_t *setChGroup = nullptr;
-    lv_obj_t *setChAnnounce = nullptr;
-    lv_obj_t *setGroupName = nullptr;
-    lv_obj_t *setGroupKey = nullptr;
-    lv_obj_t *setAnnounceName = nullptr;
-    lv_obj_t *setAnnounceKey = nullptr;
     lv_obj_t *setRegion = nullptr;
     lv_obj_t *setPreset = nullptr;
     lv_obj_t *setHops = nullptr;
@@ -149,6 +145,11 @@ class HorizonUI
     lv_obj_t *setTimeout = nullptr;
     lv_obj_t *setOrientation = nullptr;
     lv_obj_t *setTheme = nullptr;
+    // Детали канала: 0=общий, 1=групповой, 2=объявления
+    uint8_t setDetailKind = 0;
+    lv_obj_t *setDetailCh = nullptr;
+    lv_obj_t *setDetailName = nullptr;
+    lv_obj_t *setDetailKey = nullptr;
     bool displayDirty = false;
     lv_obj_t *pinOld = nullptr;
     lv_obj_t *pinNew1 = nullptr;
@@ -183,13 +184,20 @@ class HorizonUI
     lv_obj_t *kbdMatrix = nullptr; // buttonmatrix
     lv_obj_t *kbdTarget = nullptr; // textarea
     uint8_t kbdLayout = 1;         // 0=EN 1=RU 2=123 (по умолчанию RU)
+    bool kbdSuppressClick = false; // долгое нажатие уже вставило символ
     void kbdShow(lv_obj_t *ta);
     void kbdHide(void);
     bool kbdVisible(void) const;
     void kbdSetLayout(uint8_t layout);
     void kbdPress(const char *txt);
 
+    // --- Охранник сна: съедает первое нажатие после засыпания ---
+    lv_obj_t *sleepGuard = nullptr;
+    void showSleepGuard(void);
+    void hideSleepGuard(void);
+
     // --- Утилиты ---
+    void formatSender(uint32_t node, char *out, size_t cap); // «позывной, ранг» или имя узла
     static void fmtTime(uint32_t t, char *out, size_t cap); // HH:MM
     static void fmtLastHeard(HorizonView *v, uint32_t lh, char *out, size_t cap);
     uint32_t visibleUnread(void);
@@ -206,6 +214,8 @@ class HorizonUI
     static void cbSend(lv_event_t *e);
     static void cbInputFocus(lv_event_t *e);
     static void cbKbd(lv_event_t *e);
+    static void cbKbdLong(lv_event_t *e);
+    static void cbSleepWake(lv_event_t *e);
     static void cbToast(lv_event_t *e);
     static void cbPinBtn(lv_event_t *e);
     static void cbConfirmOk(lv_event_t *e);
@@ -215,7 +225,8 @@ class HorizonUI
     static void cbOpenChat(lv_event_t *e);
     static void cbDossierEdit(lv_event_t *e);
     static void cbDossierSave(lv_event_t *e);
-    static void cbSetApplyChannels(lv_event_t *e);
+    static void cbSetChannelPick(lv_event_t *e);
+    static void cbSetApplyChannelDetail(lv_event_t *e);
     static void cbSetApplyDevice(lv_event_t *e);
     static void cbSetApplyDisplay(lv_event_t *e);
     static void cbSetApplyPin(lv_event_t *e);

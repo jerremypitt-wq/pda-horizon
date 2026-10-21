@@ -55,7 +55,7 @@ void HorizonUI::buildChat(void)
         const char *lock = view->channelIsLocked(chatCh) ? kGlyphLock : kGlyphUnlock;
         snprintf(sub, sizeof(sub), "%s · %s", view->channelLabel(chatCh), lock);
     } else {
-        snprintf(title, sizeof(title), "%s", view->nodeLongName(chatPeer));
+        formatSender(chatPeer, title, sizeof(title));
         const NodeRecord *r = view->getNodes().find(chatPeer);
         if (r) {
             char lh[24];
@@ -176,12 +176,15 @@ void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time,
     char tm[8];
     fmtTime(time, tm, sizeof(tm));
     lv_obj_t *meta = lv_label_create(b);
-    if (outgoing)
+    if (outgoing) {
         lv_label_set_text_fmt(meta, "Вы · %s", tm);
-    else if (chatIsChannel)
-        lv_label_set_text_fmt(meta, "%s · %s", view->nodeLongName(from), tm);
-    else
+    } else if (chatIsChannel) {
+        char who[64];
+        formatSender(from, who, sizeof(who));
+        lv_label_set_text_fmt(meta, "%s · %s", who, tm);
+    } else {
         lv_label_set_text_fmt(meta, "%s", tm);
+    }
     lv_obj_set_style_text_font(meta, HorizonTheme::fontSmall(), LV_PART_MAIN);
     lv_obj_set_style_text_color(meta, hzColor(outgoing ? p.accentText : p.textDim), LV_PART_MAIN);
 
@@ -202,6 +205,11 @@ void HorizonUI::sendChatInput(void)
     const char *txt = lv_textarea_get_text(chatInput);
     if (!txt || !*txt)
         return;
+    if (chatIsChannel && chatCh == HorizonConfig::instance().announceCh &&
+        HorizonConfig::instance().rank < kRankVeteran) {
+        toast("Объявления — с ранга Ветеран");
+        return;
+    }
     if (chatIsChannel) {
         view->sendChannelMessage(chatCh, txt);
         appendChatBubble(view->getMyNodeNum(), txt, view->getActTime(), true);
@@ -214,6 +222,7 @@ void HorizonUI::sendChatInput(void)
         st.markRead(st.dmConvo(chatPeer));
     }
     lv_textarea_set_text(chatInput, "");
+    kbdHide();
     refreshStatus();
 }
 
@@ -228,10 +237,31 @@ void HorizonUI::cbInputFocus(lv_event_t *e)
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t *ta = (lv_obj_t *)lv_event_get_target(e);
-    if (code == LV_EVENT_FOCUSED)
+    if (code == LV_EVENT_FOCUSED) {
         self->kbdShow(ta);
-    else if (code == LV_EVENT_DEFOCUSED)
+    } else if (code == LV_EVENT_DEFOCUSED) {
+        // Тап по самой клавиатуре (панель/клавиши без CLICK_FOCUSABLE)
+        // фокус не отбирает, но на всякий случай проверяем: если нажат
+        // объект внутри kbd — клавиатуру не прячем, иначе буква потеряется.
+        if (self->kbdVisible()) {
+            bool onKbd = false;
+            lv_obj_t *act = lv_indev_get_active_obj();
+            for (lv_obj_t *o = act; o && !onKbd; o = lv_obj_get_parent(o))
+                onKbd = (o == self->kbd);
+            if (!onKbd) {
+                lv_indev_t *indev = lv_indev_active();
+                if (indev) {
+                    lv_point_t pt;
+                    lv_indev_get_point(indev, &pt);
+                    if (lv_obj_hit_test(self->kbd, &pt))
+                        onKbd = true;
+                }
+            }
+            if (onKbd)
+                return;
+        }
         self->kbdHide();
+    }
 }
 
 // ---------------- контакты ----------------

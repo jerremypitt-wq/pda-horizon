@@ -3,6 +3,7 @@
 
 #include "horizon/HorizonUI.h"
 #include "horizon/HorizonConfig.h"
+#include "horizon/HorizonLogo.h"
 #include "horizon/HorizonStrings.h"
 #include "horizon/HorizonTheme.h"
 #include "horizon/HorizonView.h"
@@ -81,13 +82,15 @@ void HorizonUI::clearScreen(Screen s)
     contactsList = nullptr;
     contactsCount = nullptr;
     editName = editCall = editRank = editGroup = nullptr;
-    setChGeneral = setChGroup = setChAnnounce = nullptr;
-    setGroupName = setGroupKey = setAnnounceName = setAnnounceKey = nullptr;
+    setDetailCh = setDetailName = setDetailKey = nullptr;
     setRegion = setPreset = setHops = setRole = setTx = nullptr;
     setBrightness = setBrightnessVal = setTimeout = setOrientation = setTheme = nullptr;
     pinOld = pinNew1 = pinNew2 = nullptr;
     for (int i = 0; i < 7; i++)
         menuBadges[i] = nullptr;
+    // Охранник сна живёт на lv_layer_top и смену экрана не переживает.
+    hideSleepGuard();
+    kbdSuppressClick = false;
 
     current = s;
     lv_obj_t *old = scr;
@@ -476,18 +479,35 @@ void HorizonUI::cbModalBlock(lv_event_t *e)
 // ---------------- клавиатура ----------------
 
 namespace {
-// Раскладки: строки ключей; "" — пустая клетка (для выравнивания).
-const char *const kKbdEn[] = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "a", "s", "d", "f", "g",
-                              "h", "j", "k", "l", "",  "RU", "z", "x", "c", "v", "b", "n", "m", "<",  "",
+// Раскладки: ровно kKbdCols*kKbdRows ключей; "" — пустая клетка.
+// Широкие клавиши (" " и "СТЕРЕТЬ") пишутся дубликатами подряд и
+// склеиваются в одну (см. kbdSetLayout). "ё"/"ъ" — долгое нажатие е/ь.
+const char *const kKbdEn[] = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", //
+                              "a", "s", "d", "f", "g", "h", "j", "k", "l", "",  //
+                              "RU", "z", "x", "c", "v", "b", "n", "m", "СТЕРЕТЬ", "СТЕРЕТЬ", //
                               "123", " ", " ", " ", " ", " ", " ", ".", "OK", ""};
-const char *const kKbdRu[] = {"й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х", "ф", "ы", "в", "а",
-                              "п", "р", "о", "л", "д", "ж", "э", "EN", "я", "ч", "с", "м", "и", "т", "ь",
-                              "<", "123", " ", " ", " ", " ", " ", ".", "OK", ""};
-const char *const kKbdNum[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "/", ":", ";",
-                               "(", ")", "+", "=", "",  "",  "АБВ", ",", "?", "!", ".", "@", "#", "%", "<",
-                               "",  " ", " ", " ", " ", " ", " ", " ", " ", "OK", ""};
+const char *const kKbdRu[] = {"й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", //
+                              "х", "ф", "ы", "в", "а", "п", "р", "о", "л", "д", //
+                              "ж", "э", "я", "ч", "с", "м", "и", "т", "ь", "б", //
+                              "ю", "123", "EN", " ", " ", " ", ".", "OK", "СТЕРЕТЬ", "СТЕРЕТЬ"};
+const char *const kKbdNum[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", //
+                               "-", "/", ":", ";", "(", ")", "+", "=", "", "", //
+                               "АБВ", ",", "?", "!", ".", "@", "#", "%", "'", "", //
+                               "", "СТЕРЕТЬ", "СТЕРЕТЬ", " ", " ", " ", " ", " ", "OK", ""};
 constexpr int kKbdCols = 10;
 constexpr int kKbdRows = 4;
+static_assert(sizeof(kKbdEn) / sizeof(kKbdEn[0]) == (size_t)(kKbdCols * kKbdRows), "EN map size");
+static_assert(sizeof(kKbdRu) / sizeof(kKbdRu[0]) == (size_t)(kKbdCols * kKbdRows), "RU map size");
+static_assert(sizeof(kKbdNum) / sizeof(kKbdNum[0]) == (size_t)(kKbdCols * kKbdRows), "NUM map size");
+// Долгое нажатие: альтернативная буква (ё и ъ не влезли в сетку 10x4).
+const char *kbdLongAlt(const char *key)
+{
+    if (!strcmp(key, "е"))
+        return "ё";
+    if (!strcmp(key, "ь"))
+        return "ъ";
+    return nullptr;
+}
 } // namespace
 
 void HorizonUI::kbdShow(lv_obj_t *ta)
@@ -498,6 +518,9 @@ void HorizonUI::kbdShow(lv_obj_t *ta)
     } else {
         kbd = lv_obj_create(scr);
         HorizonTheme::styleKeyboard(kbd);
+        // Тапы по клавиатуре не должны снимать фокус с поля ввода: иначе
+        // DEFOCUSED закроет клавиатуру раньше, чем обработается нажатие.
+        lv_obj_remove_flag(kbd, LV_OBJ_FLAG_CLICK_FOCUSABLE);
         int16_t kh = isPortrait() ? 190 : 148;
         lv_obj_set_size(kbd, lv_pct(100), kh);
         // В чате — над строкой ввода, иначе — у нижнего края
@@ -558,36 +581,39 @@ void HorizonUI::kbdSetLayout(uint8_t layout)
     lv_obj_set_style_grid_column_dsc_array(kbd, col_dsc, LV_PART_MAIN);
     lv_obj_set_style_grid_row_dsc_array(kbd, row_dsc, LV_PART_MAIN);
 
-    // Пробел занимает несколько колонок: пропускаем дубликаты " "
-    bool spaceDone = false;
+    // Широкие клавиши (" " и "СТЕРЕТЬ") занимают все подряд идущие
+    // дубликаты в строке; повторные вхождения пропускаем.
+    bool wideDone[2] = {false, false};
     int cells = kKbdCols * kKbdRows;
     for (int i = 0; i < cells; i++) {
         const char *key = map[i];
         if (!key || !*key)
             continue;
+        int wide = !strcmp(key, " ") ? 0 : (!strcmp(key, "СТЕРЕТЬ") ? 1 : -1);
+        if (wide >= 0 && wideDone[wide])
+            continue;
         int col = i % kKbdCols;
         int row = i / kKbdCols;
         int span = 1;
-        if (!strcmp(key, " ")) {
-            if (spaceDone)
-                continue;
-            // занять все подряд идущие пробелы в строке
-            span = 1;
-            for (int j = i + 1; j < (row + 1) * kKbdCols && !strcmp(map[j], " "); j++)
+        if (wide >= 0) {
+            for (int j = i + 1; j < (row + 1) * kKbdCols && !strcmp(map[j], key); j++)
                 span++;
-            spaceDone = true;
+            wideDone[wide] = true;
         }
         lv_obj_t *b = lv_btn_create(kbd);
         bool accent = !strcmp(key, "OK");
         HorizonTheme::styleButton(b, accent);
+        // Клавиши не отбирают фокус у поля ввода (см. kbdShow).
+        lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICK_FOCUSABLE);
         lv_obj_set_grid_cell(b, LV_GRID_ALIGN_STRETCH, col, span, LV_GRID_ALIGN_STRETCH, row, 1);
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, !strcmp(key, " ") ? "ПРОБЕЛ" : key);
-        if (!strcmp(key, " ") || !strcmp(key, "123") || !strcmp(key, "АБВ"))
+        if (wide >= 0 || !strcmp(key, "123") || !strcmp(key, "АБВ"))
             lv_obj_set_style_text_font(l, HorizonTheme::fontSmall(), LV_PART_MAIN);
         lv_obj_center(l);
         lv_obj_set_user_data(b, (void *)key);
         lv_obj_add_event_cb(b, cbKbd, LV_EVENT_CLICKED, this);
+        lv_obj_add_event_cb(b, cbKbdLong, LV_EVENT_LONG_PRESSED, this);
     }
 }
 
@@ -617,7 +643,7 @@ void HorizonUI::kbdPress(const char *txt)
     }
     if (!kbdTarget || !lv_obj_is_valid(kbdTarget))
         return;
-    if (!strcmp(txt, "<")) {
+    if (!strcmp(txt, "СТЕРЕТЬ")) {
         lv_textarea_delete_char(kbdTarget);
         return;
     }
@@ -627,8 +653,56 @@ void HorizonUI::kbdPress(const char *txt)
 void HorizonUI::cbKbd(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    if (self->kbdSuppressClick) {
+        // Долгое нажатие уже вставило альтернативный символ.
+        self->kbdSuppressClick = false;
+        return;
+    }
     const char *key = (const char *)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
     self->kbdPress(key);
+}
+
+void HorizonUI::cbKbdLong(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    const char *key = (const char *)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    const char *alt = key ? kbdLongAlt(key) : nullptr;
+    if (alt && self->kbdTarget && lv_obj_is_valid(self->kbdTarget)) {
+        lv_textarea_add_text(self->kbdTarget, alt);
+        self->kbdSuppressClick = true; // грядущий CLICKED пропустить
+    }
+}
+
+// ---------------- охранник сна ----------------
+
+void HorizonUI::showSleepGuard(void)
+{
+    if (sleepGuard && lv_obj_is_valid(sleepGuard))
+        return;
+    sleepGuard = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(sleepGuard, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_opa(sleepGuard, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(sleepGuard, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(sleepGuard, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(sleepGuard, cbSleepWake, LV_EVENT_PRESSED, this);
+    lv_obj_move_foreground(sleepGuard);
+}
+
+void HorizonUI::hideSleepGuard(void)
+{
+    if (sleepGuard) {
+        if (lv_obj_is_valid(sleepGuard))
+            lv_obj_delete(sleepGuard);
+        sleepGuard = nullptr;
+    }
+}
+
+void HorizonUI::cbSleepWake(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    // Удаление на PRESSED гарантирует: отпущенная кнопка уже мертва,
+    // CLICKED никуда не уйдёт — нажатие только будит устройство.
+    self->hideSleepGuard();
 }
 
 // ---------------- заставка ----------------
@@ -647,15 +721,9 @@ void HorizonUI::showBoot(void)
     lv_obj_set_flex_align(box, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(box, 6, LV_PART_MAIN);
 
-    // Шрифт 20 не содержит эмодзи (см. HorizonStrings.h), поэтому вместо
-    // значка — акцентная плашка-разделитель «под прибор».
-    lv_obj_t *rule = lv_obj_create(box);
-    lv_obj_set_size(rule, 120, 4);
-    lv_obj_set_style_bg_color(rule, hzColor(p.accent), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(rule, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(rule, 2, LV_PART_MAIN);
-    lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
+    // Логотип (бинарник собран bin/make_logo.py из assets/horizon-logo.png).
+    lv_obj_t *logo = lv_image_create(box);
+    lv_image_set_src(logo, &hzLogo);
 
     lv_obj_t *name = lv_label_create(box);
     lv_label_set_text(name, kAppName);
@@ -707,7 +775,8 @@ void HorizonUI::buildMenu(void)
     lv_obj_set_pos(title, 0, kStatusH);
     lv_obj_remove_flag(title, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *tl = lv_label_create(title);
-    lv_label_set_text_fmt(tl, "%s  //  %s", kAppName, cfg.callsign);
+    lv_label_set_text_fmt(tl, "%s  //  %s %s", kAppName, cfg.callsign,
+                          kGroupGlyphs[cfg.group < kGroupCount ? cfg.group : 0]);
     lv_obj_set_style_text_font(tl, HorizonTheme::fontNormal(), LV_PART_MAIN);
     lv_obj_set_style_text_color(tl, hzColor(p.accent), LV_PART_MAIN);
     lv_obj_align(tl, LV_ALIGN_LEFT_MID, 8, 0);
@@ -716,10 +785,11 @@ void HorizonUI::buildMenu(void)
         const char *glyph;
         const char *label;
     };
-    static const TileDef tiles[7] = {
+    // 8 плиток ровно заполняют сетку 4x2 (альбом) и 2x4 (книжная).
+    static const TileDef tiles[8] = {
         {kGlyphGeneral, "Общий чат"}, {kGlyphGroup, "Группировка"}, {kGlyphAnnounce, "Объявления"},
         {kGlyphContacts, "Контакты"}, {kGlyphChats, "Открытые чаты"}, {kGlyphDossier, "Досье"},
-        {kGlyphSettings, "Настройки"},
+        {kGlyphSettings, "Настройки"}, {kGlyphMaps, "Карта"},
     };
 
     int cols = isPortrait() ? 2 : 4;
@@ -747,21 +817,15 @@ void HorizonUI::buildMenu(void)
         lv_obj_set_style_grid_row_dsc_array(grid, row2, LV_PART_MAIN);
     }
 
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 8; i++) {
         int col = i % cols;
         int row = i / cols;
-        // Последняя плитка — на всю ширину ряда
-        int span = 1;
-        if (i == 6) {
-            // Последняя плитка — широкая: в ландшафте занимает свободные
-            // колонки 2-3 нижнего ряда (col=1 перекрыл бы плитку 5!).
-            if (!isPortrait())
-                col = 2;
-            span = 2;
-        }
+        bool locked = (i == 7); // карта — заглушка «Позже»
         lv_obj_t *t = lv_btn_create(grid);
         HorizonTheme::styleTile(t);
-        lv_obj_set_grid_cell(t, LV_GRID_ALIGN_STRETCH, col, span, LV_GRID_ALIGN_STRETCH, row, 1);
+        lv_obj_set_grid_cell(t, LV_GRID_ALIGN_STRETCH, col, 1, LV_GRID_ALIGN_STRETCH, row, 1);
+        if (locked)
+            lv_obj_set_style_opa(t, LV_OPA_60, LV_PART_MAIN); // приглушить заблокированную
         // акцентная верхняя кромка
         lv_obj_set_style_border_color(t, hzColor(p.accent), LV_PART_MAIN);
         lv_obj_set_style_border_width(t, 3, LV_PART_MAIN);
@@ -778,6 +842,13 @@ void HorizonUI::buildMenu(void)
         lv_label_set_text(l, tiles[i].label);
         lv_obj_set_style_text_font(l, HorizonTheme::fontNormal(), LV_PART_MAIN);
         lv_obj_align(l, LV_ALIGN_CENTER, 0, isPortrait() ? 18 : 14);
+        if (locked) {
+            lv_obj_t *later = lv_label_create(t);
+            lv_label_set_text(later, "Позже");
+            lv_obj_set_style_text_font(later, HorizonTheme::fontSmall(), LV_PART_MAIN);
+            lv_obj_set_style_text_color(later, hzColor(p.textDim), LV_PART_MAIN);
+            lv_obj_align(later, LV_ALIGN_CENTER, 0, isPortrait() ? 38 : 34);
+        }
 
         // бейдж непрочитанных (только у чатов)
         if (i <= 4) {
@@ -858,7 +929,10 @@ void HorizonUI::cbTile(lv_event_t *e)
         self->showDossier();
         break;
     case 6:
-        self->showSettings();
+        self->openSettingsGated();
+        break;
+    case 7:
+        self->toast("Карта появится позже");
         break;
     default:
         break;
@@ -874,6 +948,9 @@ void HorizonUI::cbBack(lv_event_t *e)
         self->displayDirty = false;
     }
     switch (self->current) {
+    case Screen::SET_CHANNEL_DETAIL:
+        self->buildSetChannels();
+        break;
     case Screen::SET_CHANNELS:
     case Screen::SET_DEVICE:
     case Screen::SET_DISPLAY:
@@ -1001,6 +1078,21 @@ void HorizonUI::tick(void)
         return;
     }
 
+    // Охранник сна: показывать поверх всего, когда дисплей уснул по таймауту.
+    // Первое нажатие попадёт в него (и разбудит подсветку), а не в меню.
+    {
+        uint16_t t = HorizonConfig::instance().timeoutSec;
+        if (t > 0) {
+            uint32_t inact = lv_display_get_inactive_time(lv_display_get_default());
+            if (inact >= (uint32_t)t * 1000)
+                showSleepGuard();
+            else
+                hideSleepGuard();
+        } else {
+            hideSleepGuard();
+        }
+    }
+
     // медленные обновления раз в секунду
     if (now - lastSlowMs >= 1000) {
         lastSlowMs = now;
@@ -1038,6 +1130,23 @@ void HorizonUI::tick(void)
 }
 
 // ---------------- утилиты ----------------
+
+void HorizonUI::formatSender(uint32_t node, char *out, size_t cap)
+{
+    const HorizonDossierInfo *d = view->getStore().findDossier(node);
+    if (d && d->callsign[0]) {
+        const char *r = kRanks[d->rank < kRankCount ? d->rank : 0];
+        snprintf(out, cap, "%s, %s", d->callsign, r);
+    } else {
+        snprintf(out, cap, "%s", view->nodeLongName(node));
+    }
+}
+
+void HorizonUI::openSettingsGated(void)
+{
+    // Настройки ставит техник: вход только по мастер-PIN.
+    askPin("Мастер-PIN:", [this]() { showSettings(); });
+}
 
 void HorizonUI::fmtTime(uint32_t t, char *out, size_t cap)
 {

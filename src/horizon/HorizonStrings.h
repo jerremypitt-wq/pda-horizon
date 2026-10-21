@@ -16,12 +16,15 @@ constexpr const char *kFirmwareVersion = "1.0.0";
 // Ранги персонажа
 constexpr uint8_t kRankCount = 4;
 extern const char *const kRanks[kRankCount];
+constexpr uint8_t kRankVeteran = 2; // Ветеран и Мастер пишут в объявления
 
 // Группировки (досье)
 constexpr uint8_t kGroupCount = 10;
 extern const char *const kGroups[kGroupCount];
 // Короткие теги группировок для отображения в сети (видны другим игрокам)
 extern const char *const kGroupTags[kGroupCount];
+// Значки группировок (эмодзи U+1F300..U+1F6FC, наличие проверено по cmap 12/14)
+extern const char *const kGroupGlyphs[kGroupCount];
 
 // Цветовые темы оформления
 constexpr uint8_t kThemeCount = 5;
@@ -78,6 +81,7 @@ constexpr const char *kGlyphDossier = "📋";  // досье
 constexpr const char *kGlyphSettings = "🔧"; // настройки (ключ)
 constexpr const char *kGlyphLock = "🔒";
 constexpr const char *kGlyphUnlock = "🔓";
+constexpr const char *kGlyphMaps = "🗺";  // карта (плитка заблокирована, «Позже»)
 constexpr const char *kGlyphMail = "📩";  // непрочитанные/тосты
 constexpr const char *kGlyphClock = "🕐"; // часы в статусбаре
 constexpr const char *kGlyphWarn = "!";   // ASCII: misc-символов нет в шрифтах

@@ -8,11 +8,21 @@
 #include "horizon/HorizonSound.h"
 #include "horizon/HorizonUI.h"
 #include "util/ILog.h"
+#include <stdlib.h> // strtoul для разбора маяков
 #include <string.h>
 #include <time.h>
 #include <utility>
 
 HorizonView *HorizonView::gui = nullptr;
+
+namespace {
+// Маяк досье: широковещательный текст в общем канале, который Горизонты
+// перехватывают и не показывают. Формат: HZ:DOSSIER:<rank>:<group>:<callsign>
+// rank 0..3, group 0..9, позывной — остаток строки (может содержать ':').
+constexpr const char *kDossierBeaconPrefix = "HZ:DOSSIER:";
+constexpr size_t kDossierBeaconPrefixLen = sizeof("HZ:DOSSIER:") - 1;
+constexpr uint32_t kBeaconMinIntervalMs = 5000; // rate-limit маяков
+} // namespace
 
 // Ориентация для конструктора панели (variants/elecrow-adv-35/config.h).
 // Вызывается из LGFX-ctor при создании драйвера — к этому моменту
@@ -195,6 +205,13 @@ void HorizonView::newMessage(uint32_t from, uint32_t to, uint8_t ch, const char 
 {
     if (!msg)
         return;
+    if (to == 0xFFFFFFFFu && !strncmp(msg, kDossierBeaconPrefix, kDossierBeaconPrefixLen)) {
+        // Маяк досье: обновить справочник, в историю/тосты/звук не идёт.
+        // Восстановленные маяки из /messages тоже разбираем (перестроить
+        // справочник после перезагрузки), но не отвечаем на них.
+        handleDossierBeacon(from, msg, !restore);
+        return;
+    }
     if (msgtime < 1000000)
         msgtime = actTime;
     store.addMessage(from, to, ch, msgtime, msg, !restore);
@@ -264,6 +281,7 @@ void HorizonView::notifyConnected(const char *info)
     (void)info;
     connected = true;
     ILOG_INFO("Horizon: radio connected");
+    announceDossier(); // представиться сети (с rate-limit внутри)
 }
 
 void HorizonView::notifyDisconnected(const char *info)
@@ -414,25 +432,79 @@ uint8_t HorizonView::nodeHopLimit(uint32_t nodeNum) const
 
 // ---------------- действия ----------------
 
-void HorizonView::sendChannelMessage(uint8_t ch, const char *text)
+namespace {
+// Обрезать до 230 байт по границе UTF-8 (лимит текстового пакета).
+void truncate230(std::string &s)
 {
-    if (!text || !*text)
-        return;
-    // Обрезать до 230 байт по границе UTF-8
-    std::string s = text;
     if (s.size() > 230) {
         size_t n = 230;
         while (n > 0 && (s[n] & 0xC0) == 0x80)
             n--;
         s.resize(n);
     }
+}
+} // namespace
+
+void HorizonView::sendChannelRaw(uint8_t ch, const char *text)
+{
+    if (!text || !*text)
+        return;
+    std::string s = text;
+    truncate230(s);
     uint8_t hop = gotLoRa ? (uint8_t)lora.hop_limit : 3;
     if (hop == 0)
         hop = 3;
     uint32_t reqId = requests.addRequest(ch, ResponseHandler::TextMessageRequest, nullptr, nullptr);
     controller->sendTextMessage(0xFFFFFFFFu, ch, hop, actTime, reqId, false, s.c_str());
+}
+
+void HorizonView::sendChannelMessage(uint8_t ch, const char *text)
+{
+    if (!text || !*text)
+        return;
+    sendChannelRaw(ch, text);
+    std::string s = text;
+    truncate230(s);
     store.addMessage(ownNode, 0xFFFFFFFFu, ch, actTime, s.c_str(), false);
     msgsDirty = true;
+}
+
+void HorizonView::announceDossier(void)
+{
+    if (!connected)
+        return;
+    uint32_t now = millis();
+    if (now - lastBeaconMs < kBeaconMinIntervalMs)
+        return;
+    lastBeaconMs = now;
+    HorizonConfig &cfg = HorizonConfig::instance();
+    char buf[96];
+    snprintf(buf, sizeof(buf), "%s%u:%u:%s", kDossierBeaconPrefix, cfg.rank, cfg.group, cfg.callsign);
+    ILOG_INFO("Horizon: announce dossier '%s'", buf);
+    sendChannelRaw(cfg.generalCh, buf);
+}
+
+void HorizonView::handleDossierBeacon(uint32_t from, const char *msg, bool canReply)
+{
+    if (from == 0 || from == ownNode || !msg)
+        return;
+    const char *p = msg + kDossierBeaconPrefixLen;
+    char *e1 = nullptr;
+    char *e2 = nullptr;
+    unsigned long rank = strtoul(p, &e1, 10);
+    if (!e1 || *e1 != ':')
+        return;
+    unsigned long group = strtoul(e1 + 1, &e2, 10);
+    if (!e2 || *e2 != ':' || !*(e2 + 1))
+        return;
+    if (rank > 3 || group > 9)
+        return;
+    bool known = store.findDossier(from) != nullptr;
+    store.upsertDossier(from, e2 + 1, (uint8_t)rank, (uint8_t)group, actTime);
+    ILOG_INFO("Horizon: dossier %08x '%s' rank=%u group=%u", (unsigned)from, e2 + 1, (unsigned)rank,
+              (unsigned)group);
+    if (canReply && !known)
+        announceDossier(); // представиться в ответ (с rate-limit внутри)
 }
 
 void HorizonView::sendDirectMessage(uint32_t peer, const char *text)

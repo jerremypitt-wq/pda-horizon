@@ -94,6 +94,8 @@ class HorizonView : public MeshtasticView
 
     // --- Действия (интерфейс -> радиомодуль) ---
     void sendChannelMessage(uint8_t ch, const char *text);
+    void sendChannelRaw(uint8_t ch, const char *text); // без записи в локальную историю (маяки)
+    void announceDossier(void);                        // маяк «HZ:DOSSIER:» в общий канал
     void sendDirectMessage(uint32_t peer, const char *text);
     void applyOwnerFromDossier(void);
     // simpleKey: 0=без ключа, 1=default, 2..11=simple1..10, 0xFF=не менять
@@ -132,6 +134,9 @@ class HorizonView : public MeshtasticView
 
     void upsertNodeUser(uint32_t nodeNum, uint8_t channel, uint32_t lastHeard, const meshtastic_User &cfg,
                         bool viaMqtt);
+    // Разобрать маяк досье (canReply=false для восстановленных из истории)
+    void handleDossierBeacon(uint32_t from, const char *msg, bool canReply);
+    uint32_t lastBeaconMs = 0; // rate-limit маяков
     uint8_t nodeChannel(uint32_t nodeNum) const;
     bool nodeHasKey(uint32_t nodeNum) const;
     uint8_t nodeHopLimit(uint32_t nodeNum) const;

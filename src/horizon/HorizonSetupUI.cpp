@@ -229,9 +229,13 @@ void HorizonUI::buildDossier(void)
     lv_obj_t *call = lv_label_create(col);
     lv_label_set_text_fmt(call, "«%s»", cfg.callsign);
     lv_obj_set_style_text_font(call, HorizonTheme::fontMedium(), LV_PART_MAIN);
+    lv_obj_set_width(call, lv_pct(100));
+    lv_label_set_long_mode(call, LV_LABEL_LONG_WRAP);
     lv_obj_t *nm = lv_label_create(col);
     lv_label_set_text(nm, cfg.charName);
     lv_obj_set_style_text_color(nm, hzColor(p.textDim), LV_PART_MAIN);
+    lv_obj_set_width(nm, lv_pct(100));
+    lv_label_set_long_mode(nm, LV_LABEL_LONG_WRAP);
 
     struct Field {
         const char *k;
@@ -241,9 +245,12 @@ void HorizonUI::buildDossier(void)
     snprintf(idbuf, sizeof(idbuf), "!%08x", (unsigned)view->getMyNodeNum());
     char netbuf[64];
     snprintf(netbuf, sizeof(netbuf), "%s / %s", cfg.meshLongName().c_str(), cfg.meshShortName().c_str());
+    char groupbuf[48];
+    snprintf(groupbuf, sizeof(groupbuf), "%s %s", kGroupGlyphs[cfg.group < kGroupCount ? cfg.group : 0],
+             kGroups[cfg.group < kGroupCount ? cfg.group : 0]);
     Field fields[] = {
         {"Ранг", kRanks[cfg.rank < kRankCount ? cfg.rank : 0]},
-        {"Группировка", kGroups[cfg.group < kGroupCount ? cfg.group : 0]},
+        {"Группировка", groupbuf},
         {"ID узла", idbuf},
         {"В сети видно как", netbuf},
     };
@@ -261,6 +268,8 @@ void HorizonUI::buildDossier(void)
         lv_obj_set_style_text_color(k, hzColor(p.textDim), LV_PART_MAIN);
         lv_obj_t *v = lv_label_create(row);
         lv_label_set_text(v, f.v);
+        lv_obj_set_width(v, lv_pct(62));
+        lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     }
 
@@ -410,6 +419,7 @@ void HorizonUI::saveDossier(void)
         cfg.group = (uint8_t)lv_dropdown_get_selected(editGroup);
     cfg.save();
     view->applyOwnerFromDossier();
+    view->announceDossier(); // разослать новый позывной/ранг сети
     toast("Досье сохранено");
     showDossier();
 }
@@ -454,7 +464,65 @@ void HorizonUI::buildSetChannels(void)
     clearScreen(Screen::SET_CHANNELS);
     HorizonConfig &cfg = HorizonConfig::instance();
     addStatusBar(scr);
-    addNavHeader(scr, "Каналы чатов", "Привязка разделов к каналам");
+    addNavHeader(scr, "Каналы чатов", "Выбери раздел");
+
+    lv_obj_t *body = lv_obj_create(scr);
+    lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
+    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 2);
+    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(body, 6, LV_PART_MAIN);
+
+    struct ChRow {
+        const char *title;
+        uint8_t ch;
+    };
+    ChRow rows[3] = {
+        {"Общий чат", cfg.generalCh},
+        {"Чат группировки", cfg.groupCh},
+        {"Объявления", cfg.announceCh},
+    };
+    for (int i = 0; i < 3; i++) {
+        char sub[64];
+        snprintf(sub, sizeof(sub), "%s · %s", view->channelLabel(rows[i].ch),
+                 view->channelIsLocked(rows[i].ch) ? kGlyphLock : kGlyphUnlock);
+        lv_obj_t *b = rowButton(body, rows[i].title, sub, i);
+        // rowButton вешает cbRow (работает только на экране SETTINGS) —
+        // переназначить на выбор канала.
+        lv_obj_remove_event_cb(b, cbRow);
+        lv_obj_add_event_cb(b, cbSetChannelPick, LV_EVENT_CLICKED, this);
+    }
+
+    lv_obj_t *hint = lv_label_create(body);
+    lv_label_set_text(hint, "Закрытый чат: одинаковый ключ группы на всех ПДА.");
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(hint, lv_pct(100));
+    lv_obj_set_style_text_font(hint, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(hint, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
+}
+
+void HorizonUI::cbSetChannelPick(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    if (id < 0 || id > 2)
+        return;
+    self->setDetailKind = (uint8_t)id;
+    self->buildSetChannelDetail();
+}
+
+void HorizonUI::buildSetChannelDetail(void)
+{
+    clearScreen(Screen::SET_CHANNEL_DETAIL);
+    HorizonConfig &cfg = HorizonConfig::instance();
+    static const char *titles[3] = {"Общий чат — канал", "Чат группировки — канал", "Объявления — канал"};
+    static const char *defaults[3] = {"GENERAL", "GROUP", "INFO"};
+    uint8_t kind = setDetailKind > 2 ? 0 : setDetailKind;
+    uint8_t cur = kind == 0 ? cfg.generalCh : (kind == 1 ? cfg.groupCh : cfg.announceCh);
+    addStatusBar(scr);
+    addNavHeader(scr, titles[kind], "Номер, имя и ключ");
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
@@ -465,68 +533,38 @@ void HorizonUI::buildSetChannels(void)
     lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_row(body, 4, LV_PART_MAIN);
 
+    sectionLabel(body, "Номер канала");
+    setDetailCh = channelDropdown(body, cur);
     char info[96];
-    sectionLabel(body, "Общий чат - канал");
-    setChGeneral = channelDropdown(body, cfg.generalCh);
-    snprintf(info, sizeof(info), "Сейчас: %s %s", view->channelLabel(cfg.generalCh),
-             view->channelIsLocked(cfg.generalCh) ? kGlyphLock : kGlyphUnlock);
-    lv_obj_t *gi = lv_label_create(body);
-    lv_label_set_text(gi, info);
-    lv_obj_set_style_text_font(gi, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    snprintf(info, sizeof(info), "Сейчас: %s %s", view->channelLabel(cur),
+             view->channelIsLocked(cur) ? kGlyphLock : kGlyphUnlock);
+    lv_obj_t *ci = lv_label_create(body);
+    lv_label_set_text(ci, info);
+    lv_obj_set_style_text_font(ci, HorizonTheme::fontSmall(), LV_PART_MAIN);
 
-    sectionLabel(body, "Чат группировки - канал");
-    setChGroup = channelDropdown(body, cfg.groupCh);
-    sectionLabel(body, "Имя канала группировки");
-    setGroupName = lv_textarea_create(body);
-    HorizonTheme::styleField(setGroupName);
-    lv_textarea_set_one_line(setGroupName, true);
-    lv_textarea_set_max_length(setGroupName, 11);
+    sectionLabel(body, "Имя канала в эфире");
+    setDetailName = lv_textarea_create(body);
+    HorizonTheme::styleField(setDetailName);
+    lv_textarea_set_one_line(setDetailName, true);
+    lv_textarea_set_max_length(setDetailName, 11);
     {
-        const meshtastic_Channel *c = view->radioChannel(cfg.groupCh);
-        lv_textarea_set_text(setGroupName, (c && c->has_settings && c->settings.name[0]) ? c->settings.name : "GROUP");
+        const meshtastic_Channel *c = view->radioChannel(cur);
+        lv_textarea_set_text(setDetailName,
+                             (c && c->has_settings && c->settings.name[0]) ? c->settings.name : defaults[kind]);
     }
-    lv_obj_set_width(setGroupName, lv_pct(100));
-    lv_obj_set_height(setGroupName, 40);
-    lv_obj_add_event_cb(setGroupName, cbInputFocus, LV_EVENT_FOCUSED, this);
-    lv_obj_add_event_cb(setGroupName, cbInputFocus, LV_EVENT_DEFOCUSED, this);
-    sectionLabel(body, "Ключ канала группировки");
-    setGroupKey = simpleKeyDropdown(body, currentKeyIndex(view, cfg.groupCh));
-    if (hasCustomKey(view, cfg.groupCh)) {
+    lv_obj_set_width(setDetailName, lv_pct(100));
+    lv_obj_set_height(setDetailName, 40);
+    lv_obj_add_event_cb(setDetailName, cbInputFocus, LV_EVENT_FOCUSED, this);
+    lv_obj_add_event_cb(setDetailName, cbInputFocus, LV_EVENT_DEFOCUSED, this);
+
+    sectionLabel(body, "Ключ канала");
+    setDetailKey = simpleKeyDropdown(body, currentKeyIndex(view, cur));
+    if (hasCustomKey(view, cur)) {
         lv_obj_t *w = lv_label_create(body);
         lv_label_set_text(w, "Внимание: на канале свой длинный ключ, он будет заменён.");
         lv_obj_set_style_text_font(w, HorizonTheme::fontSmall(), LV_PART_MAIN);
         lv_obj_set_style_text_color(w, hzColor(HorizonTheme::current().danger), LV_PART_MAIN);
     }
-
-    sectionLabel(body, "Объявления - канал");
-    setChAnnounce = channelDropdown(body, cfg.announceCh);
-    sectionLabel(body, "Имя канала объявлений");
-    setAnnounceName = lv_textarea_create(body);
-    HorizonTheme::styleField(setAnnounceName);
-    lv_textarea_set_one_line(setAnnounceName, true);
-    lv_textarea_set_max_length(setAnnounceName, 11);
-    {
-        const meshtastic_Channel *c = view->radioChannel(cfg.announceCh);
-        lv_textarea_set_text(setAnnounceName,
-                             (c && c->has_settings && c->settings.name[0]) ? c->settings.name : "INFO");
-    }
-    lv_obj_set_width(setAnnounceName, lv_pct(100));
-    lv_obj_set_height(setAnnounceName, 40);
-    lv_obj_add_event_cb(setAnnounceName, cbInputFocus, LV_EVENT_FOCUSED, this);
-    lv_obj_add_event_cb(setAnnounceName, cbInputFocus, LV_EVENT_DEFOCUSED, this);
-    sectionLabel(body, "Ключ канала объявлений");
-    setAnnounceKey = simpleKeyDropdown(body, currentKeyIndex(view, cfg.announceCh));
-    if (hasCustomKey(view, cfg.announceCh)) {
-        lv_obj_t *w = lv_label_create(body);
-        lv_label_set_text(w, "Внимание: на канале свой длинный ключ, он будет заменён.");
-        lv_obj_set_style_text_font(w, HorizonTheme::fontSmall(), LV_PART_MAIN);
-        lv_obj_set_style_text_color(w, hzColor(HorizonTheme::current().danger), LV_PART_MAIN);
-    }
-
-    lv_obj_t *hint = lv_label_create(body);
-    lv_label_set_text(hint, "Закрытый чат: поставь одинаковый ключ\nгруппы на всех ПДА группировки.");
-    lv_obj_set_style_text_font(hint, HorizonTheme::fontSmall(), LV_PART_MAIN);
-    lv_obj_set_style_text_color(hint, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
 
     lv_obj_t *apply = lv_btn_create(scr);
     HorizonTheme::styleButton(apply, true);
@@ -535,36 +573,37 @@ void HorizonUI::buildSetChannels(void)
     lv_obj_t *al = lv_label_create(apply);
     lv_label_set_text(al, "Применить");
     lv_obj_center(al);
-    lv_obj_add_event_cb(apply, cbSetApplyChannels, LV_EVENT_CLICKED, this);
+    lv_obj_add_event_cb(apply, cbSetApplyChannelDetail, LV_EVENT_CLICKED, this);
 }
 
-void HorizonUI::cbSetApplyChannels(lv_event_t *e)
+void HorizonUI::cbSetApplyChannelDetail(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     HorizonConfig &cfg = HorizonConfig::instance();
-    uint8_t g = self->setChGeneral ? (uint8_t)lv_dropdown_get_selected(self->setChGeneral) : cfg.generalCh;
-    uint8_t gr = self->setChGroup ? (uint8_t)lv_dropdown_get_selected(self->setChGroup) : cfg.groupCh;
-    uint8_t an = self->setChAnnounce ? (uint8_t)lv_dropdown_get_selected(self->setChAnnounce) : cfg.announceCh;
-    if (g == gr || g == an || gr == an) {
-        self->toast("Каналы совпадают! Так чаты смешаются.");
+    uint8_t kind = self->setDetailKind > 2 ? 0 : self->setDetailKind;
+    uint8_t ch = self->setDetailCh ? (uint8_t)lv_dropdown_get_selected(self->setDetailCh) : 0;
+    uint8_t o1 = kind == 0 ? cfg.groupCh : cfg.generalCh;
+    uint8_t o2 = kind == 2 ? cfg.groupCh : cfg.announceCh;
+    if (ch == o1 || ch == o2) {
+        self->toast("Канал уже занят другим разделом");
         return;
     }
-    if (gr == 0 || an == 0) {
-        self->toast("Канал 0 - только для общего чата");
+    if (kind != 0 && ch == 0) {
+        self->toast("Канал 0 — только для общего чата");
         return;
     }
-    cfg.generalCh = g;
-    cfg.groupCh = gr;
-    cfg.announceCh = an;
+    if (kind == 0)
+        cfg.generalCh = ch;
+    else if (kind == 1)
+        cfg.groupCh = ch;
+    else
+        cfg.announceCh = ch;
     cfg.save();
 
-    const char *grName = self->setGroupName ? lv_textarea_get_text(self->setGroupName) : "GROUP";
-    uint8_t grKey = self->setGroupKey ? (uint8_t)lv_dropdown_get_selected(self->setGroupKey) : 0xFF;
-    const char *anName = self->setAnnounceName ? lv_textarea_get_text(self->setAnnounceName) : "INFO";
-    uint8_t anKey = self->setAnnounceKey ? (uint8_t)lv_dropdown_get_selected(self->setAnnounceKey) : 0xFF;
-    self->view->applyChannelSettings(gr, grName, grKey);
-    self->view->applyChannelSettings(an, anName, anKey);
-    self->toast("Каналы отправлены на узел");
+    const char *nm = self->setDetailName ? lv_textarea_get_text(self->setDetailName) : "";
+    uint8_t key = self->setDetailKey ? (uint8_t)lv_dropdown_get_selected(self->setDetailKey) : 0xFF;
+    self->view->applyChannelSettings(ch, (nm && *nm) ? nm : nullptr, key);
+    self->toast("Канал отправлен на узел");
     self->askConfirm("Перезагрузить радиомодуль, чтобы ключи вступили в силу?", "Да", [self]() {
         self->view->rebootNode();
         self->toast("Узел перезагружается...");

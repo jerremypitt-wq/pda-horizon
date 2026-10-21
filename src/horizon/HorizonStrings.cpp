@@ -13,6 +13,11 @@ const char *const kGroups[kGroupCount] = {"Одиночки",  "Долг",    "�
 const char *const kGroupTags[kGroupCount] = {"ОДН", "ДОЛГ", "СВБ", "НАЁМ", "УЧН",
                                              "БНД", "МНЛ",  "ГРЕХ", "ВС",   "ЧН"};
 
+// Порядок — как kGroups: Одиночки, Долг, Свобода, Наёмники, Учёные,
+// Бандиты, Монолит, Грех, Военные, Чистое небо.
+const char *const kGroupGlyphs[kGroupCount] = {"🎒", "🛡", "🏴", "💰", "🔬",
+                                               "💀", "🗿", "😈", "🎖", "🌊"};
+
 const char *const kThemes[kThemeCount] = {"Тёмная (Сталкер)", "Светлая", "Долг", "Свобода", "Одиночки (хаки)"};
 
 // Коды должны совпадать с meshtastic_Config_LoRaConfig_RegionCode
