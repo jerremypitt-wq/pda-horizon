@@ -1,17 +1,29 @@
 #pragma once
 // variants/elecrow-adv-35/config.h — плата Elecrow CrowPanel Advance 3.5"
-// для репозитория standalone-ui. Зеркалит известную распиновку из
-// meshtastic/firmware variant elecrow_panel.
+// для репозитория standalone-ui / ПДА «Горизонт».
 //
-// Дисплей: ILI9488 (SPI) 480x320 ландшафт
+// Дисплей: ILI9488 (SPI) 480x320 ландшафт (или 320x480 книжный для Горизонта)
 // Тач:     GT911 (I2C) addr 0x5D
-// ПРОВЕРИТЬ ПО ПРИБОРУ: host/vsync-режим, инверсия цвета, канал PWM подсветки.
+// ПРОВЕРИТЬ ПО ПРИБОРУ: инверсия цвета, канал PWM подсветки, пин сброса.
+//
+// Этот файл force-include'ится сборкой -mui окружения (см. platformio.ini),
+// поэтому C++-код спрятан за #ifdef __cplusplus, чтобы не ломать Си-файлы.
+
+#include <stdint.h>
+#include <string.h>
 
 #ifndef LGFX_DRIVER
 #define LGFX_DRIVER LGFX_ELECROW_ADV_35
 #endif
 
+// config.h is force-included by the -mui build. Keep C translation units from
+// parsing the C++-only LovyanGFX headers and class declaration.
+#ifdef __cplusplus
 #include <LovyanGFX.hpp>
+
+#if defined(HORIZON_UI) && defined(ARCH_ESP32)
+#include "LittleFS.h"
+#endif
 
 class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
 {
@@ -21,11 +33,22 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
     lgfx::Touch_GT911   _touch;
 
   public:
+    // Logical panel dimensions after rotation (may be swapped for portrait).
+    uint16_t screenWidth = 480;
+    uint16_t screenHeight = 320;
+
+    // This display has touch input but no physical button exposed by this driver.
+    bool hasButton(void) { return false; }
+
     LGFX_ELECROW_ADV_35(void)
     {
+        bool portrait = false;
+#if defined(HORIZON_UI) && defined(ARCH_ESP32)
+        portrait = horizonPortrait();
+#endif
         { // SPI-шина дисплея (из firmware-варианта: SCK42 MOSI39 DC41 CS40)
             auto cfg = _bus.config();
-            cfg.spi_host    = SPI3_HOST;     // на S3 свободен (SPI2 занят радио/прочим)
+            cfg.spi_host    = SPI3_HOST;
             cfg.spi_mode    = 0;
             cfg.freq_write  = 40000000;
             cfg.freq_read   = 16000000;
@@ -42,7 +65,7 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
         { // Панель ILI9488 480x320
             auto cfg = _panel.config();
             cfg.pin_cs   = 40;
-            cfg.pin_rst  = -1;               // у проекта сброс на EN-плате; проверить
+            cfg.pin_rst  = -1;
             cfg.pin_busy = -1;
             cfg.memory_width  = 320;
             cfg.memory_height = 480;
@@ -50,10 +73,14 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
             cfg.panel_height  = 480;
             cfg.offset_x = 0;
             cfg.offset_y = 0;
-            cfg.invert   = true;             // типично для ILI9488; при «негативе» -> false
+            cfg.invert   = true;
             cfg.rgb_order = false;
             _panel.config(cfg);
-            _panel.setRotation(1);           // ландшафт 480x320
+            _panel.setRotation(portrait ? 0 : 1);
+        }
+        if (portrait) {
+            screenWidth = 320;
+            screenHeight = 480;
         }
         { // Подсветка BL=38
             auto cfg = _light.config();
@@ -66,8 +93,13 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
         }
         { // Тач GT911 (SDA15 SCL16 INT47 RST48, 0x5D)
             auto cfg = _touch.config();
-            cfg.x_min = 0;  cfg.x_max = 479;
-            cfg.y_min = 0;  cfg.y_max = 319;
+            if (portrait) {
+                cfg.x_min = 0;  cfg.x_max = 319;
+                cfg.y_min = 0;  cfg.y_max = 479;
+            } else {
+                cfg.x_min = 0;  cfg.x_max = 479;
+                cfg.y_min = 0;  cfg.y_max = 319;
+            }
             cfg.pin_int = 47;
             cfg.pin_rst = 48;
             cfg.i2c_port = 1;
@@ -80,10 +112,35 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
         }
         setPanel(&_panel);
     }
-};
 
-// Серийный линк к LoRa-узлу (режим PROTO) — вывести на свободные GPIO,
-// который подтверждён схемой CrowPanel Advance (см. silk-печать разъёмов).
+  private:
+#if defined(HORIZON_UI) && defined(ARCH_ESP32)
+    // Читать ориентацию из настроек Горизонта (LittleFS уже смонтирована:
+    // HorizonView::instance() вызывается после FSBegin()). Формат файла —
+    // key=value, ищем строку "orientation=1".
+    static bool horizonPortrait(void)
+    {
+        File f = LittleFS.open("/horizon.cfg", "r");
+        if (!f)
+            return false;
+        char line[64];
+        bool portrait = false;
+        while (f.available()) {
+            size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
+            line[n] = '\0';
+            if (line[0] == 'o' && !strncmp(line, "orientation=1", 13)) {
+                portrait = true;
+                break;
+            }
+        }
+        f.close();
+        return portrait;
+    }
+#endif
+};
+#endif // __cplusplus
+
+// Серийный линк к LoRa-узлу (режим PROTO).
 #ifndef SERIAL_RX
 #define SERIAL_RX 44
 #endif

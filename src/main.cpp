@@ -6,7 +6,11 @@
 #include "comms/LinuxSerialClient.h"
 #include "comms/SerialClient.h"
 #include "comms/UARTClient.h"
+#if defined(HORIZON_UI)
+#include "horizon/HorizonView.h"
+#else
 #include "graphics/DeviceScreen.h"
+#endif
 
 #if defined(ARCH_PORTDUINO)
 #include <thread>
@@ -22,7 +26,11 @@
 #endif
 
 // this is pulled in by the device-ui library
+#if defined(HORIZON_UI)
+const char *firmware_version = "1.0.0-horizon";
+#else
 const char *firmware_version = "2.8.0";
+#endif
 
 #ifdef USE_DUMMY_SERIAL
 class DummyClient : public IClientBase
@@ -46,7 +54,11 @@ class DummyClient : public IClientBase
 #endif
 
 IClientBase *client = nullptr;
+#if defined(HORIZON_UI)
+HorizonView *screen = nullptr;
+#else
 DeviceScreen *screen = nullptr;
+#endif
 esp_log_level_t logLevel = esp_log_level_t::ESP_LOG_DEBUG;
 
 #ifdef ARCH_PORTDUINO
@@ -203,7 +215,11 @@ void setup()
 #else
     client = new UARTClient();
 #endif
+#if defined(HORIZON_UI)
+    screen = &HorizonView::instance();
+#else
     screen = &DeviceScreen::create();
+#endif
 #endif
 
     screen->init(client);
@@ -239,7 +255,11 @@ void setup()
 void loop()
 {
     screen->task_handler();
+#if defined(HORIZON_UI)
+    delay(5); // yield, do not remove
+#else
     screen->sleep(5);
+#endif
 }
 
 #elif defined(ARCH_PORTDUINO)
