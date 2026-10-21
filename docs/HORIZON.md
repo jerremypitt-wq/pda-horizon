@@ -159,12 +159,19 @@ g++ -fsyntax-only -std=c++17 -DHORIZON_UI -DARCH_ESP32 -DUSE_ILOG \
   src/horizon/<Module>.cpp
 ```
 
-Все 9 единиц трансляции (`HorizonStrings`, `HorizonStore`, `HorizonConfig`,
+Все единицы трансляции (`HorizonStrings`, `HorizonStore`, `HorizonConfig`,
 `HorizonTheme`, `HorizonSound`, `HorizonView`, `HorizonUI`, `HorizonChatUI`,
-`HorizonSetupUI`) проходят проверку без ошибок. Ветка панели `ELECROW_ADV_35` в
-`HorizonView::instance()` повторяет штатный паттерн device-ui
-(`LGFXDriver<LGFX_XXX>(w, h)` + класс панели на `lgfx::LGFX_Device`)
-и инстанцируется только на таргете, где доступен LovyanGFX.
+`HorizonSetupUI`) проходят проверку без ошибок. Создание драйвера панели
+вынесено в отдельный `HorizonDisplay.cpp`, который хост-проверка пропускает:
+LovyanGFX объявляет глобальный `namespace fonts`, конфликтующий с глобальным
+массивом `fonts[]` из `generated/ui_320x240/fonts.h`, поэтому LovyanGFX живёт
+только в этой единице трансляции. Глобальный `-include config.h` не
+используется осознанно: он ломал LDF чужих библиотек. `DisplayDriverFactory`
+из device-ui в этой прошивке не вызывается.
+
+Окружение `elecrow-adv-35-mui` (штатный MUI на той же плате) идёт через
+фабрику и дополнительно требует применить к форку device-ui патч
+`docs/patches/device-ui-elecrow35-factory.patch`.
 
 ## Структура кода
 
@@ -175,6 +182,8 @@ src/horizon/
   HorizonTheme.*    - пять палитр и стили LVGL
   HorizonStore.*    - сообщения, диалоги каналов и ЛС, счётчики непрочитанных
   HorizonSound.*    - короткие одиночные бипы зуммера (GPIO8)
+  HorizonDisplay.*  - создание LGFX-драйвера (отдельная единица: LovyanGFX
+                      конфликтует с fonts.h, см. выше)
   HorizonView.*     - вид MVC: NodeStore, отправка, конфиги, dirty-флаги
   HorizonUI.*/.cpp  - каркас, заставка, меню, тосты, PIN/confirm, клавиатура
   HorizonChatUI.cpp - чаты каналов/ЛС, контакты, открытые чаты, очистка истории

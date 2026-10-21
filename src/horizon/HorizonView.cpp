@@ -4,21 +4,13 @@
 #include "horizon/HorizonView.h"
 #include "graphics/common/ViewController.h"
 #include "graphics/driver/DisplayDriver.h"
-#include "graphics/driver/DisplayDriverFactory.h"
+#include "horizon/HorizonDisplay.h"
 #include "horizon/HorizonSound.h"
 #include "horizon/HorizonUI.h"
 #include "util/ILog.h"
 #include <string.h>
 #include <time.h>
 #include <utility>
-
-#if defined(ELECROW_ADV_35)
-// Свой LGFX-драйвер CrowPanel Advance 3.5" (вариант платы, см. variants/elecrow-adv-35).
-// Создаём LGFXDriver напрямую в нашей единице трансляции, чтобы не требовать
-// глобального -include config.h для всей библиотеки device-ui.
-#include "config.h"
-#include "graphics/driver/LGFXDriver.h"
-#endif
 
 HorizonView *HorizonView::gui = nullptr;
 
@@ -42,11 +34,7 @@ HorizonView &HorizonView::instance(void)
             h = 480;
         }
         ILOG_INFO("Horizon: creating view %dx%d", w, h);
-#if defined(ELECROW_ADV_35)
-        gui = new HorizonView(nullptr, new LGFXDriver<LGFX_ELECROW_ADV_35>(w, h));
-#else
-        gui = new HorizonView(nullptr, DisplayDriverFactory::create(w, h));
-#endif
+        gui = new HorizonView(nullptr, horizonCreateDisplayDriver(w, h));
     }
     return *gui;
 }
