@@ -416,7 +416,7 @@ void HorizonUI::buildToolPick(void)
         lv_obj_center(bt);
 
         lv_obj_t *col = lv_obj_create(b);
-        lv_obj_set_width(col, W() - 92);
+        lv_obj_set_flex_grow(col, 1); // место под кнопку ">" справа
         lv_obj_set_height(col, LV_SIZE_CONTENT);
         lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, LV_PART_MAIN);
         lv_obj_set_style_border_width(col, 0, LV_PART_MAIN);
@@ -439,6 +439,16 @@ void HorizonUI::buildToolPick(void)
         lv_obj_set_style_text_font(sl, HorizonTheme::fontSmall(), LV_PART_MAIN);
         lv_obj_set_style_text_color(sl, hzColor(p.textDim), LV_PART_MAIN);
 
+        // явная кнопка выбора справа - как ">" в контактах
+        lv_obj_t *go = lv_btn_create(b);
+        HorizonTheme::styleButton(go, true);
+        lv_obj_set_size(go, 40, 40);
+        lv_obj_t *gl = lv_label_create(go);
+        lv_label_set_text(gl, ">");
+        lv_obj_center(gl);
+        lv_obj_set_user_data(go, (void *)(intptr_t)r.id);
+        lv_obj_add_event_cb(go, cbToolPickGo, LV_EVENT_CLICKED, this);
+
         lv_obj_set_user_data(b, (void *)(intptr_t)r.id);
         lv_obj_add_event_cb(b, cbToolPick, LV_EVENT_CLICKED, this);
     }
@@ -447,6 +457,22 @@ void HorizonUI::buildToolPick(void)
 void HorizonUI::cbToolPick(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    uint32_t id = (uint32_t)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
+    if (id == 0 || id == 0xFFFFFFFFu)
+        return;
+    if (self->toolPickMode == 0) {
+        self->view->startScan(id);
+        self->buildToolScan();
+    } else {
+        self->view->startTrace(id);
+        self->buildToolRoute();
+    }
+}
+
+void HorizonUI::cbToolPickGo(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    lv_event_stop_bubbling(e); // строка тоже кликабельна - не стартовать дважды
     uint32_t id = (uint32_t)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     if (id == 0 || id == 0xFFFFFFFFu)
         return;

@@ -304,6 +304,7 @@ class HorizonUI
     static void cbSoundSet(lv_event_t *e);
     static void cbToolRow(lv_event_t *e);
     static void cbToolPick(lv_event_t *e);
+    static void cbToolPickGo(lv_event_t *e); // кнопка ">" в строке выбора узла
     static void cbScanStop(lv_event_t *e);
     static void cbTraceStop(lv_event_t *e);
     static void cbStatsClear(lv_event_t *e);
