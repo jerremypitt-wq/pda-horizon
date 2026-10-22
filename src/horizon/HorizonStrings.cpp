@@ -20,7 +20,7 @@ const char *const kThemes[kThemeCount] = {"Тёмная (Сталкер)", "Св
 // Коды должны совпадать с meshtastic_Config_LoRaConfig_RegionCode
 // UNSET=0 US=1 EU_433=2 EU_868=3 CN=4 JP=5 ANZ=6 KR=7 TW=8 RU=9 IN=10 NZ_865=11 ...
 const RegionEntry kRegions[] = {
-    {"Россия (RU)", 9}, {"Европа 868 (EU)", 3}, {"Европа 433", 2}, {"Украина 868", 15},
+    {"Не задан (UNSET)", 0}, {"Россия (RU)", 9}, {"Европа 868 (EU)", 3}, {"Европа 433", 2}, {"Украина 868", 15},
     {"Украина 433", 14}, {"США (US)", 1}, {"Казахстан 433", 23}, {"Казахстан 863", 24},
 };
 const uint8_t kRegionCount = sizeof(kRegions) / sizeof(kRegions[0]);

@@ -949,7 +949,9 @@ void HorizonUI::buildSetDevice(void)
     lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_row(body, 4, LV_PART_MAIN);
 
-    int curRegion = 9, curPreset = 0, curHops = 3, curRole = 0;
+    // Дефолты при отсутствии данных от радио = дефолты прошивки (регион UNSET=0,
+    // иначе свежая плата показывала бы «Россия (RU)» при молчащем эфире).
+    int curRegion = 0, curPreset = 0, curHops = 3, curRole = 0;
     bool curTx = true;
     if (view->hasLoRaConfig()) {
         curRegion = (int)view->loraConfig().region;
