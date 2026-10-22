@@ -71,6 +71,14 @@ void HorizonView::init(IClientBase *client)
 {
     ILOG_INFO("Horizon: init...");
     MeshtasticView::init(client);
+#ifdef HORIZON_PACKET_LINK
+    // В дереве прошивки нет ARCH_ESP32, поэтому TFTDriver не ставит esp_timer
+    // для LVGLтика. Без тика lv_tick_get() стоит - а на нём у нас nowMs():
+    // tick() вечно возвращается досрочно и UI висит на заставке.
+    // Отдаём LVGL часы напрямую через millis() (единственный источник тика
+    // в этом вкусе: esp_timer не создан, lv_tick_inc никто не зовёт).
+    lv_tick_set_cb([]() -> uint32_t { return millis(); });
+#endif
     // У Горизонта своя заставка, а ViewController шлёт want_config только при
     // state >= eBootScreenDone (см. ViewController::runOnce). Штатный TFTView
     // выставляет это состояние из таймера заставки - делаем то же самое здесь,
