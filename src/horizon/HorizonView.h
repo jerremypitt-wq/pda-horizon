@@ -135,6 +135,7 @@ class HorizonView : public MeshtasticView
     // Текущее время: между синхронизациями идёт по millis() от последней
     // известной метки (RTC на плате нет - это стандартный подход для ESP32).
     uint32_t getActTime(void) const;
+    bool timeUncertain(void) const { return timeStale; } // время стоит со выключения, сеть ещё не уточнила
     void persistTime(void);             // сохранить actTime в /horizon.time (если валидно)
     void setManualTime(uint32_t epoch); // ручная установка времени из настроек
     bool radioConnected(void) const { return connected; }
@@ -198,6 +199,7 @@ class HorizonView : public MeshtasticView
 
     uint32_t actTime = 0;   // последняя известная метка (epoch, UTC)
     uint32_t actTimeMs = 0; // millis() в момент установки метки
+    bool timeStale = false; // восстановлено из файла: простой при выключении неизвестен
     void setActTime(uint32_t t); // обновить метку (штампует и millis)
     bool connected = false;
     int battery = -1;

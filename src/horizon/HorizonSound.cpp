@@ -13,9 +13,10 @@ namespace {
 constexpr uint8_t kBeepPin = 8;
 
 // Мелодии наборов [набор][MESSAGE/DIRECT]: {частота Гц, мс}, {0,0} - конец.
+// «Сталкер»: 4 ноты подряд как ПДА из игры - До2, Фа2, Соль2, Си1.
 const HorizonSound::ToneStep kSetStalkerMsg[] = {
-    {880, 90}, {0, 60}, {1174, 90}, {0, 60}, {784, 240}, {0, 0}}; // ди-ди-даа ПДА
-const HorizonSound::ToneStep kSetStalkerDm[] = {{880, 80}, {0, 60}, {659, 170}, {0, 0}};
+    {523, 110}, {0, 25}, {698, 110}, {0, 25}, {784, 110}, {0, 25}, {494, 170}, {0, 0}};
+const HorizonSound::ToneStep kSetStalkerDm[] = {{523, 90}, {0, 25}, {698, 150}, {0, 0}};
 const HorizonSound::ToneStep kSetDoubleMsg[] = {{2093, 100}, {0, 90}, {2093, 100}, {0, 0}};
 const HorizonSound::ToneStep kSetDoubleDm[] = {{2093, 90}, {0, 70}, {2093, 90}, {0, 70}, {2093, 140}, {0, 0}};
 const HorizonSound::ToneStep kSetSingleMsg[] = {{1568, 200}, {0, 0}};

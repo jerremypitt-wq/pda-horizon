@@ -84,7 +84,10 @@ void HorizonView::init(IClientBase *client)
             if (now >= tcfg.savedMs && now - tcfg.savedMs < 172800000UL)
                 dt = (now - tcfg.savedMs) / 1000;
             setActTime(tcfg.savedEpoch + dt);
-            ILOG_INFO("Horizon: time restored %u (+%us)", (unsigned)tcfg.savedEpoch, (unsigned)dt);
+            // Время «стоит» с момента выключения: без батарейки RTC узнать простой
+            // нельзя. Помечаем неточным - первое же время из сети (вперёд) уточнит.
+            timeStale = true;
+            ILOG_INFO("Horizon: time restored %u (+%us) STALE", (unsigned)tcfg.savedEpoch, (unsigned)dt);
         }
     }
     store.loadMessages(); // история с прошлого запуска (своего в /messages нет)
@@ -203,8 +206,14 @@ void HorizonView::updateLastHeard(uint32_t nodeNum)
 void HorizonView::packetReceived(const meshtastic_MeshPacket &p)
 {
     MeshtasticView::packetReceived(p);
-    if (getActTime() < 1000000 && p.rx_time > 1000000)
+    // Синхронизация часов от сети: часы не шли вообще - принять любое валидное
+    // время; восстановлены из файла - принять первое время, идущее вперёд.
+    // Назад часы по сети не переводим никогда.
+    if (p.rx_time > 1000000 && p.rx_time > getActTime() && (getActTime() < 1000000 || timeStale)) {
         setActTime(p.rx_time);
+        timeStale = false;
+        persistTime();
+    }
     notePacketTools(p);
 }
 
@@ -296,6 +305,7 @@ void HorizonView::setManualTime(uint32_t epoch)
     if (epoch < 1000000)
         return;
     setActTime(epoch);
+    timeStale = false;
     persistTime();
     ILOG_INFO("Horizon: manual time %u", (unsigned)epoch);
 }
@@ -317,10 +327,16 @@ void HorizonView::updateTime(uint32_t timeVal)
 {
     time_t local;
     time(&local);
-    if (local > 1000000)
+    if (local > 1000000) {
         setActTime((uint32_t)local);
-    else if (timeVal > getActTime())
+        timeStale = false;
+    } else if (timeVal > getActTime()) {
         setActTime(timeVal);
+        if (timeStale) {
+            timeStale = false;
+            persistTime();
+        }
+    }
 }
 
 void HorizonView::notifyConnected(const char *info)

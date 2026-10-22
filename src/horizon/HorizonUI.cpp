@@ -146,7 +146,8 @@ void HorizonUI::refreshStatus(void)
     char buf[48];
     // время
     fmtTime(view->getActTime(), buf, sizeof(buf));
-    lv_label_set_text_fmt(stTime, "%s %s", kGlyphClock, buf);
+    // Тильда: время восстановлено из файла и ещё не уточнено по сети.
+    lv_label_set_text_fmt(stTime, view->timeUncertain() ? "%s ~%s" : "%s %s", kGlyphClock, buf);
     // онлайн
     lv_label_set_text_fmt(stOnline, "В сети: %u", (unsigned)view->onlineCount());
     // непрочитанные (только привязанные чаты + лички)
@@ -1161,9 +1162,9 @@ void HorizonUI::tick(void)
         refreshMenuBadges();
         view->pollTools(now);
         refreshTools();
-        if (now - lastTimeSaveMs >= 60000) {
+        if (now - lastTimeSaveMs >= 15000) {
             lastTimeSaveMs = now;
-            view->persistTime(); // часы переживут перезагрузку
+            view->persistTime(); // часы переживут перезагрузку (давность не хуже 15 с)
         }
         if (current == Screen::SET_TIME && timeCur && lv_obj_is_valid(timeCur)) {
             char tb[16];
