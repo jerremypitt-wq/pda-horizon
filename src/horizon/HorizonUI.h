@@ -41,6 +41,7 @@ class HorizonUI
         MENU,
         CHAT,
         CONTACTS,
+        CONTACT_CARD,
         OPENCHATS,
         DOSSIER,
         DOSSIER_EDIT,
@@ -110,9 +111,13 @@ class HorizonUI
     lv_obj_t *chatSendBtn = nullptr;
 
     // --- Контакты ---
-    bool contactsOnlineOnly = false;
+    // Фильтр списка: 0 - все, 1 - в сети, 2 - избранное.
+    uint8_t contactsFilter = 0;
+    uint32_t cardNode = 0; // узел, открытый в карточке контакта
     void buildContacts(void);
     void rebuildContactsList(void);
+    void showContactCard(uint32_t node);
+    void buildContactCard(void);
     lv_obj_t *contactsList = nullptr;
     lv_obj_t *contactsCount = nullptr;
 
@@ -179,6 +184,9 @@ class HorizonUI
     lv_obj_t *setDetailName = nullptr;
     lv_obj_t *setDetailKey = nullptr;
     bool displayDirty = false;
+    // Каналы: были ли реальные изменения имени/ключа на радио с момента
+    // последнего вопроса про перезагрузку (спрашиваем только на выходе).
+    bool channelsDirty = false;
     lv_obj_t *pinOld = nullptr;
     lv_obj_t *pinNew1 = nullptr;
     lv_obj_t *pinNew2 = nullptr;
@@ -271,6 +279,8 @@ class HorizonUI
     static void cbConfirmCancel(lv_event_t *e);
     static void cbModalBlock(lv_event_t *e);
     static void cbContact(lv_event_t *e);
+    static void cbCardWrite(lv_event_t *e);
+    static void cbCardFav(lv_event_t *e);
     static void cbOpenChat(lv_event_t *e);
     static void cbDossierEdit(lv_event_t *e);
     static void cbDossierSave(lv_event_t *e);

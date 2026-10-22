@@ -315,7 +315,7 @@ void HorizonUI::askPin(const char *prompt, std::function<void(void)> onOk)
     lv_obj_set_style_text_font(t, HorizonTheme::fontMedium(), LV_PART_MAIN);
 
     pinDots = lv_label_create(panel);
-    lv_label_set_text(pinDots, "- - - -");
+    lv_label_set_text(pinDots, "____");
     lv_obj_set_style_text_font(pinDots, HorizonTheme::fontBig(), LV_PART_MAIN);
     lv_obj_set_style_text_color(pinDots, hzColor(p.accent), LV_PART_MAIN);
 
@@ -393,9 +393,16 @@ void HorizonUI::pinPress(const char *key)
         pinEntry += key;
     }
     if (pinDots && lv_obj_is_valid(pinDots)) {
-        char dots[32] = "";
-        for (size_t i = 0; i < 8; i++)
-            strcat(dots, i < pinEntry.size() ? "* " : "- ");
+        // Маска: ____ -> *___ -> **__ -> ***_ -> ****. PIN длиннее 4 цифр
+        // (до 8) - слоты дорастают до длины ввода, хвост без подчёркиваний.
+        char dots[10];
+        size_t n = pinEntry.size();
+        size_t slots = n > 4 ? n : 4;
+        if (slots > 8)
+            slots = 8;
+        for (size_t i = 0; i < slots; i++)
+            dots[i] = (i < n) ? '*' : '_';
+        dots[slots] = '\0';
         lv_label_set_text(pinDots, dots);
     }
 }
@@ -1011,7 +1018,35 @@ void HorizonUI::cbBack(lv_event_t *e)
     case Screen::SET_CHANNEL_DETAIL:
         self->buildSetChannels();
         break;
+    case Screen::CONTACT_CARD:
+        self->buildContacts();
+        break;
     case Screen::SET_CHANNELS:
+        // Выход из «Каналы чатов»: перезагрузку спрашивать только если были
+        // реальные изменения имени/ключа на радио. Один раз - дальше молча.
+        if (self->channelsDirty) {
+            self->channelsDirty = false;
+#ifdef HORIZON_PACKET_LINK
+            self->askConfirm(
+                "Перезагрузить ПДА, чтобы ключи вступили в силу?", "Да",
+                [self]() {
+                    self->view->rebootNode();
+                    self->toast("ПДА перезагружается...");
+                },
+                [self]() { self->showSettings(); });
+#else
+            self->askConfirm(
+                "Перезагрузить радиомодуль, чтобы ключи вступили в силу?", "Да",
+                [self]() {
+                    self->view->rebootNode();
+                    self->toast("Узел перезагружается...");
+                },
+                [self]() { self->showSettings(); });
+#endif
+            break;
+        }
+        self->showSettings();
+        break;
     case Screen::SET_DEVICE:
     case Screen::SET_DISPLAY:
     case Screen::SET_PIN:
@@ -1101,7 +1136,7 @@ void HorizonUI::onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *te
         if (*p == '\n' || *p == '\r')
             *p = ' ';
     }
-    const char *who = view->nodeLongName(from);
+    const char *who = view->displayName(from);
     if (isBroadcast)
         toast("%s %s [%s]: %s", kGlyphMail, who, view->channelLabel(ch), preview);
     else
@@ -1190,7 +1225,12 @@ void HorizonUI::tick(void)
         if (view->takeNodesDirty() || view->takeChannelsDirty()) {
             if (current == Screen::CONTACTS && now - lastContactsMs >= 3000) {
                 lastContactsMs = now;
-                rebuildContactsList();
+                // Не пересобирать список под пальцем: кнопка удаляется между
+                // press и release, tap теряется и контакт открывается только
+                // со второго нажатия. Пропускаем этот цикл, попробуем через 3 с.
+                lv_indev_t *indev = lv_indev_get_act();
+                if (!indev || lv_indev_get_state(indev) != LV_INDEV_STATE_PRESSED)
+                    rebuildContactsList();
             }
             else if (current == Screen::CHAT && !chatIsChannel) {
                 // обновить подпись лички (last heard)
@@ -1220,7 +1260,7 @@ void HorizonUI::formatSender(uint32_t node, char *out, size_t cap)
         const char *r = kRanks[d->rank < kRankCount ? d->rank : 0];
         snprintf(out, cap, "%s, %s", d->callsign, r);
     } else {
-        snprintf(out, cap, "%s", view->nodeLongName(node));
+        snprintf(out, cap, "%s", view->displayName(node));
     }
 }
 

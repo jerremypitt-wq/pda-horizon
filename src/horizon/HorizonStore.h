@@ -103,6 +103,8 @@ class HorizonStore
     // Справочник досье (маяки): запомнить/найти по номеру узла.
     void upsertDossier(uint32_t node, const char *callsign, uint8_t rank, uint8_t group, uint32_t now);
     const HorizonDossierInfo *findDossier(uint32_t node) const;
+    void saveDossier(void); // справочник в /horizon.dos (зовётся из upsert)
+    void loadDossier(void); // справочник из /horizon.dos (раз при старте)
 
     uint32_t unreadTotal(void) const;
     uint32_t unreadChannels(void) const; // сумма по каналам

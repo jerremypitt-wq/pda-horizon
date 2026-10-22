@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <string>
+#include <vector>
 
 class HorizonConfig
 {
@@ -38,6 +39,12 @@ class HorizonConfig
     char callsign[40] = "Новичок";
     uint8_t rank = 0;  // 0..3
     uint8_t group = 0; // 0..9
+
+    // --- Избранные контакты (номера узлов, персист в /horizon.cfg) ---
+    static constexpr size_t kMaxFavorites = 16;
+    std::vector<uint32_t> favorites;
+    bool isFavorite(uint32_t node) const;
+    void toggleFavorite(uint32_t node); // добавить/убрать (save отдельно!)
 
     HorizonConfig() = default;
 

@@ -172,6 +172,9 @@ class HorizonView : public MeshtasticView
     // Имена узлов
     const char *nodeLongName(uint32_t nodeNum) const;
     const char *nodeShortName(uint32_t nodeNum) const;
+    // Единое отображаемое имя узла везде в интерфейсе: позывной из досье,
+    // иначе длинное имя, иначе короткое, иначе «!abcd».
+    const char *displayName(uint32_t nodeNum) const;
     bool isNodeOnline(uint32_t nodeNum) const;
     uint32_t onlineCount(void) const;
     uint32_t nodeCount(void) const;
@@ -202,6 +205,11 @@ class HorizonView : public MeshtasticView
     void applyChannelSettings(uint8_t idx, const char *name, uint8_t simpleKey);
     void applyLoRaConfig(int region, int preset, uint32_t hopLimit, bool txEnabled);
     void applyDeviceRole(int role);
+    // Прошивочный зуммер выкл: GPIO8 принадлежит панели (тон - наш).
+    // Раз в загрузку, только вкус прошивки (HORIZON_PACKET_LINK).
+    void silenceFirmwareBuzzer(void);
+    // Владелец радио из досье без лишних вопросов (раз в загрузку).
+    void pushOwnerFromDossier(void);
     void rebootNode(void);
     void resetNodeDb(void);
     void factoryResetNode(void);
@@ -228,6 +236,8 @@ class HorizonView : public MeshtasticView
     bool timeStale = false; // восстановлено из файла: простой при выключении неизвестен
     void setActTime(uint32_t t); // обновить метку (штампует и millis)
     bool connected = false;
+    bool buzzerSilenced = false; // прошивочный зуммер уже гасили в этой загрузке
+    bool ownerPushed = false;    // владельца уже толкали в радио в этой загрузке
     int battery = -1;
     time_t bootTime = 0;
 

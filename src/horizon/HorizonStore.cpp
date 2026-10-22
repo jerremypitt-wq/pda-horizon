@@ -17,6 +17,7 @@ static fs::FS &msgFs = LittleFS;
 
 namespace {
 constexpr const char *kMsgPath = "/horizon.msg";
+constexpr const char *kDosPath = "/horizon.dos"; // справочник досье (текст)
 constexpr size_t kMsgCompactSize = 96 * 1024; // больше - пережимать файл
 
 void putU16(uint8_t *b, uint16_t v)
@@ -314,6 +315,58 @@ void HorizonStore::upsertDossier(uint32_t node, const char *callsign, uint8_t ra
             break;
         dossierDir.erase(victim);
     }
+    saveDossier(); // маяки редкие - персистим сразу, имена переживут ребут
+}
+
+void HorizonStore::saveDossier(void)
+{
+    File f = msgFs.open(kDosPath, "w");
+    if (!f)
+        return;
+    char line[88];
+    for (auto &kv : dossierDir) {
+        const HorizonDossierInfo &d = kv.second;
+        if (!d.callsign[0])
+            continue;
+        // Позывной - последний: может содержать пробелы; \r\n вычистить.
+        char cs[sizeof(d.callsign)];
+        strncpy(cs, d.callsign, sizeof(cs) - 1);
+        cs[sizeof(cs) - 1] = '\0';
+        for (char *p = cs; *p; p++) {
+            if (*p == '\r' || *p == '\n')
+                *p = '?';
+        }
+        int n = snprintf(line, sizeof(line), "%08x %u %u %u %s\n", (unsigned)kv.first, d.rank, d.group,
+                         (unsigned)d.updated, cs);
+        if (n > 0)
+            f.write((const uint8_t *)line, (size_t)n);
+    }
+    f.close();
+}
+
+void HorizonStore::loadDossier(void)
+{
+    File f = msgFs.open(kDosPath, "r");
+    if (!f)
+        return;
+    char line[96];
+    while (f.available() && dossierDir.size() < kMaxDossierDir) {
+        size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
+        line[n] = '\0';
+        unsigned long node = 0, rank = 0, group = 0, upd = 0;
+        char cs[40] = "";
+        // %39[^\n] - позывной целиком, с пробелами.
+        if (sscanf(line, "%lx %lu %lu %lu %39[^\n]", &node, &rank, &group, &upd, cs) != 5 || !node || !cs[0])
+            continue;
+        if (rank > 3 || group > 9)
+            continue;
+        HorizonDossierInfo &d = dossierDir[(uint32_t)node];
+        HorizonStrings::copyUtf8(d.callsign, sizeof(d.callsign), cs);
+        d.rank = (uint8_t)rank;
+        d.group = (uint8_t)group;
+        d.updated = (uint32_t)upd;
+    }
+    f.close();
 }
 
 const HorizonDossierInfo *HorizonStore::findDossier(uint32_t node) const

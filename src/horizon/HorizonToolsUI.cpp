@@ -329,7 +329,7 @@ void HorizonUI::refreshDetector(void)
         lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t *nm = lv_label_create(col);
-        lv_label_set_text(nm, view->nodeLongName(r.id));
+        lv_label_set_text(nm, view->displayName(r.id));
         lv_obj_set_width(nm, lv_pct(100));
         lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
 
@@ -423,7 +423,7 @@ void HorizonUI::buildToolPick(void)
         lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t *nm = lv_label_create(col);
-        lv_label_set_text(nm, view->nodeLongName(r.id));
+        lv_label_set_text(nm, view->displayName(r.id));
         lv_obj_set_width(nm, lv_pct(100));
         lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
 
@@ -469,7 +469,7 @@ void HorizonUI::buildToolScan(void)
     const HorizonPalette &p = HorizonTheme::current();
 
     lv_obj_t *nm = lv_label_create(body);
-    lv_label_set_text(nm, view->nodeLongName(view->scanNode));
+    lv_label_set_text(nm, view->displayName(view->scanNode));
     lv_obj_set_width(nm, lv_pct(100));
     lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
 
@@ -547,7 +547,7 @@ void HorizonUI::buildToolRoute(void)
     lv_obj_t *body = toolBody();
 
     lv_obj_t *nm = lv_label_create(body);
-    lv_label_set_text(nm, view->nodeLongName(view->traceNode));
+    lv_label_set_text(nm, view->displayName(view->traceNode));
     lv_obj_set_width(nm, lv_pct(100));
     lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
 
@@ -706,7 +706,7 @@ void HorizonUI::refreshStats(void)
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t *nm = lv_label_create(row);
-        lv_label_set_text_fmt(nm, "%s (%u)", view->nodeLongName(s.node), (unsigned)s.sum);
+        lv_label_set_text_fmt(nm, "%s (%u)", view->displayName(s.node), (unsigned)s.sum);
         lv_obj_set_width(nm, lv_pct(100));
         lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
 

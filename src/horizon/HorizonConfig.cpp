@@ -78,6 +78,33 @@ void HorizonConfig::resetToDefaults(void)
     strcpy(callsign, "Новичок");
     rank = 0;
     group = 0;
+    favorites.clear();
+}
+
+bool HorizonConfig::isFavorite(uint32_t node) const
+{
+    if (!node)
+        return false;
+    for (uint32_t f : favorites) {
+        if (f == node)
+            return true;
+    }
+    return false;
+}
+
+void HorizonConfig::toggleFavorite(uint32_t node)
+{
+    if (!node)
+        return;
+    for (auto it = favorites.begin(); it != favorites.end(); ++it) {
+        if (*it == node) {
+            favorites.erase(it);
+            return;
+        }
+    }
+    while (favorites.size() >= kMaxFavorites)
+        favorites.erase(favorites.begin()); // переполнено - вытеснить старейшее
+    favorites.push_back(node);
 }
 
 void HorizonConfig::load(void)
@@ -88,7 +115,7 @@ void HorizonConfig::load(void)
         ILOG_INFO("Horizon: no config file, using defaults");
         return;
     }
-    char line[96];
+    char line[160]; // строка FAV с 16 узлами - самая длинная
     while (f.available()) {
         size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
         line[n] = '\0';
@@ -126,6 +153,24 @@ void HorizonConfig::load(void)
             rank = (uint8_t)parseInt(val, 0, 0, (int)HorizonStrings::kRankCount - 1);
         else if (!strcmp(key, "group"))
             group = (uint8_t)parseInt(val, 0, 0, (int)HorizonStrings::kGroupCount - 1);
+        else if (!strcmp(key, "favorites")) {
+            favorites.clear();
+            // список hex через запятую: FAV=8fc09f98,1234abcd
+            const char *p = val;
+            while (*p && favorites.size() < kMaxFavorites) {
+                while (*p == ',' || *p == ' ')
+                    p++;
+                if (!*p)
+                    break;
+                char *end = nullptr;
+                unsigned long v = strtoul(p, &end, 16);
+                if (!end || end == p)
+                    break;
+                if (v)
+                    favorites.push_back((uint32_t)v);
+                p = end;
+            }
+        }
     }
     f.close();
     ILOG_INFO("Horizon: config loaded (ch %u/%u/%u, theme %u, orient %u)", generalCh, groupCh, announceCh, theme,
@@ -153,6 +198,10 @@ void HorizonConfig::save(void) const
     f.printf("callsign=%s\n", callsign);
     f.printf("rank=%u\n", rank);
     f.printf("group=%u\n", group);
+    f.printf("favorites=");
+    for (size_t i = 0; i < favorites.size(); i++)
+        f.printf(i ? ",%08x" : "%08x", (unsigned)favorites[i]);
+    f.printf("\n");
     f.close();
     ILOG_INFO("Horizon: config saved");
 }

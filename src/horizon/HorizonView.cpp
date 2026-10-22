@@ -110,6 +110,7 @@ void HorizonView::init(IClientBase *client)
         }
     }
     store.loadMessages(); // история с прошлого запуска (своего в /messages нет)
+    store.loadDossier();  // справочник досье (имена свои сразу, не «Meshtastic ****»)
     ui = new HorizonUI(this);
     ui->init();
 #ifdef HORIZON_PACKET_LINK
@@ -150,7 +151,8 @@ void HorizonView::setMyInfo(uint32_t nodeNum, meshtastic_MyNodeInfo_device_id_t 
     ownNode = nodeNum;
     store.setMyNode(nodeNum);
     ILOG_INFO("Horizon: my node 0x%08x", nodeNum);
-    announceDossier(); // радио реально живо - представиться сети
+    announceDossier();     // радио реально живо - представиться сети
+    pushOwnerFromDossier(); // владелец из досье - раз в загрузку
 }
 
 void HorizonView::upsertNodeUser(uint32_t nodeNum, uint8_t channel, uint32_t lastHeard, const meshtastic_User &cfg,
@@ -308,8 +310,9 @@ void HorizonView::newMessage(uint32_t from, uint32_t to, uint8_t ch, const char 
     if (!restore && ui)
         ui->onMessage(from, to, ch, msg, msgtime);
     // Короткий одиночный бип на входящее (свои эхо-пакеты не пищим).
+    // Звук один для всех сообщений - выбранный в настройках.
     if (!restore && from != ownNode)
-        HorizonSound::instance().play(to == 0xFFFFFFFFu ? HorizonSound::MESSAGE : HorizonSound::DIRECT);
+        HorizonSound::instance().play(HorizonSound::MESSAGE);
 }
 
 void HorizonView::restoreMessage(const LogMessage &msg)
@@ -347,6 +350,7 @@ void HorizonView::updateDeviceConfig(const meshtastic_Config_DeviceConfig &cfg)
 {
     device = cfg;
     gotDevice = true;
+    silenceFirmwareBuzzer(); // сам решит, надо ли (вкус прошивки, раз в загрузку)
 }
 
 void HorizonView::updateLoRaConfig(const meshtastic_Config_LoRaConfig &cfg)
@@ -406,7 +410,8 @@ void HorizonView::notifyConnected(const char *info)
     (void)info;
     connected = true;
     ILOG_INFO("Horizon: radio connected");
-    announceDossier(); // представиться сети (с rate-limit внутри)
+    announceDossier();     // представиться сети (с rate-limit внутри)
+    pushOwnerFromDossier(); // владелец из досье - раз в загрузку
 }
 
 void HorizonView::notifyDisconnected(const char *info)
@@ -456,6 +461,26 @@ const char *HorizonView::nodeShortName(uint32_t nodeNum) const
     if (r && r->hasUser && r->user.short_name[0])
         return r->user.short_name;
     return "?";
+}
+
+const char *HorizonView::displayName(uint32_t nodeNum) const
+{
+    const HorizonDossierInfo *d = store.findDossier(nodeNum);
+    if (d && d->callsign[0])
+        return d->callsign;
+    const NodeRecord *r = nodeStore.find(nodeNum);
+    if (r && r->hasUser) {
+        if (r->user.long_name[0])
+            return r->user.long_name;
+        if (r->user.short_name[0])
+            return r->user.short_name;
+    }
+    // Узла ещё нет в справочниках: стабильный короткий фолбэк вместо «?».
+    static char fb[4][8];
+    static uint8_t fi = 0;
+    fi = (uint8_t)((fi + 1) & 3);
+    snprintf(fb[fi], sizeof(fb[fi]), "!%04X", (unsigned)(nodeNum & 0xFFFF));
+    return fb[fi];
 }
 
 bool HorizonView::isNodeOnline(uint32_t nodeNum) const
@@ -594,9 +619,9 @@ void HorizonView::sendChannelMessage(uint8_t ch, const char *text)
     sendChannelRaw(ch, text);
     std::string s = text;
     truncate230(s);
-    // Широковещание не подтверждается доставкой по протоколу; единственный
-    // твёрдый сигнал - пустая сеть: получить было некому.
-    uint8_t st = onlineCount() == 0 ? kHzSendFailed : kHzSendOk;
+    // Широковещание не подтверждается доставкой по протоколу - пометку
+    // «не доставлено» для общих каналов не ставим никогда.
+    uint8_t st = kHzSendOk;
     store.addMessage(ownNode, 0xFFFFFFFFu, ch, getActTime(), s.c_str(), false, st);
     msgsDirty = true;
 }
@@ -611,8 +636,11 @@ void HorizonView::announceDossier(void)
         return;
     lastBeaconMs = now;
     HorizonConfig &cfg = HorizonConfig::instance();
+    // Время в маяке - только доверенное (свои часы выставлены и не протухли),
+    // иначе 0: чужое «примерно» хуже отсутствия времени.
+    uint32_t ep = (!timeStale && getActTime() > 1000000) ? getActTime() : 0;
     char buf[96];
-    snprintf(buf, sizeof(buf), "%s%u:%u:%s", kDossierBeaconPrefix, cfg.rank, cfg.group, cfg.callsign);
+    snprintf(buf, sizeof(buf), "%s%u:%u:%u:%s", kDossierBeaconPrefix, cfg.rank, cfg.group, ep, cfg.callsign);
     ILOG_INFO("Horizon: announce dossier '%s'", buf);
     sendChannelRaw(cfg.generalCh, buf);
 }
@@ -621,9 +649,12 @@ void HorizonView::handleDossierBeacon(uint32_t from, const char *msg, bool canRe
 {
     if (from == 0 || from == ownNode || !msg)
         return;
+    // Формат: HZ:DOSSIER:<rank>:<group>[:<epoch>]:<callsign>. Epoch валиден
+    // только >1000000, иначе остаток - позывной целиком (старые маяки).
     const char *p = msg + kDossierBeaconPrefixLen;
     char *e1 = nullptr;
     char *e2 = nullptr;
+    char *e3 = nullptr;
     unsigned long rank = strtoul(p, &e1, 10);
     if (!e1 || *e1 != ':')
         return;
@@ -632,12 +663,38 @@ void HorizonView::handleDossierBeacon(uint32_t from, const char *msg, bool canRe
         return;
     if (rank > 3 || group > 9)
         return;
+    const char *rest = e2 + 1;
+    const char *callsign = rest;
+    uint32_t epoch = 0;
+    unsigned long maybeEpoch = strtoul(rest, &e3, 10);
+    if (e3 && *e3 == ':' && *(e3 + 1) && maybeEpoch > 1000000) {
+        epoch = (uint32_t)maybeEpoch;
+        callsign = e3 + 1;
+    }
     bool known = store.findDossier(from) != nullptr;
-    store.upsertDossier(from, e2 + 1, (uint8_t)rank, (uint8_t)group, getActTime());
-    ILOG_INFO("Horizon: dossier %08x '%s' rank=%u group=%u", (unsigned)from, e2 + 1, (unsigned)rank,
+    store.upsertDossier(from, callsign, (uint8_t)rank, (uint8_t)group, getActTime());
+    // Время от маяка: свои часы не выставлены или протухли - принять время
+    // отправителя, если оно валидно и идёт вперёд. Назад - никогда.
+    if (epoch > 1000000 && epoch > getActTime() && (getActTime() < 1000000 || timeStale)) {
+        setActTime(epoch);
+        timeStale = false;
+        persistTime();
+        ILOG_INFO("Horizon: time adopted from beacon %08x: %u", (unsigned)from, (unsigned)epoch);
+    }
+    ILOG_INFO("Horizon: dossier %08x '%s' rank=%u group=%u", (unsigned)from, callsign, (unsigned)rank,
               (unsigned)group);
-    if (canReply && !known)
-        announceDossier(); // представиться в ответ (с rate-limit внутри)
+    if (canReply) {
+        // Ответить: новому - представиться; тому, у кого нет времени, -
+        // поделиться своим (только доверенным). Петли нет: получивший время
+        // перестаёт быть «нуждающимся», дальше отвечаем только новым.
+        uint32_t mine = getActTime();
+        bool iHaveTime = mine > 1000000 && !timeStale;
+        bool peerNeedsTime = (epoch <= 1000000);
+        if (!peerNeedsTime && iHaveTime && epoch < mine && (mine - epoch) > 300)
+            peerNeedsTime = true; // часы гостя отстали больше чем на 5 минут
+        if (!known || (iHaveTime && peerNeedsTime))
+            announceDossier(); // представиться в ответ (с rate-limit внутри)
+    }
 }
 
 void HorizonView::sendDirectMessage(uint32_t peer, const char *text)
@@ -784,6 +841,50 @@ void HorizonView::applyDeviceRole(int role)
         d.role = (meshtastic_Config_DeviceConfig_Role)role;
     ILOG_INFO("Horizon: set device role=%d", role);
     controller->sendConfig(std::move(d), ownNode);
+}
+
+void HorizonView::silenceFirmwareBuzzer(void)
+{
+#ifdef HORIZON_PACKET_LINK
+    // Зуммер GPIO8 принадлежит панели: прошивочный ExternalNotificationModule
+    // иначе пищит RTTTL поверх наших мелодий и в обход бесшумного режима.
+    // canBuzz() в прошивке смотрит только на buzzer_mode - его и гасим.
+    if (buzzerSilenced || !radioConnected() || !gotDevice)
+        return;
+    if (device.buzzer_mode == meshtastic_Config_DeviceConfig_BuzzerMode_DISABLED) {
+        buzzerSilenced = true;
+        return; // уже тихо
+    }
+    meshtastic_Config_DeviceConfig d = device;
+    d.buzzer_mode = meshtastic_Config_DeviceConfig_BuzzerMode_DISABLED;
+    ILOG_INFO("Horizon: firmware buzzer off (panel owns GPIO8)");
+    controller->sendConfig(std::move(d), ownNode);
+    buzzerSilenced = true; // одна попытка за загрузку
+#else
+    (void)0;
+#endif
+}
+
+void HorizonView::pushOwnerFromDossier(void)
+{
+    if (ownerPushed || ownNode == 0)
+        return;
+    HorizonConfig &cfg = HorizonConfig::instance();
+    if (!cfg.callsign[0])
+        return; // досье не заполнено - радио не трогаем
+    const NodeRecord *self = nodeStore.find(ownNode);
+    if (self && self->hasUser) {
+        std::string ln = cfg.meshLongName();
+        std::string sn = cfg.meshShortName();
+        if (!strncmp(self->user.long_name, ln.c_str(), sizeof(self->user.long_name)) &&
+            !strncmp(self->user.short_name, sn.c_str(), sizeof(self->user.short_name))) {
+            ownerPushed = true;
+            return; // уже применено - не дёргать радио
+        }
+    }
+    // Своей nodeinfo ещё нет (первая загрузка) или имя чужое - толкнуть.
+    applyOwnerFromDossier();
+    ownerPushed = true;
 }
 
 void HorizonView::rebootNode(void)

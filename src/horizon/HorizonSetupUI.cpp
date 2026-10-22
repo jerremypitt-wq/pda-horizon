@@ -881,24 +881,29 @@ void HorizonUI::cbSetApplyChannelDetail(lv_event_t *e)
 
     const char *nm = self->setDetailName ? lv_textarea_get_text(self->setDetailName) : "";
     uint8_t key = self->setDetailKey ? (uint8_t)lv_dropdown_get_selected(self->setDetailKey) : 0xFF;
-    self->view->applyChannelSettings(ch, (nm && *nm) ? nm : nullptr, key);
+    // Что реально меняется на радио: сравнить с ТЕКУЩИМ состоянием целевого
+    // канала ДО отправки. Перезагрузку спросим позже, на выходе из каналов.
+    const meshtastic_Channel *rc = self->view->radioChannel(ch);
+    char curName[12] = "";
+    if (rc && rc->has_settings) {
+        strncpy(curName, rc->settings.name, sizeof(curName) - 1);
+        curName[sizeof(curName) - 1] = '\0';
+    }
+    const char *newName = (nm && *nm) ? nm : nullptr;
+    bool nameChanged = newName && strcmp(newName, curName) != 0;
+    bool keyChanged =
+        (key != 0xFF) && (hasCustomKey(self->view, ch) || key != (uint8_t)currentKeyIndex(self->view, ch));
+    if (nameChanged || keyChanged)
+        self->channelsDirty = true;
+    self->view->applyChannelSettings(ch, newName, key);
 #ifdef HORIZON_PACKET_LINK
     self->toast("Канал отправлен");
 #else
     self->toast("Канал отправлен на узел");
 #endif
-#ifdef HORIZON_PACKET_LINK
-    self->askConfirm("Перезагрузить ПДА, чтобы ключи вступили в силу?", "Да", [self]() {
-#else
-    self->askConfirm("Перезагрузить радиомодуль, чтобы ключи вступили в силу?", "Да", [self]() {
-#endif
-        self->view->rebootNode();
-#ifdef HORIZON_PACKET_LINK
-        self->toast("ПДА перезагружается...");
-#else
-        self->toast("Узел перезагружается...");
-#endif
-    });
+    // Назад к списку разделов: остальные правки - без лишних вопросов,
+    // перезагрузку спросим один раз на выходе (см. cbBack).
+    self->buildSetChannels();
 }
 
 // ---------------- настройки: устройство ----------------

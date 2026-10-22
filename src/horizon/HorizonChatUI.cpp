@@ -306,7 +306,7 @@ void HorizonUI::buildContacts(void)
     lv_obj_set_style_pad_hor(frow, 8, LV_PART_MAIN);
 
     lv_obj_t *fAll = lv_btn_create(frow);
-    HorizonTheme::styleButton(fAll, !contactsOnlineOnly);
+    HorizonTheme::styleButton(fAll, contactsFilter == 0);
     lv_obj_set_size(fAll, 90, 28);
     lv_obj_t *fal = lv_label_create(fAll);
     lv_label_set_text(fal, "Все");
@@ -315,13 +315,22 @@ void HorizonUI::buildContacts(void)
     lv_obj_add_event_cb(fAll, cbFilter, LV_EVENT_CLICKED, this);
 
     lv_obj_t *fOn = lv_btn_create(frow);
-    HorizonTheme::styleButton(fOn, contactsOnlineOnly);
+    HorizonTheme::styleButton(fOn, contactsFilter == 1);
     lv_obj_set_size(fOn, 110, 28);
     lv_obj_t *fol = lv_label_create(fOn);
     lv_label_set_text(fol, "В сети");
     lv_obj_center(fol);
     lv_obj_set_user_data(fOn, (void *)(intptr_t)1);
     lv_obj_add_event_cb(fOn, cbFilter, LV_EVENT_CLICKED, this);
+
+    lv_obj_t *fFav = lv_btn_create(frow);
+    HorizonTheme::styleButton(fFav, contactsFilter == 2);
+    lv_obj_set_size(fFav, 140, 28);
+    lv_obj_t *ffl = lv_label_create(fFav);
+    lv_label_set_text(ffl, "★ Избранное");
+    lv_obj_center(ffl);
+    lv_obj_set_user_data(fFav, (void *)(intptr_t)2);
+    lv_obj_add_event_cb(fFav, cbFilter, LV_EVENT_CLICKED, this);
 
     contactsCount = lv_label_create(frow);
     lv_obj_set_style_text_font(contactsCount, HorizonTheme::fontSmall(), LV_PART_MAIN);
@@ -350,10 +359,13 @@ void HorizonUI::rebuildContactsList(void)
         uint32_t lh;
     };
     std::vector<Row> rows;
+    HorizonConfig &cfg = HorizonConfig::instance();
     for (auto &kv : view->getNodes().records()) {
         if (kv.first == view->getMyNodeNum())
             continue;
-        if (contactsOnlineOnly && !view->isNodeOnline(kv.first))
+        if (contactsFilter == 1 && !view->isNodeOnline(kv.first))
+            continue;
+        if (contactsFilter == 2 && !cfg.isFavorite(kv.first))
             continue;
         rows.push_back({kv.first, kv.second.lastHeard});
     }
@@ -373,7 +385,9 @@ void HorizonUI::rebuildContactsList(void)
 
     if (rows.empty()) {
         lv_obj_t *e = lv_label_create(contactsList);
-        lv_label_set_text(e, contactsOnlineOnly ? "Никого нет в сети" : "Пока нет узлов");
+        lv_label_set_text(e, contactsFilter == 1   ? "Никого нет в сети"
+                             : contactsFilter == 2 ? "Нет избранных контактов"
+                                                   : "Пока нет узлов");
         lv_obj_set_style_text_color(e, hzColor(p.textDim), LV_PART_MAIN);
         lv_obj_set_width(e, lv_pct(100));
         lv_obj_set_style_text_align(e, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -416,7 +430,13 @@ void HorizonUI::rebuildContactsList(void)
         lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t *nm = lv_label_create(col);
-        lv_label_set_text(nm, view->nodeLongName(r.id));
+        if (cfg.isFavorite(r.id)) {
+            char fav[72];
+            snprintf(fav, sizeof(fav), "★ %s", view->displayName(r.id));
+            lv_label_set_text(nm, fav);
+        } else {
+            lv_label_set_text(nm, view->displayName(r.id));
+        }
         lv_obj_set_width(nm, lv_pct(100));
 
         char sub[72];
@@ -453,7 +473,7 @@ void HorizonUI::cbFilter(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
-    self->contactsOnlineOnly = (id == 1);
+    self->contactsFilter = (id >= 0 && id <= 2) ? (uint8_t)id : 0;
     self->buildContacts();
 }
 
@@ -461,7 +481,198 @@ void HorizonUI::cbContact(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     uint32_t id = (uint32_t)(uintptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
-    self->showChatDm(id);
+    self->showContactCard(id);
+}
+
+void HorizonUI::showContactCard(uint32_t node)
+{
+    cardNode = node;
+    buildContactCard();
+}
+
+void HorizonUI::buildContactCard(void)
+{
+    clearScreen(Screen::CONTACT_CARD);
+    const HorizonPalette &p = HorizonTheme::current();
+    HorizonConfig &cfg = HorizonConfig::instance();
+    uint32_t id = cardNode;
+    const NodeRecord *rec = view->getNodes().find(id);
+    const HorizonDossierInfo *d = view->getStore().findDossier(id);
+    bool online = view->isNodeOnline(id);
+
+    char sub[48];
+    char lh[24];
+    fmtLastHeard(view, rec ? rec->lastHeard : 0, lh, sizeof(lh));
+    snprintf(sub, sizeof(sub), "0x%08X · %s", (unsigned)id, online ? "в сети" : lh);
+
+    addStatusBar(scr);
+    addNavHeader(scr, view->displayName(id), sub);
+
+    lv_obj_t *body = lv_obj_create(scr);
+    lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
+    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 60);
+    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(body, 6, LV_PART_MAIN);
+
+    // Карточка: аватар + имя
+    lv_obj_t *card = lv_obj_create(body);
+    HorizonTheme::stylePanel(card);
+    lv_obj_set_width(card, lv_pct(100));
+    lv_obj_set_height(card, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_all(card, 10, LV_PART_MAIN);
+    lv_obj_set_style_pad_column(card, 12, LV_PART_MAIN);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Аватар: первая буква отображаемого имени
+    const char *dn = view->displayName(id);
+    char initial[8] = "?";
+    if (dn && dn[0]) {
+        unsigned char c0 = (unsigned char)dn[0];
+        size_t ilen = 1;
+        if ((c0 & 0xE0) == 0xC0)
+            ilen = 2;
+        else if ((c0 & 0xF0) == 0xE0)
+            ilen = 3;
+        else if ((c0 & 0xF8) == 0xF0)
+            ilen = 4;
+        strncpy(initial, dn, ilen);
+        initial[ilen] = '\0';
+    }
+    lv_obj_t *ava = lv_obj_create(card);
+    lv_obj_set_size(ava, 64, 64);
+    lv_obj_set_style_bg_color(ava, hzColor(p.accent), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ava, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(ava, 6, LV_PART_MAIN);
+    lv_obj_set_style_border_width(ava, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(ava, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *al = lv_label_create(ava);
+    lv_label_set_text(al, initial);
+    lv_obj_set_style_text_font(al, HorizonTheme::fontBig(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(al, hzColor(p.accentText), LV_PART_MAIN);
+    lv_obj_center(al);
+
+    lv_obj_t *col = lv_obj_create(card);
+    lv_obj_set_width(col, W() - 112);
+    lv_obj_set_height(col, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(col, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(col, 0, LV_PART_MAIN);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *call = lv_label_create(col);
+    lv_label_set_text_fmt(call, "«%s»", view->displayName(id));
+    lv_obj_set_style_text_font(call, HorizonTheme::fontMedium(), LV_PART_MAIN);
+    lv_obj_set_width(call, lv_pct(100));
+    lv_label_set_long_mode(call, LV_LABEL_LONG_WRAP);
+    lv_obj_t *nm = lv_label_create(col);
+    if (d && d->callsign[0]) {
+        char who[72];
+        snprintf(who, sizeof(who), "%s, %s", kRanks[d->rank < kRankCount ? d->rank : 0],
+                 kGroups[d->group < kGroupCount ? d->group : 0]);
+        lv_label_set_text(nm, who);
+    } else {
+        lv_label_set_text(nm, "Досье неизвестно");
+    }
+    lv_obj_set_style_text_color(nm, hzColor(p.textDim), LV_PART_MAIN);
+    lv_obj_set_width(nm, lv_pct(100));
+    lv_label_set_long_mode(nm, LV_LABEL_LONG_WRAP);
+
+    // Строки сведений
+    struct Field {
+        const char *k;
+        char v[72];
+    };
+    Field fields[6];
+    fields[0].k = "Позывной";
+    if (d && d->callsign[0])
+        snprintf(fields[0].v, sizeof(fields[0].v), "%s", d->callsign);
+    else
+        snprintf(fields[0].v, sizeof(fields[0].v), "—");
+    fields[1].k = "Узел";
+    snprintf(fields[1].v, sizeof(fields[1].v), "0x%08X", (unsigned)id);
+    fields[2].k = "Имя в сети";
+    if (rec && rec->hasUser && rec->user.long_name[0])
+        snprintf(fields[2].v, sizeof(fields[2].v), "%s", rec->user.long_name);
+    else
+        snprintf(fields[2].v, sizeof(fields[2].v), "—");
+    fields[3].k = "Короткое";
+    if (rec && rec->hasUser && rec->user.short_name[0])
+        snprintf(fields[3].v, sizeof(fields[3].v), "%s", rec->user.short_name);
+    else
+        snprintf(fields[3].v, sizeof(fields[3].v), "—");
+    fields[4].k = "Слышен";
+    snprintf(fields[4].v, sizeof(fields[4].v), "%s", lh);
+    fields[5].k = "SNR";
+    if (rec && (rec->signalDisplay != NodeSignalDisplayKind::None || rec->rssi != 0))
+        snprintf(fields[5].v, sizeof(fields[5].v), "%.1f", rec->snr);
+    else
+        snprintf(fields[5].v, sizeof(fields[5].v), "—");
+    for (auto &f : fields) {
+        lv_obj_t *row = lv_obj_create(body);
+        HorizonTheme::stylePanel(row);
+        lv_obj_set_width(row, lv_pct(100));
+        lv_obj_set_height(row, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_all(row, 8, LV_PART_MAIN);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *k = lv_label_create(row);
+        lv_label_set_text(k, f.k);
+        lv_obj_set_style_text_color(k, hzColor(p.textDim), LV_PART_MAIN);
+        lv_obj_t *v = lv_label_create(row);
+        lv_label_set_text(v, f.v);
+        lv_obj_set_width(v, lv_pct(62));
+        lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    }
+
+    // Кнопки: написать + избранное
+    lv_obj_t *btnrow = lv_obj_create(scr);
+    lv_obj_set_size(btnrow, lv_pct(100), 56);
+    lv_obj_align(btnrow, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_opa(btnrow, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(btnrow, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(btnrow, 8, LV_PART_MAIN);
+    lv_obj_set_flex_flow(btnrow, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btnrow, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(btnrow, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *write = lv_btn_create(btnrow);
+    HorizonTheme::styleButton(write, true);
+    lv_obj_set_size(write, 140, 40);
+    lv_obj_t *wl = lv_label_create(write);
+    lv_label_set_text(wl, "Написать");
+    lv_obj_center(wl);
+    lv_obj_add_event_cb(write, cbCardWrite, LV_EVENT_CLICKED, this);
+
+    lv_obj_t *favb = lv_btn_create(btnrow);
+    HorizonTheme::styleButton(favb, false);
+    lv_obj_set_size(favb, 150, 40);
+    lv_obj_t *fl = lv_label_create(favb);
+    lv_label_set_text(fl, cfg.isFavorite(id) ? "★ В избранном" : "☆ В избранное");
+    lv_obj_center(fl);
+    lv_obj_add_event_cb(favb, cbCardFav, LV_EVENT_CLICKED, this);
+}
+
+void HorizonUI::cbCardWrite(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    self->showChatDm(self->cardNode);
+}
+
+void HorizonUI::cbCardFav(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    HorizonConfig &cfg = HorizonConfig::instance();
+    cfg.toggleFavorite(self->cardNode);
+    cfg.save();
+    self->toast(cfg.isFavorite(self->cardNode) ? "В избранном" : "Убрано из избранного");
+    self->buildContactCard();
 }
 
 // ---------------- открытые чаты ----------------
@@ -518,7 +729,7 @@ void HorizonUI::buildOpenChats(void)
         lv_obj_remove_flag(row1, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t *nm = lv_label_create(row1);
-        lv_label_set_text(nm, view->nodeLongName(c->peer));
+        lv_label_set_text(nm, view->displayName(c->peer));
         lv_obj_set_flex_grow(nm, 1);
 
         char tm[8];
