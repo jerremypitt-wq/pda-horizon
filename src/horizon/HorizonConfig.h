@@ -25,7 +25,8 @@ class HorizonConfig
     uint8_t theme = 0;        // 0..4, см. HorizonStrings::kThemes
 
     // --- Звук ---
-    bool silent = false; // бесшумный режим (без бипов уведомлений)
+    bool silent = false;   // бесшумный режим (без бипов уведомлений)
+    uint8_t soundSet = 0;  // набор звуков 0..2 (см. HorizonSound)
 
     // --- Время (персист между перезагрузками, отдельный файл /horizon.time) ---
     uint32_t savedEpoch = 0; // последний известный epoch (UTC)

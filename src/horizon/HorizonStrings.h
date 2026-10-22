@@ -4,6 +4,7 @@
 
 #ifdef HORIZON_UI
 
+#include <stddef.h>
 #include <stdint.h>
 
 namespace HorizonStrings {
@@ -83,6 +84,10 @@ constexpr const char *kGlyphMaps = "🗺";  // карта (плитка забл
 constexpr const char *kGlyphMail = "📩";  // непрочитанные/тосты
 constexpr const char *kGlyphClock = "🕐"; // часы в статусбаре
 constexpr const char *kGlyphWarn = "!";   // ASCII: misc-символов нет в шрифтах
+
+// Скопировать строку в буфер cap байт, не разрывая UTF-8 символ на границе.
+// Строки, влезшие целиком, не трогает вообще; режет хвост только при переполнении.
+void copyUtf8(char *dst, size_t cap, const char *src);
 
 } // namespace HorizonStrings
 

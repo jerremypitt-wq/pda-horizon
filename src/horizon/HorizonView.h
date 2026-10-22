@@ -132,7 +132,9 @@ class HorizonView : public MeshtasticView
     ViewController *getController(void) { return controller; }
     HorizonUI *getUI(void) { return ui; }
 
-    uint32_t getActTime(void) const { return actTime; }
+    // Текущее время: между синхронизациями идёт по millis() от последней
+    // известной метки (RTC на плате нет - это стандартный подход для ESP32).
+    uint32_t getActTime(void) const;
     void persistTime(void);             // сохранить actTime в /horizon.time (если валидно)
     void setManualTime(uint32_t epoch); // ручная установка времени из настроек
     bool radioConnected(void) const { return connected; }
@@ -194,7 +196,9 @@ class HorizonView : public MeshtasticView
     bool gotLoRa = false;
     bool gotDevice = false;
 
-    uint32_t actTime = 0;
+    uint32_t actTime = 0;   // последняя известная метка (epoch, UTC)
+    uint32_t actTimeMs = 0; // millis() в момент установки метки
+    void setActTime(uint32_t t); // обновить метку (штампует и millis)
     bool connected = false;
     int battery = -1;
     time_t bootTime = 0;
@@ -210,8 +214,15 @@ class HorizonView : public MeshtasticView
     uint32_t scanReq = 0;
     uint32_t scanNextMs = 0;
     uint32_t traceReq = 0;
+    // Личка, ждущая ACK (резолв в handleResponse или по таймауту в pollTools).
+    struct HzPendingText {
+        uint32_t reqId = 0;
+        uint32_t sentMs = 0;
+    };
+    std::vector<HzPendingText> pendingTexts;
 
     void notePacketTools(const meshtastic_MeshPacket &p); // лог+статистика из packetReceived
+    void handleTextDelivery(uint32_t from, uint32_t id, const meshtastic_Routing &routing);
 
     void upsertNodeUser(uint32_t nodeNum, uint8_t channel, uint32_t lastHeard, const meshtastic_User &cfg,
                         bool viaMqtt);

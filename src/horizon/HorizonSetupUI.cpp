@@ -488,20 +488,10 @@ void HorizonUI::saveDossier(void)
         toast("Заполни имя и позывной");
         return;
     }
-    strncpy(cfg.charName, nm, sizeof(cfg.charName) - 1);
-    cfg.charName[sizeof(cfg.charName) - 1] = '\0';
-    strncpy(cfg.callsign, cs, sizeof(cfg.callsign) - 1);
-    cfg.callsign[sizeof(cfg.callsign) - 1] = '\0';
-    // Не разрывать UTF-8 символ на границе буфера (30 символов кириллицы
-    // не влезут в 40 байт).
-    for (char *f : {cfg.charName, cfg.callsign}) {
-        size_t fl = strlen(f);
-        while (fl > 0 && (((unsigned char)f[fl - 1] & 0xC0) == 0x80))
-            fl--;
-        if (fl > 0 && ((unsigned char)f[fl - 1] & 0x80))
-            fl--;
-        f[fl] = '\0';
-    }
+    // Копирование с обрезкой по границе UTF-8 (30 символов кириллицы
+    // не влезут в 40 байт); целые строки copyUtf8 не трогает.
+    copyUtf8(cfg.charName, sizeof(cfg.charName), nm);
+    copyUtf8(cfg.callsign, sizeof(cfg.callsign), cs);
     if (editRank)
         cfg.rank = (uint8_t)lv_dropdown_get_selected(editRank);
     if (editGroup)
@@ -685,6 +675,24 @@ void HorizonUI::buildSetSound(void)
         lv_obj_add_state(sw, LV_STATE_CHECKED);
     lv_obj_add_event_cb(sw, cbSoundToggle, LV_EVENT_VALUE_CHANGED, this);
 
+    sectionLabel(body, "Набор звуков");
+    struct SndRow {
+        const char *t;
+        const char *s;
+    };
+    SndRow snds[3] = {
+        {"Сталкер", "ди-ди-даа, как ПДА из игры"},
+        {"Двойной", "бип-бип"},
+        {"Одиночный", "один бип"},
+    };
+    for (int i = 0; i < 3; i++) {
+        char title[48];
+        snprintf(title, sizeof(title), "%s %s", cfg.soundSet == i ? "[x]" : "[ ]", snds[i].t);
+        lv_obj_t *b = rowButton(body, title, snds[i].s, i);
+        lv_obj_remove_event_cb(b, cbRow);
+        lv_obj_add_event_cb(b, cbSoundSet, LV_EVENT_CLICKED, this);
+    }
+
     sectionLabel(body, "Проверка");
     lv_obj_t *test = lv_btn_create(body);
     HorizonTheme::styleButton(test, false);
@@ -711,6 +719,19 @@ void HorizonUI::cbSoundToggle(lv_event_t *e)
     HorizonConfig::instance().silent = on;
     HorizonConfig::instance().save();
     self->toast(on ? "Бесшумный режим включён" : "Звук включён");
+}
+
+void HorizonUI::cbSoundSet(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    if (id < 0 || id > 2)
+        return;
+    HorizonConfig::instance().soundSet = (uint8_t)id;
+    HorizonConfig::instance().save();
+    if (!HorizonConfig::instance().silent)
+        HorizonSound::instance().play(HorizonSound::MESSAGE); // сразу послушать
+    self->buildSetSound(); // перерисовать галочки
 }
 
 void HorizonUI::cbSoundTest(lv_event_t *e)

@@ -1,6 +1,7 @@
 #pragma once
-// ПДА «Горизонт» - хранилище сообщений и диалогов (оперативная память).
-// Долговременное хранение делает ViewController (LittleFS /messages).
+// ПДА «Горизонт» - хранилище сообщений и диалогов: оперативная память +
+// append-лог /horizon.msg (LittleFS). Своего отправленного в штатном
+// /messages нет, поэтому без своего лога история умирала при перезагрузке.
 
 #ifdef HORIZON_UI
 
@@ -9,6 +10,11 @@
 #include <string>
 #include <vector>
 
+// Статус исходящего (HorizonMessage::sendStatus).
+constexpr uint8_t kHzSendOk = 0;      // отправлено / входящее
+constexpr uint8_t kHzSendPending = 1; // личка ждёт ACK
+constexpr uint8_t kHzSendFailed = 2;  // не доставлено (красный пузырь)
+
 struct HorizonMessage {
     uint32_t from = 0;
     uint32_t to = 0;
@@ -16,6 +22,8 @@ struct HorizonMessage {
     uint32_t time = 0;
     std::string text;
     bool outgoing = false; // отправлено с этого ПДА
+    uint8_t sendStatus = kHzSendOk;
+    uint32_t reqId = 0; // id запроса для сопоставления ACK (только pending)
 };
 
 // Диалог: либо канал (isChannel), либо личка с узлом peer.
@@ -56,13 +64,24 @@ class HorizonStore
 
     HorizonStore() = default;
 
-    void setMyNode(uint32_t n) { myNode = n; }
+    void setMyNode(uint32_t n); // + переразметить outgoing у загруженной истории
     uint32_t getMyNode(void) const { return myNode; }
 
     // Добавить сообщение (входящее/исходящее/восстановленное).
+    // sendStatus/reqId - только для своих отправленных; persist=false -
+    // переигрывание (загрузка файла, восстановление /messages): в лог
+    // не пишет и дубли последнего сообщения пропускает.
     // Возвращает диалог, в который попало сообщение.
     HorizonConvo &addMessage(uint32_t from, uint32_t to, uint8_t ch, uint32_t time, const char *text,
-                             bool countUnread);
+                             bool countUnread, uint8_t sendStatus = kHzSendOk, uint32_t reqId = 0,
+                             bool persist = true);
+
+    // Доставка лички: отметить pending-сообщение с reqId (false - не найдено).
+    bool markTextDelivered(uint32_t reqId, bool ok);
+    const HorizonMessage *findTextByReq(uint32_t reqId) const;
+
+    // Персист истории.
+    void loadMessages(void);
 
     // Диалог канала (создаёт при необходимости)
     HorizonConvo &channelConvo(uint8_t ch);
@@ -89,6 +108,9 @@ class HorizonStore
     uint32_t unreadDms(void) const;
 
     HorizonChannelInfo channels[kMaxChannels];
+
+    void saveMessage(const HorizonMessage &m); // дописать одно сообщение в лог
+    void rewriteMessages(void); // перезаписать лог из памяти (чистка/компакт)
 
   private:
     uint32_t myNode = 0;

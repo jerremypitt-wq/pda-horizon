@@ -13,9 +13,10 @@ class HorizonSound
 {
   public:
     enum Pattern : uint8_t {
-        MESSAGE = 0, // входящее в канал: «ди-ди-дит» в духе ПДА S.T.A.L.K.E.R.
-        DIRECT = 1,  // личное сообщение: двойной блип
+        MESSAGE = 0, // входящее в канал
+        DIRECT = 1,  // личное сообщение
     };
+    static constexpr uint8_t kSetCount = 3; // наборов звуков: Сталкер, Двойной, Одиночный
 
     static HorizonSound &instance(void);
 

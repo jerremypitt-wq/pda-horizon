@@ -24,20 +24,11 @@ void copyField(char *dst, size_t cap, const char *src)
 {
     if (!src || !*src)
         return; // пустое значение - оставляем текущее
-    strncpy(dst, src, cap - 1);
-    dst[cap - 1] = '\0';
+    HorizonStrings::copyUtf8(dst, cap, src);
     // убрать \r \n на конце
     size_t n = strlen(dst);
     while (n > 0 && (dst[n - 1] == '\r' || dst[n - 1] == '\n'))
         dst[--n] = '\0';
-    // Не оставлять разорванный UTF-8 символ на границе буфера (файл могли
-    // править вручную): отступить через байты-продолжения и осиротевший
-    // ведущий байт.
-    while (n > 0 && (((unsigned char)dst[n - 1] & 0xC0) == 0x80))
-        n--;
-    if (n > 0 && ((unsigned char)dst[n - 1] & 0x80))
-        n--;
-    dst[n] = '\0';
 }
 
 int parseInt(const char *s, int fallback, int lo, int hi)
@@ -81,6 +72,7 @@ void HorizonConfig::resetToDefaults(void)
     orientation = 0;
     theme = 0;
     silent = false;
+    soundSet = 0;
     strcpy(charName, "Сталкер");
     strcpy(callsign, "Новичок");
     rank = 0;
@@ -123,6 +115,8 @@ void HorizonConfig::load(void)
             theme = (uint8_t)parseInt(val, 0, 0, (int)HorizonStrings::kThemeCount - 1);
         else if (!strcmp(key, "silent"))
             silent = parseInt(val, 0, 0, 1) != 0;
+        else if (!strcmp(key, "soundSet"))
+            soundSet = (uint8_t)parseInt(val, 0, 0, 2);
         else if (!strcmp(key, "charName"))
             copyField(charName, sizeof(charName), val);
         else if (!strcmp(key, "callsign"))
@@ -153,6 +147,7 @@ void HorizonConfig::save(void) const
     f.printf("orientation=%u\n", orientation);
     f.printf("theme=%u\n", theme);
     f.printf("silent=%u\n", silent ? 1 : 0);
+    f.printf("soundSet=%u\n", soundSet);
     f.printf("charName=%s\n", charName);
     f.printf("callsign=%s\n", callsign);
     f.printf("rank=%u\n", rank);

@@ -83,10 +83,11 @@ void HorizonView::init(IClientBase *client)
             uint32_t dt = 0;
             if (now >= tcfg.savedMs && now - tcfg.savedMs < 172800000UL)
                 dt = (now - tcfg.savedMs) / 1000;
-            actTime = tcfg.savedEpoch + dt;
+            setActTime(tcfg.savedEpoch + dt);
             ILOG_INFO("Horizon: time restored %u (+%us)", (unsigned)tcfg.savedEpoch, (unsigned)dt);
         }
     }
+    store.loadMessages(); // история с прошлого запуска (своего в /messages нет)
     ui = new HorizonUI(this);
     ui->init();
     ILOG_INFO("Horizon: init done");
@@ -202,8 +203,8 @@ void HorizonView::updateLastHeard(uint32_t nodeNum)
 void HorizonView::packetReceived(const meshtastic_MeshPacket &p)
 {
     MeshtasticView::packetReceived(p);
-    if (actTime < 1000000 && p.rx_time > 1000000)
-        actTime = p.rx_time;
+    if (getActTime() < 1000000 && p.rx_time > 1000000)
+        setActTime(p.rx_time);
     notePacketTools(p);
 }
 
@@ -230,8 +231,8 @@ void HorizonView::newMessage(uint32_t from, uint32_t to, uint8_t ch, const char 
         return;
     }
     if (msgtime < 1000000)
-        msgtime = actTime;
-    store.addMessage(from, to, ch, msgtime, msg, !restore);
+        msgtime = getActTime();
+    store.addMessage(from, to, ch, msgtime, msg, !restore, kHzSendOk, 0, !restore);
     msgsDirty = true;
     if (!restore && ui)
         ui->onMessage(from, to, ch, msg, msgtime);
@@ -285,17 +286,31 @@ void HorizonView::updateLoRaConfig(const meshtastic_Config_LoRaConfig &cfg)
 
 void HorizonView::persistTime(void)
 {
-    if (actTime > 1000000)
-        HorizonConfig::instance().saveTime(actTime, millis());
+    uint32_t now = getActTime();
+    if (now > 1000000)
+        HorizonConfig::instance().saveTime(now, millis());
 }
 
 void HorizonView::setManualTime(uint32_t epoch)
 {
     if (epoch < 1000000)
         return;
-    actTime = epoch;
+    setActTime(epoch);
     persistTime();
     ILOG_INFO("Horizon: manual time %u", (unsigned)epoch);
+}
+
+uint32_t HorizonView::getActTime(void) const
+{
+    if (actTime < 1000000)
+        return actTime; // часы не идут - метки нет
+    return actTime + (millis() - actTimeMs) / 1000;
+}
+
+void HorizonView::setActTime(uint32_t t)
+{
+    actTime = t;
+    actTimeMs = millis();
 }
 
 void HorizonView::updateTime(uint32_t timeVal)
@@ -303,9 +318,9 @@ void HorizonView::updateTime(uint32_t timeVal)
     time_t local;
     time(&local);
     if (local > 1000000)
-        actTime = (uint32_t)local;
-    else if (timeVal > actTime)
-        actTime = timeVal;
+        setActTime((uint32_t)local);
+    else if (timeVal > getActTime())
+        setActTime(timeVal);
 }
 
 void HorizonView::notifyConnected(const char *info)
@@ -372,7 +387,9 @@ bool HorizonView::isNodeOnline(uint32_t nodeNum) const
         return false;
     time_t now;
     time(&now);
-    uint32_t ref = now > 1000000 ? (uint32_t)now : (actTime > 1000000 ? actTime : r->lastHeard);
+    uint32_t ref = now > 1000000 ? (uint32_t)now : getActTime();
+    if (ref < 1000000)
+        ref = r->lastHeard;
     return (ref - r->lastHeard) <= secs_until_offline;
 }
 
@@ -487,7 +504,7 @@ void HorizonView::sendChannelRaw(uint8_t ch, const char *text)
     if (hop == 0)
         hop = 3;
     uint32_t reqId = requests.addRequest(ch, ResponseHandler::TextMessageRequest, nullptr, nullptr);
-    controller->sendTextMessage(0xFFFFFFFFu, ch, hop, actTime, reqId, false, s.c_str());
+    controller->sendTextMessage(0xFFFFFFFFu, ch, hop, getActTime(), reqId, false, s.c_str());
 }
 
 void HorizonView::sendChannelMessage(uint8_t ch, const char *text)
@@ -497,7 +514,10 @@ void HorizonView::sendChannelMessage(uint8_t ch, const char *text)
     sendChannelRaw(ch, text);
     std::string s = text;
     truncate230(s);
-    store.addMessage(ownNode, 0xFFFFFFFFu, ch, actTime, s.c_str(), false);
+    // Широковещание не подтверждается доставкой по протоколу; единственный
+    // твёрдый сигнал - пустая сеть: получить было некому.
+    uint8_t st = onlineCount() == 0 ? kHzSendFailed : kHzSendOk;
+    store.addMessage(ownNode, 0xFFFFFFFFu, ch, getActTime(), s.c_str(), false, st);
     msgsDirty = true;
 }
 
@@ -532,7 +552,7 @@ void HorizonView::handleDossierBeacon(uint32_t from, const char *msg, bool canRe
     if (rank > 3 || group > 9)
         return;
     bool known = store.findDossier(from) != nullptr;
-    store.upsertDossier(from, e2 + 1, (uint8_t)rank, (uint8_t)group, actTime);
+    store.upsertDossier(from, e2 + 1, (uint8_t)rank, (uint8_t)group, getActTime());
     ILOG_INFO("Horizon: dossier %08x '%s' rank=%u group=%u", (unsigned)from, e2 + 1, (unsigned)rank,
               (unsigned)group);
     if (canReply && !known)
@@ -552,8 +572,23 @@ void HorizonView::sendDirectMessage(uint32_t peer, const char *text)
     }
     uint8_t ch = nodeChannel(peer);
     uint32_t reqId = requests.addRequest(peer, ResponseHandler::TextMessageRequest, nullptr, nullptr);
-    controller->sendTextMessage(peer, ch, nodeHopLimit(peer), actTime, reqId, nodeHasKey(peer), s.c_str());
-    store.addMessage(ownNode, peer, ch, actTime, s.c_str(), false);
+    controller->sendTextMessage(peer, ch, nodeHopLimit(peer), getActTime(), reqId, nodeHasKey(peer), s.c_str());
+    uint8_t st;
+    uint32_t track = 0;
+    if (onlineCount() == 0) {
+        st = kHzSendFailed; // в эфире никого - доставка невозможна
+        requests.removeRequest(reqId);
+    } else {
+        st = kHzSendPending; // ждём ACK (резолв в handleResponse/pollTools)
+        track = reqId;
+        pendingTexts.push_back({reqId, millis()});
+        while (pendingTexts.size() > 16) {
+            store.markTextDelivered(pendingTexts.front().reqId, false);
+            requests.removeRequest(pendingTexts.front().reqId);
+            pendingTexts.erase(pendingTexts.begin());
+        }
+    }
+    store.addMessage(ownNode, peer, ch, getActTime(), s.c_str(), false, st, track);
     msgsDirty = true;
 }
 
@@ -679,7 +714,7 @@ void HorizonView::notePacketTools(const meshtastic_MeshPacket &p)
     // Лог: свои админские пакеты не пишем (как в штатном виде).
     if (!(p.from == ownNode && p.decoded.portnum == meshtastic_PortNum_ADMIN_APP)) {
         HzPacketEntry e;
-        e.time = actTime;
+        e.time = getActTime();
         e.from = p.from;
         e.to = p.to;
         e.ch = (uint8_t)p.channel;
@@ -839,6 +874,24 @@ void HorizonView::pollTools(uint32_t nowMs)
             toolsDirty = true;
         }
     }
+    // Таймаут доставки лички: 60 с без ACK - не доставлено (пузырь краснеет
+    // сам: msgsDirty перерисует открытый чат).
+    for (size_t i = 0; i < pendingTexts.size();) {
+        uint32_t rid = pendingTexts[i].reqId;
+        const HorizonMessage *m = store.findTextByReq(rid);
+        if (!m || m->sendStatus != kHzSendPending) {
+            pendingTexts.erase(pendingTexts.begin() + i); // резолвлён в handleResponse
+            continue;
+        }
+        if (nowMs - pendingTexts[i].sentMs >= 60000) {
+            store.markTextDelivered(rid, false);
+            requests.removeRequest(rid);
+            pendingTexts.erase(pendingTexts.begin() + i);
+            msgsDirty = true;
+            continue;
+        }
+        i++;
+    }
     if (traceRunning && nowMs - traceStartMs >= kTraceTimeoutMs) {
         traceFail = true;
         traceRunning = false;
@@ -852,20 +905,48 @@ void HorizonView::pollTools(uint32_t nowMs)
 void HorizonView::handleResponse(uint32_t from, uint32_t id, const meshtastic_Routing &routing,
                                  const meshtastic_MeshPacket &p)
 {
-    (void)from;
     (void)p;
-    if (!traceRunning || id != traceReq)
+    if (traceRunning && id == traceReq) {
+        // Ошибка доставки - маршрут не построить. Чистый ACK игнорируем:
+        // следом придёт RouteDiscovery.
+        if (routing.which_variant == meshtastic_Routing_error_reason_tag &&
+            routing.error_reason != meshtastic_Routing_Error_NONE) {
+            traceFail = true;
+            traceRunning = false;
+            requests.removeRequest(id);
+            traceReq = 0;
+            toolsDirty = true;
+        }
         return;
-    // Ошибка доставки - маршрут не построить. Чистый ACK игнорируем:
-    // следом придёт RouteDiscovery.
-    if (routing.which_variant == meshtastic_Routing_error_reason_tag &&
-        routing.error_reason != meshtastic_Routing_Error_NONE) {
-        traceFail = true;
-        traceRunning = false;
-        requests.removeRequest(id);
-        traceReq = 0;
-        toolsDirty = true;
     }
+    handleTextDelivery(from, id, routing);
+}
+
+// Доставка текстов (вызывается из handleResponse выше, когда id - не маршрут).
+// Как в штатном виде: локальное эхо (from==ownNode) - только факт передачи
+// своей радиостанцией, ошибка в нём - провал сразу; ответ сети -
+// настоящий ACK/ошибка доставки. Сообщения каналов reqId не хранят,
+// поэтому их отклики здесь - тихий no-op.
+void HorizonView::handleTextDelivery(uint32_t from, uint32_t id, const meshtastic_Routing &routing)
+{
+    if (routing.which_variant != meshtastic_Routing_error_reason_tag)
+        return;
+    ResponseHandler::Request req = requests.findRequest(id);
+    if (req.type != ResponseHandler::TextMessageRequest)
+        return;
+    if (from == ownNode) {
+        if (routing.error_reason != meshtastic_Routing_Error_NONE) {
+            if (store.markTextDelivered(id, false))
+                msgsDirty = true;
+            requests.removeRequest(id);
+        }
+        // Чистый локальный ACK: доставка ещё впереди - ждём дальше.
+        return;
+    }
+    bool ok = (routing.error_reason == meshtastic_Routing_Error_NONE);
+    if (store.markTextDelivered(id, ok))
+        msgsDirty = true;
+    requests.removeRequest(id);
 }
 
 void HorizonView::handleResponse(uint32_t from, uint32_t id, const meshtastic_RouteDiscovery &route)

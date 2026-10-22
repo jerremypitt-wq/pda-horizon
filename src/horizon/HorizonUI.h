@@ -101,7 +101,7 @@ class HorizonUI
     uint32_t chatPeer = 0;
     void buildChat(void);
     void rebuildChatList(void);
-    void appendChatBubble(uint32_t from, const char *text, uint32_t time, bool outgoing);
+    void appendChatBubble(uint32_t from, const char *text, uint32_t time, bool outgoing, bool failed = false);
     void sendChatInput(void);
     lv_obj_t *chatList = nullptr;
     lv_obj_t *chatInput = nullptr;
@@ -288,6 +288,7 @@ class HorizonUI
     static void cbTimeApply(lv_event_t *e);
     static void cbSoundToggle(lv_event_t *e);
     static void cbSoundTest(lv_event_t *e);
+    static void cbSoundSet(lv_event_t *e);
     static void cbToolRow(lv_event_t *e);
     static void cbToolPick(lv_event_t *e);
     static void cbScanStop(lv_event_t *e);

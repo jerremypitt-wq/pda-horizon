@@ -2,6 +2,7 @@
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonStrings.h"
+#include <string.h>
 
 namespace HorizonStrings {
 
@@ -51,6 +52,43 @@ const char *const kSimpleKeys[kSimpleKeyCount] = {
     "Без ключа", "Default", "Simple1", "Simple2", "Simple3", "Simple4",
     "Simple5",   "Simple6", "Simple7", "Simple8", "Simple9", "Simple10",
 };
+
+void copyUtf8(char *dst, size_t cap, const char *src)
+{
+    if (!dst || cap == 0)
+        return;
+    if (!src)
+        src = "";
+    strncpy(dst, src, cap - 1);
+    dst[cap - 1] = '\0';
+    if (strlen(src) < cap)
+        return; // влезло целиком - символ цел, трогать нечего
+    // Резанули по живому: проверить, цел ли последний символ.
+    size_t n = strlen(dst);
+    if (n == 0)
+        return;
+    size_t start = n;
+    while (start > 0 && n - start < 4 && ((unsigned char)dst[start - 1] & 0xC0) == 0x80)
+        start--;
+    // Отступить на ведущий байт символа (если он есть): после цикла
+    // start указывает ПОСЛЕ пропущенных продолжений, а не на начало символа.
+    if (start > 0 && ((unsigned char)dst[start - 1] & 0xC0) == 0xC0)
+        start--;
+    if (start >= n)
+        return; // последний байт ASCII - всё цело
+    unsigned char lead = (unsigned char)dst[start];
+    size_t need = 1;
+    if ((lead & 0xE0) == 0xC0)
+        need = 2;
+    else if ((lead & 0xF0) == 0xE0)
+        need = 3;
+    else if ((lead & 0xF8) == 0xF0)
+        need = 4;
+    else if (lead & 0x80)
+        need = 5; // битый ведущий байт - убрать
+    if (n - start < need)
+        dst[start] = '\0'; // символ резан - убрать хвост
+}
 
 } // namespace HorizonStrings
 

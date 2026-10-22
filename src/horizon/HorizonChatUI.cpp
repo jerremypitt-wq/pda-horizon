@@ -17,6 +17,12 @@ namespace {
 constexpr int16_t kStatusH = 22;
 constexpr int16_t kHeaderH = 40;
 constexpr int16_t kInputH = 48;
+
+// Последнее сообщение диалога - проваленное исходящее?
+bool convoFailed(const HorizonConvo &c)
+{
+    return !c.messages.empty() && c.messages.back().sendStatus == kHzSendFailed;
+}
 } // namespace
 
 // ---------------- чат ----------------
@@ -124,7 +130,7 @@ void HorizonUI::rebuildChatList(void)
         lv_obj_set_width(e, lv_pct(100));
     } else {
         for (auto &m : c.messages)
-            appendChatBubble(m.from, m.text.c_str(), m.time, m.outgoing);
+            appendChatBubble(m.from, m.text.c_str(), m.time, m.outgoing, m.sendStatus == kHzSendFailed);
         // в конец
         uint32_t n = lv_obj_get_child_count(chatList);
         if (n > 0) {
@@ -137,7 +143,7 @@ void HorizonUI::rebuildChatList(void)
     refreshMenuBadges();
 }
 
-void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time, bool outgoing)
+void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time, bool outgoing, bool failed)
 {
     if (current != Screen::CHAT || !chatList || !lv_obj_is_valid(chatList))
         return;
@@ -161,12 +167,18 @@ void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time,
     lv_obj_set_flex_align(row, outgoing ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
+    // Недоставленное исходящее - красным.
+    lv_color_t bg = hzColor(failed ? p.danger : (outgoing ? p.outgoing : p.incoming));
+    lv_color_t bd = hzColor(failed ? p.danger : (outgoing ? p.accent : p.border));
+    lv_color_t fg = failed ? lv_color_white() : hzColor(outgoing ? p.accentText : p.text);
+    lv_color_t mg = failed ? lv_color_white() : hzColor(outgoing ? p.accentText : p.textDim);
+
     lv_obj_t *b = lv_obj_create(row);
     lv_obj_set_width(b, lv_pct(86));
     lv_obj_set_height(b, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_color(b, hzColor(outgoing ? p.outgoing : p.incoming), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(b, bg, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_color(b, hzColor(outgoing ? p.accent : p.border), LV_PART_MAIN);
+    lv_obj_set_style_border_color(b, bd, LV_PART_MAIN);
     lv_obj_set_style_border_width(b, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(b, 6, LV_PART_MAIN);
     lv_obj_set_style_pad_all(b, 6, LV_PART_MAIN);
@@ -177,7 +189,10 @@ void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time,
     fmtTime(time, tm, sizeof(tm));
     lv_obj_t *meta = lv_label_create(b);
     if (outgoing) {
-        lv_label_set_text_fmt(meta, "Вы · %s", tm);
+        if (failed)
+            lv_label_set_text_fmt(meta, "Вы · %s · не доставлено", tm);
+        else
+            lv_label_set_text_fmt(meta, "Вы · %s", tm);
     } else if (chatIsChannel) {
         char who[64];
         formatSender(from, who, sizeof(who));
@@ -186,13 +201,13 @@ void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time,
         lv_label_set_text_fmt(meta, "%s", tm);
     }
     lv_obj_set_style_text_font(meta, HorizonTheme::fontSmall(), LV_PART_MAIN);
-    lv_obj_set_style_text_color(meta, hzColor(outgoing ? p.accentText : p.textDim), LV_PART_MAIN);
+    lv_obj_set_style_text_color(meta, mg, LV_PART_MAIN);
 
     lv_obj_t *body = lv_label_create(b);
     lv_label_set_text(body, text ? text : "");
     lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(body, lv_pct(100));
-    lv_obj_set_style_text_color(body, hzColor(outgoing ? p.accentText : p.text), LV_PART_MAIN);
+    lv_obj_set_style_text_color(body, fg, LV_PART_MAIN);
 
     lv_obj_update_layout(chatList);
     lv_obj_scroll_to_view(row, LV_ANIM_OFF);
@@ -210,16 +225,17 @@ void HorizonUI::sendChatInput(void)
         toast("Объявления - с ранга Ветеран");
         return;
     }
+    HorizonStore &st = view->getStore();
     if (chatIsChannel) {
         view->sendChannelMessage(chatCh, txt);
-        appendChatBubble(view->getMyNodeNum(), txt, view->getActTime(), true);
-        HorizonStore &st = view->getStore();
-        st.markRead(st.channelConvo(chatCh));
+        HorizonConvo &c = st.channelConvo(chatCh);
+        appendChatBubble(view->getMyNodeNum(), txt, view->getActTime(), true, convoFailed(c));
+        st.markRead(c);
     } else {
         view->sendDirectMessage(chatPeer, txt);
-        appendChatBubble(view->getMyNodeNum(), txt, view->getActTime(), true);
-        HorizonStore &st = view->getStore();
-        st.markRead(st.dmConvo(chatPeer));
+        HorizonConvo &c = st.dmConvo(chatPeer);
+        appendChatBubble(view->getMyNodeNum(), txt, view->getActTime(), true, convoFailed(c));
+        st.markRead(c);
     }
     lv_textarea_set_text(chatInput, "");
     kbdHide();
