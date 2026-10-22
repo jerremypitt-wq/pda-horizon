@@ -268,6 +268,7 @@ class HorizonView : public MeshtasticView
     // Разобрать маяк досье (canReply=false для восстановленных из истории)
     void handleDossierBeacon(uint32_t from, const char *msg, bool canReply);
     uint32_t lastBeaconMs = 0; // rate-limit маяков
+    uint32_t lastPeriodicBeaconMs = 0; // переозвучка досье раз в 15 минут
     uint8_t nodeChannel(uint32_t nodeNum) const;
     bool nodeHasKey(uint32_t nodeNum) const;
     uint8_t nodeHopLimit(uint32_t nodeNum) const;

@@ -34,6 +34,7 @@ namespace {
 constexpr const char *kDossierBeaconPrefix = "HZ:DOSSIER:";
 constexpr size_t kDossierBeaconPrefixLen = sizeof("HZ:DOSSIER:") - 1;
 constexpr uint32_t kBeaconMinIntervalMs = 5000; // rate-limit маяков
+constexpr uint32_t kBeaconPeriodicMs = 15 * 60 * 1000; // переозвучка досье
 } // namespace
 
 // Ориентация для конструктора панели (variants/elecrow-adv-35/config.h).
@@ -128,6 +129,15 @@ void HorizonView::task_handler(void)
     HorizonSound::instance().tick();
     if (ui)
         ui->tick();
+    // Переозвучка досье раз в 15 минут: переименование расходится одним
+    // broadcast-маяком без повторов (при сохранении), а ответные маяки шлются
+    // только новым узлам - потерянный маяк = рассинхрон навсегда. Периодика
+    // чинит несогласованность позывных в пределах 15 минут.
+    uint32_t nowMs = millis();
+    if (nowMs - lastPeriodicBeaconMs >= kBeaconPeriodicMs) {
+        lastPeriodicBeaconMs = nowMs;
+        announceDossier();
+    }
 }
 
 bool HorizonView::bootReady(void) const
