@@ -477,6 +477,16 @@ void HorizonUI::rebuildContactsList(void)
             lv_obj_set_style_pad_hor(ub, 6, LV_PART_MAIN);
         }
 
+        // явная кнопка перехода справа - тап по ней ведёт в карточку
+        lv_obj_t *go = lv_btn_create(b);
+        HorizonTheme::styleButton(go, true);
+        lv_obj_set_size(go, 40, 40);
+        lv_obj_t *gl = lv_label_create(go);
+        lv_label_set_text(gl, ">");
+        lv_obj_center(gl);
+        lv_obj_set_user_data(go, (void *)(uintptr_t)r.id);
+        lv_obj_add_event_cb(go, cbContactGo, LV_EVENT_CLICKED, this);
+
         lv_obj_set_user_data(b, (void *)(uintptr_t)r.id);
         lv_obj_add_event_cb(b, cbContact, LV_EVENT_CLICKED, this);
     }
@@ -493,6 +503,14 @@ void HorizonUI::cbFilter(lv_event_t *e)
 void HorizonUI::cbContact(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    uint32_t id = (uint32_t)(uintptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
+    self->showContactCard(id);
+}
+
+void HorizonUI::cbContactGo(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    lv_event_stop_bubbling(e); // строка тоже кликабельна - не открывать карточку дважды
     uint32_t id = (uint32_t)(uintptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     self->showContactCard(id);
 }

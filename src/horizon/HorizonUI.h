@@ -280,6 +280,7 @@ class HorizonUI
     static void cbConfirmCancel(lv_event_t *e);
     static void cbModalBlock(lv_event_t *e);
     static void cbContact(lv_event_t *e);
+    static void cbContactGo(lv_event_t *e); // кнопка ">" в строке контакта
     static void cbCardWrite(lv_event_t *e);
     static void cbCardFav(lv_event_t *e);
     static void cbOpenChat(lv_event_t *e);

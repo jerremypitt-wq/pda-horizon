@@ -7,6 +7,7 @@
 #include "graphics/driver/DisplayDriver.h"
 #include "horizon/HorizonDisplay.h"
 #include "horizon/HorizonSound.h"
+#include "horizon/HorizonStrings.h" // kFirmwareVersion в стартовый лог
 #include "horizon/HorizonUI.h"
 #include "util/ILog.h"
 #include <stdlib.h> // strtoul для разбора маяков
@@ -69,7 +70,7 @@ HorizonView::HorizonView(const DisplayDriverConfig *cfg, DisplayDriver *driver)
 
 void HorizonView::init(IClientBase *client)
 {
-    ILOG_INFO("Horizon: init...");
+    ILOG_INFO("Horizon: v%s init...", HorizonStrings::kFirmwareVersion);
     MeshtasticView::init(client);
 #ifdef HORIZON_PACKET_LINK
     // В дереве прошивки нет ARCH_ESP32, поэтому TFTDriver не ставит esp_timer

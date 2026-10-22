@@ -13,7 +13,10 @@ namespace HorizonStrings {
 // Аппарат/версия
 constexpr const char *kAppName = "ПДА «ГОРИЗОНТ»";
 constexpr const char *kAppSub = "MESH-СВЯЗЬ // STALKER NET";
-constexpr const char *kFirmwareVersion = "1.0.0";
+// Версия прошивки ПДА: MAJOR.MINOR.PATCH. Бампить КАЖДЫМ функциональным
+// изменением (MINOR - фича/партия, PATCH - хотфикс), чтобы по экрану «О ПДА»,
+// сплэшу и логу было видно, что зашито в устройство. Всё до ввода правила = 1.0.0.
+constexpr const char *kFirmwareVersion = "1.1.0";
 
 // Ранги персонажа
 constexpr uint8_t kRankCount = 4;
