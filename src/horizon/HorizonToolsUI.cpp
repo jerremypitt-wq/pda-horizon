@@ -170,7 +170,7 @@ void HorizonUI::buildSetTools(void)
 void HorizonUI::cbToolRow(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     switch (id) {
     case 0:
         self->buildToolDetector();
@@ -447,7 +447,7 @@ void HorizonUI::buildToolPick(void)
 void HorizonUI::cbToolPick(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    uint32_t id = (uint32_t)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    uint32_t id = (uint32_t)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     if (id == 0 || id == 0xFFFFFFFFu)
         return;
     if (self->toolPickMode == 0) {

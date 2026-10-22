@@ -209,7 +209,7 @@ static bool hasCustomKey(HorizonView *view, uint8_t ch)
 void HorizonUI::cbRow(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     if (self->current != Screen::SETTINGS)
         return;
     switch (id) {
@@ -615,7 +615,7 @@ void HorizonUI::buildSetTime(void)
 void HorizonUI::cbTimeStep(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     if (id == 0)
         self->timeH = (self->timeH + 23) % 24;
     else if (id == 1)
@@ -709,7 +709,7 @@ void HorizonUI::buildSetSound(void)
 void HorizonUI::cbSoundToggle(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    lv_obj_t *sw = (lv_obj_t *)lv_event_get_target(e);
+    lv_obj_t *sw = (lv_obj_t *)lv_event_get_current_target(e);
     bool on = lv_obj_has_state(sw, LV_STATE_CHECKED);
     HorizonConfig::instance().silent = on;
     HorizonConfig::instance().save();
@@ -719,7 +719,7 @@ void HorizonUI::cbSoundToggle(lv_event_t *e)
 void HorizonUI::cbSoundSet(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     if (id < 0 || id > 2)
         return;
     HorizonConfig::instance().soundSet = (uint8_t)id;
@@ -788,7 +788,7 @@ void HorizonUI::buildSetChannels(void)
 void HorizonUI::cbSetChannelPick(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     if (id < 0 || id > 2)
         return;
     self->setDetailKind = (uint8_t)id;
@@ -1414,7 +1414,7 @@ void HorizonUI::buildSetReset(void)
 void HorizonUI::cbSetReset(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     if (id == 0) {
         self->askConfirm("Сбросить все настройки ПДА к заводским?", "Сбросить", [self]() {
             uint8_t oldOrient = HorizonConfig::instance().orientation;

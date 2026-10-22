@@ -176,6 +176,7 @@ class HorizonView : public MeshtasticView
     // иначе длинное имя, иначе короткое, иначе «!abcd».
     const char *displayName(uint32_t nodeNum) const;
     bool isNodeOnline(uint32_t nodeNum) const;
+    bool isNodeHeardWithin(uint32_t nodeNum, uint32_t windowSec) const; // слышали не раньше windowSec назад
     uint32_t onlineCount(void) const;
     uint32_t nodeCount(void) const;
 

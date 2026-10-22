@@ -423,7 +423,7 @@ void HorizonUI::pinPress(const char *key)
 void HorizonUI::cbPinBtn(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    const char *key = (const char *)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    const char *key = (const char *)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     self->pinPress(key);
 }
 
@@ -726,14 +726,14 @@ void HorizonUI::cbKbd(lv_event_t *e)
         self->kbdSuppressClick = false;
         return;
     }
-    const char *key = (const char *)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    const char *key = (const char *)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     self->kbdPress(key);
 }
 
 void HorizonUI::cbKbdLong(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    const char *key = (const char *)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    const char *key = (const char *)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     const char *alt = key ? kbdLongAlt(key) : nullptr;
     if (alt && self->kbdTarget && lv_obj_is_valid(self->kbdTarget)) {
         lv_textarea_add_text(self->kbdTarget, alt);
@@ -987,7 +987,7 @@ void HorizonUI::refreshMenuBadges(void)
 void HorizonUI::cbTile(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     HorizonConfig &cfg = HorizonConfig::instance();
     switch (id) {
     case 0:

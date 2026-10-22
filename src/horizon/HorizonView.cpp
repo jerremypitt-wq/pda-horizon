@@ -483,7 +483,7 @@ const char *HorizonView::displayName(uint32_t nodeNum) const
     return fb[fi];
 }
 
-bool HorizonView::isNodeOnline(uint32_t nodeNum) const
+bool HorizonView::isNodeHeardWithin(uint32_t nodeNum, uint32_t windowSec) const
 {
     const NodeRecord *r = nodeStore.find(nodeNum);
     if (!r || r->lastHeard == 0)
@@ -493,7 +493,12 @@ bool HorizonView::isNodeOnline(uint32_t nodeNum) const
     uint32_t ref = now > 1000000 ? (uint32_t)now : getActTime();
     if (ref < 1000000)
         ref = r->lastHeard;
-    return (ref - r->lastHeard) <= secs_until_offline;
+    return (ref - r->lastHeard) <= windowSec;
+}
+
+bool HorizonView::isNodeOnline(uint32_t nodeNum) const
+{
+    return isNodeHeardWithin(nodeNum, secs_until_offline);
 }
 
 uint32_t HorizonView::onlineCount(void) const

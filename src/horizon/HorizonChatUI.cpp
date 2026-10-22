@@ -253,7 +253,7 @@ void HorizonUI::cbInputFocus(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t *ta = (lv_obj_t *)lv_event_get_target(e);
+    lv_obj_t *ta = (lv_obj_t *)lv_event_get_current_target(e);
     if (code == LV_EVENT_FOCUSED) {
         self->kbdShow(ta);
     } else if (code == LV_EVENT_DEFOCUSED) {
@@ -292,7 +292,7 @@ void HorizonUI::buildContacts(void)
 {
     clearScreen(Screen::CONTACTS);
     addStatusBar(scr);
-    addNavHeader(scr, "Контакты", "Узлы в mesh-сети");
+    addNavHeader(scr, "Контакты", "На связи (10 мин) · ★ всегда");
 
     // Фильтр
     lv_obj_t *frow = lv_obj_create(scr);
@@ -357,22 +357,35 @@ void HorizonUI::rebuildContactsList(void)
     struct Row {
         uint32_t id;
         uint32_t lh;
+        bool fav;
     };
+    // В контактах - только живые: настоящее имя (не синтетика «Meshtastic ****»)
+    // и активность за последние 10 минут. Избранное - всегда, даже молчуны.
+    // Сырые/старые узлы смотрят в детекторе, история - в открытых чатах.
+    static const uint32_t kContactFreshSec = 10 * 60;
     std::vector<Row> rows;
     HorizonConfig &cfg = HorizonConfig::instance();
     for (auto &kv : view->getNodes().records()) {
         if (kv.first == view->getMyNodeNum())
             continue;
-        if (contactsFilter == 1 && !view->isNodeOnline(kv.first))
+        bool fav = cfg.isFavorite(kv.first);
+        if (!fav) {
+            const NodeRecord &nr = kv.second;
+            if (!nr.hasUser || nr.user.hw_model == meshtastic_HardwareModel_UNSET || !nr.user.long_name[0])
+                continue; // заглушка без настоящего имени
+            if (!view->isNodeHeardWithin(kv.first, kContactFreshSec))
+                continue; // молчит дольше 10 минут
+        }
+        if (contactsFilter == 1 && !view->isNodeHeardWithin(kv.first, kContactFreshSec))
             continue;
-        if (contactsFilter == 2 && !cfg.isFavorite(kv.first))
+        if (contactsFilter == 2 && !fav)
             continue;
-        rows.push_back({kv.first, kv.second.lastHeard});
+        rows.push_back({kv.first, kv.second.lastHeard, fav});
     }
-    // свежие сверху
+    // избранное сверху, дальше свежие сверху
     for (size_t i = 0; i < rows.size(); i++) {
         for (size_t j = i + 1; j < rows.size(); j++) {
-            if (rows[j].lh > rows[i].lh) {
+            if ((rows[j].fav && !rows[i].fav) || (rows[j].fav == rows[i].fav && rows[j].lh > rows[i].lh)) {
                 Row t = rows[i];
                 rows[i] = rows[j];
                 rows[j] = t;
@@ -387,7 +400,7 @@ void HorizonUI::rebuildContactsList(void)
         lv_obj_t *e = lv_label_create(contactsList);
         lv_label_set_text(e, contactsFilter == 1   ? "Никого нет в сети"
                              : contactsFilter == 2 ? "Нет избранных контактов"
-                                                   : "Пока нет узлов");
+                                                   : "Никого на связи\nСырые узлы - в детекторе");
         lv_obj_set_style_text_color(e, hzColor(p.textDim), LV_PART_MAIN);
         lv_obj_set_width(e, lv_pct(100));
         lv_obj_set_style_text_align(e, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -472,7 +485,7 @@ void HorizonUI::rebuildContactsList(void)
 void HorizonUI::cbFilter(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     self->contactsFilter = (id >= 0 && id <= 2) ? (uint8_t)id : 0;
     self->buildContacts();
 }
@@ -480,7 +493,7 @@ void HorizonUI::cbFilter(lv_event_t *e)
 void HorizonUI::cbContact(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    uint32_t id = (uint32_t)(uintptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    uint32_t id = (uint32_t)(uintptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     self->showContactCard(id);
 }
 
@@ -784,7 +797,7 @@ void HorizonUI::buildOpenChats(void)
 void HorizonUI::cbOpenChat(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    uint32_t id = (uint32_t)(uintptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    uint32_t id = (uint32_t)(uintptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     self->showChatDm(id);
 }
 
