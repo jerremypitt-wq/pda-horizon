@@ -1,10 +1,11 @@
 #pragma once
+#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
 // ПДА «Горизонт» - вид (View) в MVC device-ui: принимает данные от радиомодуля
 // через ViewController и отдаёт их интерфейсу HorizonUI.
 
 #ifdef HORIZON_UI
 
-#if defined(ARCH_ESP32)
+#if defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h> // раньше lvgl.h: IRAM_ATTR для LV_ATTRIBUTE_FAST_MEM
 #endif
 
@@ -32,14 +33,27 @@ class HorizonView : public MeshtasticView
     void task_handler(void) override;
 
     // --- MeshtasticView overrides: данные от радиомодуля ---
+#ifdef HORIZON_PACKET_LINK
+    // Апстримный MeshtasticView (прошивка): плоская сигнатура, device_id у нас
+    // всё равно не использовался.
+    void setMyInfo(uint32_t nodeNum) override;
+#else
     void setMyInfo(uint32_t nodeNum, meshtastic_MyNodeInfo_device_id_t device_id) override;
+#endif
     void addOrUpdateNode(uint32_t nodeNum, uint8_t channel, uint32_t lastHeard, eRole role, bool hasKey,
                          bool viaMqtt) override;
     void addOrUpdateNode(uint32_t nodeNum, uint8_t channel, uint32_t lastHeard, const meshtastic_User &cfg) override;
     void updateNode(uint32_t nodeNum, uint8_t channel, const meshtastic_User &cfg) override;
     void updatePosition(uint32_t nodeNum, int32_t lat, int32_t lon, int32_t alt, uint32_t sats,
                         uint32_t precision) override;
+#ifdef HORIZON_PACKET_LINK
+    // Апстрим шлёт метрики плоским набором (ViewController: node_info и телеметрия):
+    // собираем структуру и отдаём рабочему варианту ниже.
+    void updateMetrics(uint32_t nodeNum, uint32_t bat_level, float voltage, float chUtil, float airUtil) override;
+    void updateMetrics(uint32_t nodeNum, const meshtastic_DeviceMetrics &metrics);
+#else
     void updateMetrics(uint32_t nodeNum, const meshtastic_DeviceMetrics &metrics) override;
+#endif
     void updateSignalStrength(uint32_t nodeNum, int32_t rssi, float snr) override;
     void updateHopsAway(uint32_t nodeNum, uint8_t hopsAway) override;
     void updateLastHeard(uint32_t nodeNum) override;
@@ -50,7 +64,10 @@ class HorizonView : public MeshtasticView
     void restoreMessage(const LogMessage &msg) override;
 
     void removeNode(uint32_t nodeNum) override;
+#ifndef HORIZON_PACKET_LINK
+    // Только форк: апстримный базовый класс этого метода не объявляет.
     bool hasKnownNodeForPacket(uint32_t nodeNum) const override;
+#endif
 
     void updateChannelConfig(const meshtastic_Channel &ch) override;
     void updateDeviceConfig(const meshtastic_Config_DeviceConfig &cfg) override;

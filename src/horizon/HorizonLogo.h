@@ -1,4 +1,5 @@
 #pragma once
+#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
 // Логотип заставки ПДА «Горизонт» (сгенерировано bin/make_logo.py, не править).
 #ifdef HORIZON_UI
 #include "lvgl.h"

@@ -1,4 +1,5 @@
 #pragma once
+#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
 // ПДА «Горизонт» - настройки и досье игрока, хранение в /horizon.cfg (LittleFS).
 // Формат файла - простые строки key=value в UTF-8.
 

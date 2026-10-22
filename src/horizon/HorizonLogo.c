@@ -1,3 +1,4 @@
+#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
 // Логотип заставки ПДА «Горизонт» (113x132 A8 альфа-маска, bin/make_logo.py).
 #ifdef HORIZON_UI
 

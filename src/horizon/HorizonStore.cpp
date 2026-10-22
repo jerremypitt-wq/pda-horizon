@@ -1,3 +1,4 @@
+#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
 // ПДА «Горизонт» - хранилище сообщений.
 #ifdef HORIZON_UI
 

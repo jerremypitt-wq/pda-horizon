@@ -1,3 +1,4 @@
+#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
 // ПДА «Горизонт» - реализация вида.
 #ifdef HORIZON_UI
 
@@ -12,6 +13,13 @@
 #include <string.h>
 #include <time.h>
 #include <utility>
+
+// Тост при закрытом гейте radioConnected: в прошивке радиомодуль - это сам ПДА.
+#ifdef HORIZON_PACKET_LINK
+#define HZ_NO_LINK "Нет связи"
+#else
+#define HZ_NO_LINK "Нет связи с радиомодулем"
+#endif
 
 HorizonView *HorizonView::gui = nullptr;
 
@@ -96,6 +104,11 @@ void HorizonView::init(IClientBase *client)
     store.loadMessages(); // история с прошлого запуска (своего в /messages нет)
     ui = new HorizonUI(this);
     ui->init();
+#ifdef HORIZON_PACKET_LINK
+    // PacketClient колбэков состояния не шлёт (setNotifyCallback - no-op):
+    // внутренний линк жив уже по факту запуска.
+    notifyConnected("packet");
+#endif
     ILOG_INFO("Horizon: init done");
 }
 
@@ -118,9 +131,14 @@ bool HorizonView::bootReady(void) const
 
 // ---------------- входящие данные ----------------
 
+#ifdef HORIZON_PACKET_LINK
+void HorizonView::setMyInfo(uint32_t nodeNum)
+{
+#else
 void HorizonView::setMyInfo(uint32_t nodeNum, meshtastic_MyNodeInfo_device_id_t device_id)
 {
     (void)device_id;
+#endif
     ownNode = nodeNum;
     store.setMyNode(nodeNum);
     ILOG_INFO("Horizon: my node 0x%08x", nodeNum);
@@ -159,6 +177,15 @@ void HorizonView::addOrUpdateNode(uint32_t nodeNum, uint8_t channel, uint32_t la
 
 void HorizonView::addOrUpdateNode(uint32_t nodeNum, uint8_t channel, uint32_t lastHeard, const meshtastic_User &cfg)
 {
+    if (nodeStore.find(nodeNum) && cfg.hw_model == meshtastic_HardwareModel_UNSET &&
+        strncmp(cfg.long_name, "Meshtastic ", 11) == 0) {
+        // Синтетическая заглушка из базового packetReceived («Meshtastic XXXX»):
+        // настоящее имя уже есть - не затирать, только освежить время.
+        // В форке сюда не попасть (там гейт hasKnownNodeForPacket), в апстриме
+        // базовый `nodes` пуст всегда - без гарда имя затиралось бы каждый пакет.
+        updateLastHeard(nodeNum);
+        return;
+    }
     upsertNodeUser(nodeNum, channel, lastHeard, cfg, false);
 }
 
@@ -181,6 +208,22 @@ void HorizonView::updatePosition(uint32_t nodeNum, int32_t lat, int32_t lon, int
     pos.precision = precision;
     nodeStore.updatePosition(nodeNum, pos);
 }
+
+#ifdef HORIZON_PACKET_LINK
+void HorizonView::updateMetrics(uint32_t nodeNum, uint32_t bat_level, float voltage, float chUtil, float airUtil)
+{
+    meshtastic_DeviceMetrics metrics{};
+    metrics.has_battery_level = (bat_level > 0 && bat_level <= 100);
+    metrics.battery_level = bat_level;
+    metrics.has_voltage = true;
+    metrics.voltage = voltage;
+    metrics.has_channel_utilization = true;
+    metrics.channel_utilization = chUtil;
+    metrics.has_air_util_tx = true;
+    metrics.air_util_tx = airUtil;
+    updateMetrics(nodeNum, metrics);
+}
+#endif
 
 void HorizonView::updateMetrics(uint32_t nodeNum, const meshtastic_DeviceMetrics &metrics)
 {
@@ -232,10 +275,12 @@ void HorizonView::removeNode(uint32_t nodeNum)
     nodesDirty = true;
 }
 
+#ifndef HORIZON_PACKET_LINK
 bool HorizonView::hasKnownNodeForPacket(uint32_t nodeNum) const
 {
     return nodeStore.find(nodeNum) != nullptr;
 }
+#endif
 
 void HorizonView::newMessage(uint32_t from, uint32_t to, uint8_t ch, const char *msg, uint32_t &msgtime, bool restore)
 {
@@ -537,7 +582,7 @@ void HorizonView::sendChannelMessage(uint8_t ch, const char *text)
     if (!text || !*text)
         return;
     if (!radioConnected() && ui)
-        ui->toast("Нет связи с радиомодулем");
+        ui->toast(HZ_NO_LINK);
     sendChannelRaw(ch, text);
     std::string s = text;
     truncate230(s);
@@ -592,7 +637,7 @@ void HorizonView::sendDirectMessage(uint32_t peer, const char *text)
     if (!text || !*text || peer == 0 || peer == 0xFFFFFFFFu)
         return;
     if (!radioConnected() && ui)
-        ui->toast("Нет связи с радиомодулем");
+        ui->toast(HZ_NO_LINK);
     std::string s = text;
     if (s.size() > 230) {
         size_t n = 230;
@@ -626,7 +671,7 @@ void HorizonView::applyOwnerFromDossier(void)
 {
     if (!radioConnected()) {
         if (ui)
-            ui->toast("Нет связи с радиомодулем");
+            ui->toast(HZ_NO_LINK);
         return;
     }
     HorizonConfig &cfg = HorizonConfig::instance();
@@ -653,7 +698,7 @@ void HorizonView::applyChannelSettings(uint8_t idx, const char *name, uint8_t si
         return;
     if (!radioConnected()) {
         if (ui)
-            ui->toast("Нет связи с радиомодулем");
+            ui->toast(HZ_NO_LINK);
         return;
     }
     meshtastic_Channel ch{};
@@ -704,7 +749,7 @@ void HorizonView::applyLoRaConfig(int region, int preset, uint32_t hopLimit, boo
 {
     if (!radioConnected()) {
         if (ui)
-            ui->toast("Нет связи с радиомодулем");
+            ui->toast(HZ_NO_LINK);
         return;
     }
     meshtastic_Config_LoRaConfig l = gotLoRa ? lora : meshtastic_Config_LoRaConfig{};
@@ -723,7 +768,7 @@ void HorizonView::applyDeviceRole(int role)
 {
     if (!radioConnected()) {
         if (ui)
-            ui->toast("Нет связи с радиомодулем");
+            ui->toast(HZ_NO_LINK);
         return;
     }
     meshtastic_Config_DeviceConfig d = gotDevice ? device : meshtastic_Config_DeviceConfig{};
@@ -737,7 +782,7 @@ void HorizonView::rebootNode(void)
 {
     if (!radioConnected()) {
         if (ui)
-            ui->toast("Нет связи с радиомодулем");
+            ui->toast(HZ_NO_LINK);
         return;
     }
     controller->requestReboot(3, ownNode);
@@ -747,7 +792,7 @@ void HorizonView::resetNodeDb(void)
 {
     if (!radioConnected()) {
         if (ui)
-            ui->toast("Нет связи с радиомодулем");
+            ui->toast(HZ_NO_LINK);
         return;
     }
     // Панель тоже забывает чужие узлы (живых радио перевыучит из эфира).
@@ -766,7 +811,7 @@ void HorizonView::factoryResetNode(void)
 {
     if (!radioConnected()) {
         if (ui)
-            ui->toast("Нет связи с радиомодулем");
+            ui->toast(HZ_NO_LINK);
         return;
     }
     controller->requestReset(true, ownNode);

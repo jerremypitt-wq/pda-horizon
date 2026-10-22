@@ -1,3 +1,4 @@
+#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
 // ПДА «Горизонт» - досье персонажа и настройки.
 #ifdef HORIZON_UI
 
@@ -13,7 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(ARCH_ESP32)
+#if defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
 #include "Arduino.h"
 #endif
 
@@ -509,7 +510,11 @@ void HorizonUI::buildSettings(void)
 {
     clearScreen(Screen::SETTINGS);
     addStatusBar(scr);
+#ifdef HORIZON_PACKET_LINK
+    addNavHeader(scr, "Настройки", "ПДА");
+#else
     addNavHeader(scr, "Настройки", "ПДА и радиомодуль");
+#endif
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
@@ -877,10 +882,22 @@ void HorizonUI::cbSetApplyChannelDetail(lv_event_t *e)
     const char *nm = self->setDetailName ? lv_textarea_get_text(self->setDetailName) : "";
     uint8_t key = self->setDetailKey ? (uint8_t)lv_dropdown_get_selected(self->setDetailKey) : 0xFF;
     self->view->applyChannelSettings(ch, (nm && *nm) ? nm : nullptr, key);
+#ifdef HORIZON_PACKET_LINK
+    self->toast("Канал отправлен");
+#else
     self->toast("Канал отправлен на узел");
+#endif
+#ifdef HORIZON_PACKET_LINK
+    self->askConfirm("Перезагрузить ПДА, чтобы ключи вступили в силу?", "Да", [self]() {
+#else
     self->askConfirm("Перезагрузить радиомодуль, чтобы ключи вступили в силу?", "Да", [self]() {
+#endif
         self->view->rebootNode();
+#ifdef HORIZON_PACKET_LINK
+        self->toast("ПДА перезагружается...");
+#else
         self->toast("Узел перезагружается...");
+#endif
     });
 }
 
@@ -917,7 +934,11 @@ void HorizonUI::buildSetDevice(void)
 {
     clearScreen(Screen::SET_DEVICE);
     addStatusBar(scr);
+#ifdef HORIZON_PACKET_LINK
+    addNavHeader(scr, "Устройство", "Настройки радио");
+#else
     addNavHeader(scr, "Устройство", "Настройки радиомодуля");
+#endif
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
@@ -1035,10 +1056,22 @@ void HorizonUI::cbSetApplyDevice(lv_event_t *e)
     bool tx = lv_obj_has_state(self->setTx, LV_STATE_CHECKED);
     self->view->applyLoRaConfig(region, preset, hops, tx);
     self->view->applyDeviceRole(role);
+#ifdef HORIZON_PACKET_LINK
+    self->toast("Настройки отправлены");
+#else
     self->toast("Настройки отправлены на узел");
+#endif
+#ifdef HORIZON_PACKET_LINK
+    self->askConfirm("Перезагрузить ПДА для применения?", "Да", [self]() {
+#else
     self->askConfirm("Перезагрузить радиомодуль для применения?", "Да", [self]() {
+#endif
         self->view->rebootNode();
+#ifdef HORIZON_PACKET_LINK
+        self->toast("ПДА перезагружается...");
+#else
         self->toast("Узел перезагружается...");
+#endif
     });
 }
 
@@ -1182,7 +1215,7 @@ void HorizonUI::cbSetApplyDisplay(lv_event_t *e)
         self->askConfirm(
             "Перезагрузить ПДА для смены ориентации?", "Да",
             [self]() {
-#if defined(ARCH_ESP32)
+#if defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
                 delay(300);
                 ESP.restart();
 #else
@@ -1210,7 +1243,7 @@ void HorizonUI::cbSetApplyDisplay(lv_event_t *e)
 void HorizonUI::cbRebootNow(lv_event_t *e)
 {
     (void)e;
-#if defined(ARCH_ESP32)
+#if defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
     ESP.restart();
 #endif
 }
@@ -1338,8 +1371,16 @@ void HorizonUI::buildSetReset(void)
     };
     static const ResetRow rows[] = {
         {"Сбросить настройки ПДА", "Досье, каналы, тема, PIN=0000"},
+#ifdef HORIZON_PACKET_LINK
+        {"Сбросить NodeDB", "Забыть все узлы сети"},
+#else
         {"Сбросить NodeDB узла", "Забыть все узлы сети"},
+#endif
+#ifdef HORIZON_PACKET_LINK
+        {"Заводской сброс ПДА", "Полный сброс ПДА (мастер)"},
+#else
         {"Заводской сброс узла", "Полный сброс радиомодуля (мастер)"},
+#endif
     };
     for (int i = 0; i < 3; i++) {
         lv_obj_t *b = lv_btn_create(body);
@@ -1375,7 +1416,7 @@ void HorizonUI::cbSetReset(lv_event_t *e)
             }
             if (oldOrient != 0) {
                 self->askConfirm("Нужна перезагрузка ПДА. Перезагрузить?", "Да", [self]() {
-#if defined(ARCH_ESP32)
+#if defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
                     delay(300);
                     ESP.restart();
 #endif
@@ -1392,7 +1433,11 @@ void HorizonUI::cbSetReset(lv_event_t *e)
         });
     } else if (id == 2) {
         self->askPin("Мастер-PIN для сброса:", [self]() {
+#ifdef HORIZON_PACKET_LINK
+            self->askConfirm("ПОЛНЫЙ сброс ПДА? Всё сотрётся!", "Сбросить", [self]() {
+#else
             self->askConfirm("ПОЛНЫЙ сброс радиомодуля? Всё сотрётся!", "Сбросить", [self]() {
+#endif
                 self->view->factoryResetNode();
                 self->toast("Команда отправлена");
             });
@@ -1457,10 +1502,22 @@ void HorizonUI::buildSetAbout(void)
             airBad = false;
         }
     } else
+#ifdef HORIZON_PACKET_LINK
+        snprintf(lines[5], sizeof(lines[5]), "Эфир: нет данных");
+#else
         snprintf(lines[5], sizeof(lines[5]), "Эфир: нет данных от радиомодуля");
+#endif
+#ifdef HORIZON_PACKET_LINK
+    snprintf(lines[6], sizeof(lines[6]), "Обмен: внутренний (PacketAPI)");
+#else
     snprintf(lines[6], sizeof(lines[6]), "UART от радио: %u байт / %u кадров", (unsigned)hzUartRxBytes,
              (unsigned)hzUartRxFrames);
+#endif
+#ifdef HORIZON_PACKET_LINK
+    snprintf(lines[7], sizeof(lines[7]), "Связь: %s", view->radioConnected() ? "да" : "нет");
+#else
     snprintf(lines[7], sizeof(lines[7]), "Связь с узлом: %s", view->radioConnected() ? "да" : "нет");
+#endif
     snprintf(lines[8], sizeof(lines[8]), "Сделано для полевых игр по мотивам S.T.A.L.K.E.R.");
 
     for (int i = 0; i < 9; i++) {

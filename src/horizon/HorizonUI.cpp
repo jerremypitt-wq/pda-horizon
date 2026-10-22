@@ -1,3 +1,4 @@
+#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
 // ПДА «Горизонт» - ядро интерфейса: каркас, заставка, меню, тосты, PIN, клавиатура.
 #ifdef HORIZON_UI
 
@@ -13,7 +14,7 @@
 #include <string.h>
 #include <time.h>
 
-#if defined(ARCH_ESP32)
+#if defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
 #include "Arduino.h"
 #endif
 
@@ -793,7 +794,11 @@ void HorizonUI::showBoot(void)
     lv_obj_set_style_bg_color(bootBar, hzColor(p.accent), LV_PART_INDICATOR);
 
     bootStatus = lv_label_create(box);
+#ifdef HORIZON_PACKET_LINK
+    lv_label_set_text(bootStatus, "Запуск...");
+#else
     lv_label_set_text(bootStatus, "Подключение к радиомодулю...");
+#endif
     lv_obj_set_style_text_font(bootStatus, HorizonTheme::fontSmall(), LV_PART_MAIN);
     lv_obj_set_style_text_color(bootStatus, hzColor(p.textDim), LV_PART_MAIN);
 
@@ -1133,7 +1138,11 @@ void HorizonUI::tick(void)
             if (view->radioConnected())
                 lv_label_set_text(bootStatus, "Загрузка данных...");
             else if (now - bootMs > 6000)
+#ifdef HORIZON_PACKET_LINK
+                lv_label_set_text(bootStatus, "Ожидание mesh...");
+#else
                 lv_label_set_text(bootStatus, "Ожидание радиомодуля...");
+#endif
         }
         if (now - bootMs > 1500 && view->bootReady())
             showMenu();

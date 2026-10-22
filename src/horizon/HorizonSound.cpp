@@ -1,10 +1,11 @@
+#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
 // ПДА «Горизонт» - звук уведомлений через пассивный зуммер (tone/noTone).
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonSound.h"
 #include "horizon/HorizonConfig.h"
 
-#if defined(ARCH_ESP32)
+#if defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
 #endif
 
@@ -26,7 +27,7 @@ const HorizonSound::ToneStep *const kSets[HorizonSound::kSetCount][2] = {
 
 void hzToneOn(uint16_t freq)
 {
-#if defined(ELECROW_ADV_35) && defined(ARCH_ESP32)
+#if defined(ELECROW_ADV_35) && (defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32))
     tone(kBeepPin, freq);
 #else
     (void)freq;
@@ -35,7 +36,7 @@ void hzToneOn(uint16_t freq)
 
 void hzToneOff(void)
 {
-#if defined(ELECROW_ADV_35) && defined(ARCH_ESP32)
+#if defined(ELECROW_ADV_35) && (defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32))
     noTone(kBeepPin);
 #endif
 }
@@ -57,7 +58,7 @@ HorizonSound &HorizonSound::instance(void)
 
 void HorizonSound::init(void)
 {
-#if defined(ELECROW_ADV_35) && defined(ARCH_ESP32)
+#if defined(ELECROW_ADV_35) && (defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32))
     pinMode(kBeepPin, OUTPUT);
     digitalWrite(kBeepPin, LOW);
 #endif

@@ -1,9 +1,10 @@
 #pragma once
+#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
 // ПДА «Горизонт» - цветовые темы в духе S.T.A.L.K.E.R. и хелперы стилей LVGL.
 
 #ifdef HORIZON_UI
 
-#if defined(ARCH_ESP32)
+#if defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h> // раньше lvgl.h: IRAM_ATTR для LV_ATTRIBUTE_FAST_MEM
 #endif
 
