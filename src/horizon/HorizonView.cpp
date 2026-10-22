@@ -121,6 +121,7 @@ void HorizonView::setMyInfo(uint32_t nodeNum, meshtastic_MyNodeInfo_device_id_t 
     ownNode = nodeNum;
     store.setMyNode(nodeNum);
     ILOG_INFO("Horizon: my node 0x%08x", nodeNum);
+    announceDossier(); // радио реально живо - представиться сети
 }
 
 void HorizonView::upsertNodeUser(uint32_t nodeNum, uint8_t channel, uint32_t lastHeard, const meshtastic_User &cfg,
@@ -199,7 +200,12 @@ void HorizonView::updateHopsAway(uint32_t nodeNum, uint8_t hopsAway)
 
 void HorizonView::updateLastHeard(uint32_t nodeNum)
 {
-    nodeStore.updateLastHeard(nodeNum, (uint32_t)curtime);
+    // Живой пакет: штамповать в домене часов панели, иначе при выставленных
+    // часах все узлы вечно «офлайн» (смешались бы секунды с эпохи и с загрузки).
+    uint32_t now = getActTime();
+    if (now < 1000000)
+        now = (uint32_t)curtime;
+    nodeStore.updateLastHeard(nodeNum, now);
     nodesDirty = true;
 }
 
@@ -527,6 +533,8 @@ void HorizonView::sendChannelMessage(uint8_t ch, const char *text)
 {
     if (!text || !*text)
         return;
+    if (!radioConnected() && ui)
+        ui->toast("Нет связи с радиомодулем");
     sendChannelRaw(ch, text);
     std::string s = text;
     truncate230(s);
@@ -539,8 +547,9 @@ void HorizonView::sendChannelMessage(uint8_t ch, const char *text)
 
 void HorizonView::announceDossier(void)
 {
-    if (!connected)
-        return;
+    if (ownNode == 0)
+        return; // my_info ещё не приходил - радио молчит, слать некуда
+
     uint32_t now = millis();
     if (now - lastBeaconMs < kBeaconMinIntervalMs)
         return;
@@ -579,6 +588,8 @@ void HorizonView::sendDirectMessage(uint32_t peer, const char *text)
 {
     if (!text || !*text || peer == 0 || peer == 0xFFFFFFFFu)
         return;
+    if (!radioConnected() && ui)
+        ui->toast("Нет связи с радиомодулем");
     std::string s = text;
     if (s.size() > 230) {
         size_t n = 230;
@@ -610,6 +621,11 @@ void HorizonView::sendDirectMessage(uint32_t peer, const char *text)
 
 void HorizonView::applyOwnerFromDossier(void)
 {
+    if (!radioConnected()) {
+        if (ui)
+            ui->toast("Нет связи с радиомодулем");
+        return;
+    }
     HorizonConfig &cfg = HorizonConfig::instance();
     meshtastic_User user{};
     std::string ln = cfg.meshLongName();
@@ -632,6 +648,11 @@ void HorizonView::applyChannelSettings(uint8_t idx, const char *name, uint8_t si
 {
     if (idx >= c_max_channels)
         return;
+    if (!radioConnected()) {
+        if (ui)
+            ui->toast("Нет связи с радиомодулем");
+        return;
+    }
     meshtastic_Channel ch{};
     if (radioChKnown[idx])
         ch = radioCh[idx];
@@ -678,6 +699,11 @@ void HorizonView::applyChannelSettings(uint8_t idx, const char *name, uint8_t si
 
 void HorizonView::applyLoRaConfig(int region, int preset, uint32_t hopLimit, bool txEnabled)
 {
+    if (!radioConnected()) {
+        if (ui)
+            ui->toast("Нет связи с радиомодулем");
+        return;
+    }
     meshtastic_Config_LoRaConfig l = gotLoRa ? lora : meshtastic_Config_LoRaConfig{};
     l.use_preset = true;
     if (region >= 0)
@@ -692,6 +718,11 @@ void HorizonView::applyLoRaConfig(int region, int preset, uint32_t hopLimit, boo
 
 void HorizonView::applyDeviceRole(int role)
 {
+    if (!radioConnected()) {
+        if (ui)
+            ui->toast("Нет связи с радиомодулем");
+        return;
+    }
     meshtastic_Config_DeviceConfig d = gotDevice ? device : meshtastic_Config_DeviceConfig{};
     if (role >= 0)
         d.role = (meshtastic_Config_DeviceConfig_Role)role;
@@ -701,16 +732,40 @@ void HorizonView::applyDeviceRole(int role)
 
 void HorizonView::rebootNode(void)
 {
+    if (!radioConnected()) {
+        if (ui)
+            ui->toast("Нет связи с радиомодулем");
+        return;
+    }
     controller->requestReboot(3, ownNode);
 }
 
 void HorizonView::resetNodeDb(void)
 {
+    if (!radioConnected()) {
+        if (ui)
+            ui->toast("Нет связи с радиомодулем");
+        return;
+    }
+    // Панель тоже забывает чужие узлы (живых радио перевыучит из эфира).
+    std::vector<uint32_t> drop;
+    for (auto &kv : nodeStore.records()) {
+        if (kv.first != ownNode)
+            drop.push_back(kv.first);
+    }
+    for (uint32_t n : drop)
+        nodeStore.remove(n);
+    nodesDirty = true;
     controller->requestReset(false, ownNode);
 }
 
 void HorizonView::factoryResetNode(void)
 {
+    if (!radioConnected()) {
+        if (ui)
+            ui->toast("Нет связи с радиомодулем");
+        return;
+    }
     controller->requestReset(true, ownNode);
 }
 

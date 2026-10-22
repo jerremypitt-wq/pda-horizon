@@ -138,7 +138,10 @@ class HorizonView : public MeshtasticView
     bool timeUncertain(void) const { return timeStale; } // время стоит со выключения, сеть ещё не уточнила
     void persistTime(void);             // сохранить actTime в /horizon.time (если валидно)
     void setManualTime(uint32_t epoch); // ручная установка времени из настроек
-    bool radioConnected(void) const { return connected; }
+    // Жив ли радиомодуль: открытого UART мало (Serial-клиент считает себя
+    // подключённым сразу после init), доказательство - пришедший my_info.
+    // Без этого индикатор MESH врёт при мёртвой линии панель-радио.
+    bool radioConnected(void) const { return connected && ownNode != 0; }
     int myBattery(void) const { return battery; } // -1 - неизвестно
 
     bool bootReady(void) const; // можно уходить с заставки

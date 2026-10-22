@@ -1422,17 +1422,42 @@ void HorizonUI::buildSetAbout(void)
     char lines[8][96];
     snprintf(lines[0], sizeof(lines[0]), "ПДА «Горизонт», прошивка %s", kFirmwareVersion);
     snprintf(lines[1], sizeof(lines[1]), "Плата: Elecrow CrowPanel Advance 3.5\"");
-    snprintf(lines[2], sizeof(lines[2]), "Узел: !%08x (%s)", (unsigned)view->getMyNodeNum(), cfg.callsign);
+    if (view->getMyNodeNum())
+        snprintf(lines[2], sizeof(lines[2]), "Узел: !%08x (%s)", (unsigned)view->getMyNodeNum(), cfg.callsign);
+    else
+        snprintf(lines[2], sizeof(lines[2]), "Узел: неизвестен - радио молчит");
     snprintf(lines[3], sizeof(lines[3]), "Узлов в базе: %u, в сети: %u", (unsigned)view->nodeCount(),
              (unsigned)view->onlineCount());
     snprintf(lines[4], sizeof(lines[4]), "Чаты: общий %u, группа %u, инфо %u", cfg.generalCh, cfg.groupCh,
              cfg.announceCh);
-    if (view->hasLoRaConfig())
-        snprintf(lines[5], sizeof(lines[5]), "LoRa: регион %d, пресет %d, хопы %u, TX %s",
-                 (int)view->loraConfig().region, (int)view->loraConfig().modem_preset,
-                 (unsigned)view->loraConfig().hop_limit, view->loraConfig().tx_enabled ? "вкл" : "выкл");
-    else
-        snprintf(lines[5], sizeof(lines[5]), "LoRa: нет данных");
+    // Эфир словами: регион UNSET (0) в свежей прошивке радиомодуля глушит
+    // приём и передачу целиком - устройства рядом друг друга не услышат.
+    bool airBad = true;
+    if (view->hasLoRaConfig()) {
+        int rg = (int)view->loraConfig().region;
+        int pr = (int)view->loraConfig().modem_preset;
+        const char *rname = nullptr;
+        const char *pname = nullptr;
+        for (uint8_t i = 0; i < kRegionCount; i++) {
+            if (kRegions[i].code == rg)
+                rname = kRegions[i].name;
+        }
+        for (uint8_t i = 0; i < kPresetCount; i++) {
+            if (kPresets[i].code == pr)
+                pname = kPresets[i].name;
+        }
+        if (rg == 0)
+            snprintf(lines[5], sizeof(lines[5]), "ЭФИР ВЫКЛ: регион LoRa не задан!");
+        else if (!view->loraConfig().tx_enabled)
+            snprintf(lines[5], sizeof(lines[5]), "Эфир: %s / %s, только приём", rname ? rname : "?",
+                     pname ? pname : "?");
+        else {
+            snprintf(lines[5], sizeof(lines[5]), "Эфир: %s / %s, хопы %u", rname ? rname : "?",
+                     pname ? pname : "?", (unsigned)view->loraConfig().hop_limit);
+            airBad = false;
+        }
+    } else
+        snprintf(lines[5], sizeof(lines[5]), "Эфир: нет данных от радиомодуля");
     snprintf(lines[6], sizeof(lines[6]), "Связь с узлом: %s", view->radioConnected() ? "да" : "нет");
     snprintf(lines[7], sizeof(lines[7]), "Сделано для полевых игр по мотивам S.T.A.L.K.E.R.");
 
@@ -1443,6 +1468,8 @@ void HorizonUI::buildSetAbout(void)
         lv_obj_set_width(l, lv_pct(100));
         if (i == 0)
             lv_obj_set_style_text_color(l, hzColor(p.accent), LV_PART_MAIN);
+        else if (i == 5 && airBad)
+            lv_obj_set_style_text_color(l, hzColor(p.danger), LV_PART_MAIN);
         else
             lv_obj_set_style_text_color(l, hzColor(p.textDim), LV_PART_MAIN);
         lv_obj_set_style_text_font(l, HorizonTheme::fontSmall(), LV_PART_MAIN);
