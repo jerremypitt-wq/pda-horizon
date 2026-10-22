@@ -234,7 +234,9 @@ void HorizonUI::cbRow(lv_event_t *e)
         self->buildSetPin();
         break;
     case 7:
-        self->buildSetReset();
+        // Сбросы деструктивны: мастер-PIN спрашиваем повторно,
+        // даже если в настройки уже вошли по PIN.
+        self->askPin("Мастер-PIN для сброса:", [self]() { self->buildSetReset(); });
         break;
     case 8:
         self->buildSetAbout();
@@ -1377,7 +1379,7 @@ void HorizonUI::buildSetReset(void)
         const char *s;
     };
     static const ResetRow rows[] = {
-        {"Сбросить настройки ПДА", "Досье, каналы, тема, PIN=0000"},
+        {"Сбросить настройки ПДА", "Досье, каналы, тема, чаты, PIN=0000"},
 #ifdef HORIZON_PACKET_LINK
         {"Сбросить NodeDB", "Забыть все узлы сети"},
 #else
@@ -1388,8 +1390,9 @@ void HorizonUI::buildSetReset(void)
 #else
         {"Заводской сброс узла", "Полный сброс радиомодуля (мастер)"},
 #endif
+        {"Очистить историю чатов", "Только сообщения, настройки целы"},
     };
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         lv_obj_t *b = lv_btn_create(body);
         HorizonTheme::styleDangerButton(b);
         lv_obj_set_width(b, lv_pct(100));
@@ -1416,6 +1419,8 @@ void HorizonUI::cbSetReset(lv_event_t *e)
             uint8_t oldOrient = HorizonConfig::instance().orientation;
             HorizonConfig::instance().resetToDefaults();
             HorizonConfig::instance().save();
+            self->view->getStore().clearAll(); // полный сброс сносит и чаты
+            self->view->getController()->removeTextMessages(0, 0, 0);
             DisplayDriver *dd = self->view->getDisplayDriver();
             if (dd) {
                 dd->setBrightness(HorizonConfig::instance().brightness);
@@ -1439,15 +1444,22 @@ void HorizonUI::cbSetReset(lv_event_t *e)
             self->toast("Команда отправлена");
         });
     } else if (id == 2) {
-        self->askPin("Мастер-PIN для сброса:", [self]() {
+        // PIN уже спрошен на входе в меню сбросов - здесь только подтверждение.
 #ifdef HORIZON_PACKET_LINK
-            self->askConfirm("ПОЛНЫЙ сброс ПДА? Всё сотрётся!", "Сбросить", [self]() {
+        self->askConfirm("ПОЛНЫЙ сброс ПДА? Всё сотрётся!", "Сбросить", [self]() {
 #else
-            self->askConfirm("ПОЛНЫЙ сброс радиомодуля? Всё сотрётся!", "Сбросить", [self]() {
+        self->askConfirm("ПОЛНЫЙ сброс радиомодуля? Всё сотрётся!", "Сбросить", [self]() {
 #endif
-                self->view->factoryResetNode();
-                self->toast("Команда отправлена");
-            });
+            self->view->factoryResetNode();
+            self->toast("Команда отправлена");
+        });
+    } else if (id == 3) {
+        self->askConfirm("Удалить ВСЮ историю сообщений на этом ПДА?", "Удалить", [self]() {
+            self->view->getStore().clearAll();
+            self->view->getController()->removeTextMessages(0, 0, 0);
+            self->refreshStatus();
+            self->refreshMenuBadges();
+            self->toast("История очищена");
         });
     }
 }
