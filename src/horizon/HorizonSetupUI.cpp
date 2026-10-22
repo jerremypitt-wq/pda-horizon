@@ -8,6 +8,7 @@
 #include "horizon/HorizonTheme.h"
 #include "horizon/HorizonUI.h"
 #include "horizon/HorizonView.h"
+#include "graphics/common/ViewController.h" // removeTextMessages для очистки истории
 #include "graphics/driver/DisplayDriver.h"
 #include "util/ILog.h"
 #include <ctype.h>
