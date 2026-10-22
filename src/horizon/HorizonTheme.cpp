@@ -156,8 +156,9 @@ void HorizonTheme::styleButton(lv_obj_t *obj, bool accent)
     lv_obj_set_style_radius(obj, 4, LV_PART_MAIN);
     lv_obj_set_style_text_font(obj, fontNormal(), LV_PART_MAIN);
     // нажатое состояние - инверсия
-    lv_obj_set_style_bg_color(obj, hzColor(accent ? p.text : p.accent), LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_text_color(obj, hzColor(accent ? p.panel : p.accentText), LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_style_selector_t pressed = (lv_style_selector_t)LV_PART_MAIN | LV_STATE_PRESSED; // GCC14: enum|enum разных типов
+    lv_obj_set_style_bg_color(obj, hzColor(accent ? p.text : p.accent), pressed);
+    lv_obj_set_style_text_color(obj, hzColor(accent ? p.panel : p.accentText), pressed);
 }
 
 void HorizonTheme::styleDangerButton(lv_obj_t *obj)

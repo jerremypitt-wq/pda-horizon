@@ -1,4 +1,8 @@
-#include "graphics/common/NodeStore.h"
+// Вендорная копия из форка jerremypitt-wq/device-ui@9ec70c8: в дереве прошивки
+// лежит в src/horizon/graphics/common/, поэтому self-include - same-dir
+// (исходный "graphics/common/NodeStore.h" резолвился через -Iinclude форка,
+// которого в апстриме f77 нет).
+#include "NodeStore.h"
 
 #include "mesh-pb-constants.h"
 
