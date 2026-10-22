@@ -221,19 +221,19 @@ void HorizonUI::cbRow(lv_event_t *e)
         self->buildSetDisplay();
         break;
     case 3:
-        self->buildSetPin();
-        break;
-    case 4:
-        self->buildSetReset();
-        break;
-    case 5:
         self->buildSetTime();
         break;
-    case 6:
+    case 4:
         self->buildSetSound();
         break;
-    case 7:
+    case 5:
         self->buildSetTools();
+        break;
+    case 6:
+        self->buildSetPin();
+        break;
+    case 7:
+        self->buildSetReset();
         break;
     case 8:
         self->buildSetAbout();
@@ -331,17 +331,11 @@ void HorizonUI::buildDossier(void)
         const char *k;
         const char *v;
     };
-    char idbuf[24];
-    snprintf(idbuf, sizeof(idbuf), "!%08x", (unsigned)view->getMyNodeNum());
-    char netbuf[64];
-    snprintf(netbuf, sizeof(netbuf), "%s / %s", cfg.meshLongName().c_str(), cfg.meshShortName().c_str());
     char groupbuf[48];
     snprintf(groupbuf, sizeof(groupbuf), "%s", kGroups[cfg.group < kGroupCount ? cfg.group : 0]);
     Field fields[] = {
         {"Ранг", kRanks[cfg.rank < kRankCount ? cfg.rank : 0]},
         {"Группировка", groupbuf},
-        {"ID в сети", idbuf},
-        {"Имя в эфире", netbuf},
     };
     for (auto &f : fields) {
         lv_obj_t *row = lv_obj_create(body);
@@ -364,10 +358,11 @@ void HorizonUI::buildDossier(void)
 
     lv_obj_t *edit = lv_btn_create(scr);
     HorizonTheme::styleButton(edit, true);
-    lv_obj_set_size(edit, lv_pct(70), 40);
-    lv_obj_align(edit, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_size(edit, 64, 40);
+    lv_obj_align(edit, LV_ALIGN_BOTTOM_LEFT, 8, -8);
     lv_obj_t *el = lv_label_create(edit);
-    lv_label_set_text(el, "Изменить (мастер)");
+    lv_label_set_text(el, kGlyphSettings); // ключ: правка досье под мастер-PIN
+    lv_obj_set_style_text_font(el, HorizonTheme::fontNormal(), LV_PART_MAIN);
     lv_obj_center(el);
     lv_obj_add_event_cb(edit, cbDossierEdit, LV_EVENT_CLICKED, this);
 }
@@ -531,13 +526,13 @@ void HorizonUI::buildSettings(void)
     rowButton(body, "Каналы чатов", chsub, 0);
     rowButton(body, "Устройство (LoRa)", "Регион, пресет, роль, радиомолчание", 1);
     rowButton(body, "Экран и тема", kThemes[cfg.theme], 2);
-    rowButton(body, "Мастер-пароль", "Смена PIN", 3);
-    rowButton(body, "Сброс", "ПДА, NodeDB, заводской", 4);
     char timesub[16];
     fmtTime(view->getActTime(), timesub, sizeof(timesub));
-    rowButton(body, "Время", timesub, 5);
-    rowButton(body, "Звук", cfg.silent ? "Бесшумный режим" : "Звук включён", 6);
-    rowButton(body, "Инструменты Mesh", "Детектор, сканер, маршрут", 7);
+    rowButton(body, "Время", timesub, 3);
+    rowButton(body, "Звук", cfg.silent ? "Бесшумный режим" : "Звук включён", 4);
+    rowButton(body, "Инструменты Mesh", "Детектор, сканер, маршрут", 5);
+    rowButton(body, "Мастер-пароль", "Смена PIN", 6);
+    rowButton(body, "Сброс", "ПДА, NodeDB, заводской", 7);
     rowButton(body, "О ПДА", "Версия и состояние", 8);
 }
 
@@ -676,19 +671,11 @@ void HorizonUI::buildSetSound(void)
     lv_obj_add_event_cb(sw, cbSoundToggle, LV_EVENT_VALUE_CHANGED, this);
 
     sectionLabel(body, "Набор звуков");
-    struct SndRow {
-        const char *t;
-        const char *s;
-    };
-    SndRow snds[3] = {
-        {"Сталкер", "ди-ди-даа, как ПДА из игры"},
-        {"Двойной", "бип-бип"},
-        {"Одиночный", "один бип"},
-    };
+    const char *sndNames[3] = {"Сталкер", "Двойной", "Одиночный"};
     for (int i = 0; i < 3; i++) {
         char title[48];
-        snprintf(title, sizeof(title), "%s %s", cfg.soundSet == i ? "[x]" : "[ ]", snds[i].t);
-        lv_obj_t *b = rowButton(body, title, snds[i].s, i);
+        snprintf(title, sizeof(title), "%s %s", cfg.soundSet == i ? "[x]" : "[ ]", sndNames[i]);
+        lv_obj_t *b = rowButton(body, title, nullptr, i);
         lv_obj_remove_event_cb(b, cbRow);
         lv_obj_add_event_cb(b, cbSoundSet, LV_EVENT_CLICKED, this);
     }

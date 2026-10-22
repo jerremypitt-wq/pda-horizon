@@ -1,8 +1,8 @@
 #pragma once
-// ПДА «Горизонт» - звук уведомлений через активный зуммер платы.
-// CrowPanel Advance 3.5: BEEP_5025 (активный, фиксированный тон ~2.7 кГц),
-// включается транзистором Q4 от GPIO8 (HIGH = пищит). Мелодий нет - только
-// ритм: короткие паттерны вкл/выкл, каждый проигрывается ОДИН раз.
+// ПДА «Горизонт» - звук уведомлений через пассивный пьезозуммер платы.
+// CrowPanel Advance 3.5: BUZZER на GPIO8 - ПАССИВНЫЙ (от постоянного уровня
+// только щёлкает: проверено на слух и по распиновке семейства Advance).
+// Поэтому пищим через tone()/noTone() - можно играть мелодии, а не только ритм.
 
 #ifdef HORIZON_UI
 
@@ -16,21 +16,25 @@ class HorizonSound
         MESSAGE = 0, // входящее в канал
         DIRECT = 1,  // личное сообщение
     };
-    static constexpr uint8_t kSetCount = 3; // наборов звуков: Сталкер, Двойной, Одиночный
+    static constexpr uint8_t kSetCount = 3; // наборов: Сталкер, Двойной, Одиночный
+
+    // Шаг мелодии: частота в Гц (0 - пауза) + длительность в мс. Конец - {0, 0}.
+    struct ToneStep {
+        uint16_t freq;
+        uint16_t ms;
+    };
 
     static HorizonSound &instance(void);
 
-    void init(void);        // настроить пин (вызывать один раз при старте)
-    void play(Pattern p);   // запустить паттерн (одиночное проигрывание)
-    void tick(void);        // двигать проигрывание (вызывать из task_handler)
+    void init(void);      // настроить пин (вызывать один раз при старте)
+    void play(Pattern p); // запустить мелодию набора (одиночное проигрывание)
+    void tick(void);      // двигать проигрывание (вызывать из task_handler)
     bool busy(void) const { return steps != nullptr; }
 
   private:
     HorizonSound() = default;
 
-    static void beepOn(bool on);
-
-    const uint16_t *steps = nullptr; // чередование мс вкл/выкл, начинается с вкл, 0 - конец
+    const ToneStep *steps = nullptr;
     size_t pos = 0;
     uint32_t stepUntil = 0;
 

@@ -1,4 +1,4 @@
-// ПДА «Горизонт» - звук уведомлений через активный зуммер платы.
+// ПДА «Горизонт» - звук уведомлений через пассивный зуммер (tone/noTone).
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonSound.h"
@@ -9,34 +9,49 @@
 #endif
 
 namespace {
-// Зуммер CrowPanel Advance 3.5 (B1) через Q4, активный HIGH.
+// Зуммер CrowPanel Advance 3.5 (B1) на GPIO8 через Q4, активный HIGH.
 constexpr uint8_t kBeepPin = 8;
 
-// Наборы звуков [набор][MESSAGE/DIRECT]: миллисекунды вкл/выкл по очереди,
-// 0 - конец. Зуммер активный (тон один) - различаются только ритмом.
-constexpr uint16_t kSetStalkerMsg[] = {70, 60, 70, 60, 240, 0}; // ди-ди-даа ПДА
-constexpr uint16_t kSetStalkerDm[] = {70, 60, 150, 0};           // ди-даа лички
-constexpr uint16_t kSetDoubleMsg[] = {110, 90, 110, 0};          // бип-бип
-constexpr uint16_t kSetDoubleDm[] = {110, 90, 110, 90, 180, 0};  // бип-бип-бип
-constexpr uint16_t kSetSingleMsg[] = {170, 0};                   // один бип
-constexpr uint16_t kSetSingleDm[] = {90, 0};                     // короткий блип
-const uint16_t *const kSets[HorizonSound::kSetCount][2] = {
+// Мелодии наборов [набор][MESSAGE/DIRECT]: {частота Гц, мс}, {0,0} - конец.
+const HorizonSound::ToneStep kSetStalkerMsg[] = {
+    {880, 90}, {0, 60}, {1174, 90}, {0, 60}, {784, 240}, {0, 0}}; // ди-ди-даа ПДА
+const HorizonSound::ToneStep kSetStalkerDm[] = {{880, 80}, {0, 60}, {659, 170}, {0, 0}};
+const HorizonSound::ToneStep kSetDoubleMsg[] = {{2093, 100}, {0, 90}, {2093, 100}, {0, 0}};
+const HorizonSound::ToneStep kSetDoubleDm[] = {{2093, 90}, {0, 70}, {2093, 90}, {0, 70}, {2093, 140}, {0, 0}};
+const HorizonSound::ToneStep kSetSingleMsg[] = {{1568, 200}, {0, 0}};
+const HorizonSound::ToneStep kSetSingleDm[] = {{1568, 110}, {0, 0}};
+const HorizonSound::ToneStep *const kSets[HorizonSound::kSetCount][2] = {
     {kSetStalkerMsg, kSetStalkerDm}, {kSetDoubleMsg, kSetDoubleDm}, {kSetSingleMsg, kSetSingleDm}};
+
+void hzToneOn(uint16_t freq)
+{
+#if defined(ELECROW_ADV_35) && defined(ARCH_ESP32)
+    tone(kBeepPin, freq);
+#else
+    (void)freq;
+#endif
+}
+
+void hzToneOff(void)
+{
+#if defined(ELECROW_ADV_35) && defined(ARCH_ESP32)
+    noTone(kBeepPin);
+#endif
+}
+
+void hzApplyStep(const HorizonSound::ToneStep &st)
+{
+    if (st.freq > 0)
+        hzToneOn(st.freq);
+    else
+        hzToneOff();
+}
 } // namespace
 
 HorizonSound &HorizonSound::instance(void)
 {
     static HorizonSound s;
     return s;
-}
-
-void HorizonSound::beepOn(bool on)
-{
-#if defined(ELECROW_ADV_35) && defined(ARCH_ESP32)
-    digitalWrite(kBeepPin, on ? HIGH : LOW);
-#else
-    (void)on;
-#endif
 }
 
 void HorizonSound::init(void)
@@ -58,8 +73,8 @@ void HorizonSound::play(Pattern p)
         s = 0;
     steps = kSets[s][p == DIRECT ? 1 : 0];
     pos = 0;
-    stepUntil = millis() + steps[0];
-    beepOn(true);
+    stepUntil = millis() + steps[0].ms;
+    hzApplyStep(steps[0]);
 }
 
 void HorizonSound::tick(void)
@@ -70,13 +85,13 @@ void HorizonSound::tick(void)
     if ((int32_t)(now - stepUntil) < 0)
         return;
     pos++;
-    if (steps[pos] == 0) {
+    if (steps[pos].ms == 0) {
         steps = nullptr;
-        beepOn(false);
+        hzToneOff();
         return;
     }
-    stepUntil = now + steps[pos];
-    beepOn((pos % 2) == 0); // чётные шаги - вкл, нечётные - пауза
+    stepUntil = now + steps[pos].ms;
+    hzApplyStep(steps[pos]);
 }
 
 #endif // HORIZON_UI

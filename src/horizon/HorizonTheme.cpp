@@ -173,9 +173,8 @@ void HorizonTheme::styleDangerButton(lv_obj_t *obj)
 void HorizonTheme::styleTile(lv_obj_t *obj)
 {
     const HorizonPalette &p = current();
+    // Плитки однотонные, без градиента.
     lv_obj_set_style_bg_color(obj, hzColor(p.panel), LV_PART_MAIN);
-    lv_obj_set_style_bg_grad_color(obj, hzColor(p.tileEnd), LV_PART_MAIN);
-    lv_obj_set_style_bg_grad_dir(obj, LV_GRAD_DIR_VER, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
     // акцентная верхняя кромка «под прибор»
     lv_obj_set_style_border_color(obj, hzColor(p.border), LV_PART_MAIN);
