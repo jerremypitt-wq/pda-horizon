@@ -254,6 +254,8 @@ void HorizonUI::refreshDetector(void)
 {
     if (current != Screen::TOOL_DETECTOR || !detList || !lv_obj_is_valid(detList))
         return;
+    if (fingerDown())
+        return; // палец на экране - не выбивать строку из-под tap'а
     const HorizonPalette &p = HorizonTheme::current();
     lv_obj_clean(detList);
 
@@ -679,6 +681,8 @@ void HorizonUI::refreshStats(void)
 {
     if (current != Screen::TOOL_STATS || !statsList || !lv_obj_is_valid(statsList))
         return;
+    if (fingerDown())
+        return; // палец на экране - не дёргать список
     const HorizonPalette &p = HorizonTheme::current();
     if (statsSub && lv_obj_is_valid(statsSub))
         lv_label_set_text_fmt(statsSub, "Всего пакетов: %u", (unsigned)view->statsTotal());
@@ -762,6 +766,8 @@ void HorizonUI::refreshLog(void)
 {
     if (current != Screen::TOOL_LOG || !logList || !lv_obj_is_valid(logList))
         return;
+    if (fingerDown())
+        return; // палец на экране - не дёргать список
     const HorizonPalette &p = HorizonTheme::current();
     lv_obj_clean(logList);
 

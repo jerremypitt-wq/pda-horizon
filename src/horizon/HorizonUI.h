@@ -155,6 +155,7 @@ class HorizonUI
     void buildToolStats(void);
     void buildToolLog(void);
     void refreshTools(void); // тик-обновление открытого инструмента
+    static bool fingerDown(void); // палец сейчас на экране (опрос indev напрямую, не get_act)
     lv_obj_t *toolBody(void); // тело экрана инструмента (под шапкой)
     void refreshDetector(void);
     void refreshScan(void);

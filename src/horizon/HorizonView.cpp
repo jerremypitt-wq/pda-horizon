@@ -151,8 +151,7 @@ void HorizonView::setMyInfo(uint32_t nodeNum, meshtastic_MyNodeInfo_device_id_t 
     ownNode = nodeNum;
     store.setMyNode(nodeNum);
     ILOG_INFO("Horizon: my node 0x%08x", nodeNum);
-    announceDossier();     // радио реально живо - представиться сети
-    pushOwnerFromDossier(); // владелец из досье - раз в загрузку
+    announceDossier(); // радио реально живо - представиться сети
 }
 
 void HorizonView::upsertNodeUser(uint32_t nodeNum, uint8_t channel, uint32_t lastHeard, const meshtastic_User &cfg,
@@ -168,6 +167,8 @@ void HorizonView::upsertNodeUser(uint32_t nodeNum, uint8_t channel, uint32_t las
     uint32_t lh = lastHeard ? lastHeard : (uint32_t)curtime;
     nodeStore.upsertUser(nodeNum, channel, lh, cfg, viaMqtt);
     nodesDirty = true;
+    if (nodeNum == ownNode)
+        pushOwnerFromDossier(); // своя nodeinfo: дефолтное имя? - усыновить
 }
 
 void HorizonView::addOrUpdateNode(uint32_t nodeNum, uint8_t channel, uint32_t lastHeard, eRole role, bool hasKey,
@@ -410,8 +411,7 @@ void HorizonView::notifyConnected(const char *info)
     (void)info;
     connected = true;
     ILOG_INFO("Horizon: radio connected");
-    announceDossier();     // представиться сети (с rate-limit внутри)
-    pushOwnerFromDossier(); // владелец из досье - раз в загрузку
+    announceDossier(); // представиться сети (с rate-limit внутри)
 }
 
 void HorizonView::notifyDisconnected(const char *info)
@@ -867,23 +867,30 @@ void HorizonView::silenceFirmwareBuzzer(void)
 
 void HorizonView::pushOwnerFromDossier(void)
 {
+    // Вызывается ТОЛЬКО когда пришла своя nodeinfo (см. upsertNodeUser).
+    // set_owner в прошивке 2.8 планирует ребут при changed != 0, а вслепую
+    // (без своей записи) changed почти наверняка != 0 (hw_model/is_licensed/
+    // is_unmessagable нечем сравнить) - так и получался boot-loop.
+    // Поэтому: толкаем лишь дефолтное заводское имя («Meshtastic ****»)
+    // и лишь когда запись НАСТОЯЩАЯ (hw_model != UNSET, т.е. пришла по сети
+    // ретранслированная своя nodeinfo, а не синтетическая заглушка базового
+    // packetReceived). Всё остальное - только кнопкой «Применить к радио»
+    // из досье (осознанный один ребут).
     if (ownerPushed || ownNode == 0)
         return;
     HorizonConfig &cfg = HorizonConfig::instance();
     if (!cfg.callsign[0])
         return; // досье не заполнено - радио не трогаем
     const NodeRecord *self = nodeStore.find(ownNode);
-    if (self && self->hasUser) {
-        std::string ln = cfg.meshLongName();
-        std::string sn = cfg.meshShortName();
-        if (!strncmp(self->user.long_name, ln.c_str(), sizeof(self->user.long_name)) &&
-            !strncmp(self->user.short_name, sn.c_str(), sizeof(self->user.short_name))) {
-            ownerPushed = true;
-            return; // уже применено - не дёргать радио
-        }
+    if (!self || !self->hasUser || !self->user.long_name[0])
+        return; // своей nodeinfo нет - НЕ ТРОГАТЬ радио вслепую
+    if (self->user.hw_model == meshtastic_HardwareModel_UNSET)
+        return; // синтетическая заглушка, настоящее имя неизвестно - ждать
+    if (strncmp(self->user.long_name, "Meshtastic ", 11) != 0) {
+        ownerPushed = true;
+        return; // имя уже осмысленное - не дёргать радио
     }
-    // Своей nodeinfo ещё нет (первая загрузка) или имя чужое - толкнуть.
-    applyOwnerFromDossier();
+    applyOwnerFromDossier(); // дефолт -> имя из досье, один раз
     ownerPushed = true;
 }
 

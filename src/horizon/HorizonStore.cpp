@@ -4,6 +4,7 @@
 
 #include "horizon/HorizonStore.h"
 #include "horizon/HorizonStrings.h"
+#include "util/ILog.h" // счётчик загрузки сообщений в лог
 #include <algorithm>
 #include <string.h>
 
@@ -237,6 +238,7 @@ void HorizonStore::loadMessages(void)
         return;
     size_t fsize = f.size();
     bool corrupt = false;
+    uint32_t loaded = 0;
     while (f.available() > 0) {
         uint8_t hdr[3];
         if (f.read(hdr, 3) != 3 || hdr[0] != 'M') {
@@ -261,8 +263,10 @@ void HorizonStore::loadMessages(void)
         memcpy(txt, rec + 14, tn);
         txt[tn] = '\0';
         addMessage(getU32(rec), getU32(rec + 4), rec[8], getU32(rec + 9), txt, false, st, 0, false);
+        loaded++;
     }
     f.close();
+    ILOG_INFO("Horizon: messages loaded %u%s", (unsigned)loaded, corrupt ? " (corrupt tail dropped)" : "");
     if (corrupt || fsize > kMsgCompactSize)
         rewriteMessages(); // выкинуть мусор / ужаться
 }

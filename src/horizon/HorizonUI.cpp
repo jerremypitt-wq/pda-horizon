@@ -246,10 +246,23 @@ void HorizonUI::toast(const char *fmt, ...)
         lv_obj_move_foreground(toastBtn);
     }
     toastHasTarget = false;
+    if (toastBtn && lv_obj_is_valid(toastBtn))
+        lv_obj_remove_flag(toastBtn, LV_OBJ_FLAG_CLICKABLE); // инфо-тост: tap'ы проваливаются в список под ним
     lv_label_set_text(toastLabel, buf);
     lv_obj_remove_flag(toastBtn, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(toastBtn);
     toastUntil = nowMs() + 2300;
+}
+
+bool HorizonUI::fingerDown(void)
+{
+    // lv_indev_get_act() годен только внутри обработчика событий (в тике -
+    // NULL), поэтому опрашиваем устройства ввода напрямую.
+    for (lv_indev_t *indev = lv_indev_get_next(NULL); indev; indev = lv_indev_get_next(indev)) {
+        if (lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED)
+            return true;
+    }
+    return false;
 }
 
 void HorizonUI::cbToast(lv_event_t *e)
@@ -1142,6 +1155,8 @@ void HorizonUI::onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *te
     else
         toast("%s %s (лично): %s", kGlyphMail, who, preview);
     toastHasTarget = true;
+    if (toastBtn && lv_obj_is_valid(toastBtn))
+        lv_obj_add_flag(toastBtn, LV_OBJ_FLAG_CLICKABLE); // тост-навигация: ловить tap
     toastIsChannel = isBroadcast;
     toastCh = ch;
     toastPeer = (from == view->getMyNodeNum()) ? to : from;
@@ -1216,9 +1231,12 @@ void HorizonUI::tick(void)
             lv_label_set_text_fmt(timeCur, "Сейчас: %s", tb);
         }
         if (view->takeMsgsDirty()) {
-            if (current == Screen::OPENCHATS)
-                buildOpenChats();
-            else if (current == Screen::CHAT)
+            if (current == Screen::OPENCHATS) {
+                // Не пересобирать список под пальцем, иначе tap теряется
+                // (та же гонка, что была в контактах).
+                if (!fingerDown())
+                    buildOpenChats();
+            } else if (current == Screen::CHAT)
                 rebuildChatList();
             refreshMenuBadges();
         }
@@ -1228,8 +1246,9 @@ void HorizonUI::tick(void)
                 // Не пересобирать список под пальцем: кнопка удаляется между
                 // press и release, tap теряется и контакт открывается только
                 // со второго нажатия. Пропускаем этот цикл, попробуем через 3 с.
-                lv_indev_t *indev = lv_indev_get_act();
-                if (!indev || lv_indev_get_state(indev) != LV_INDEV_STATE_PRESSED)
+                // Старый гард через lv_indev_get_act() был no-op (в тике он NULL):
+                // опрашиваем indev напрямую через fingerDown().
+                if (!fingerDown())
                     rebuildContactsList();
             }
             else if (current == Screen::CHAT && !chatIsChannel) {
