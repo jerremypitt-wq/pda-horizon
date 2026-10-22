@@ -15,6 +15,9 @@
 
 HorizonView *HorizonView::gui = nullptr;
 
+volatile uint32_t hzUartRxBytes = 0;
+volatile uint32_t hzUartRxFrames = 0;
+
 namespace {
 // Маяк досье: широковещательный текст в общем канале, который Горизонты
 // перехватывают и не показывают. Формат: HZ:DOSSIER:<rank>:<group>:<callsign>

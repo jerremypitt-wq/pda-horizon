@@ -17,6 +17,12 @@
 
 class HorizonUI;
 
+// Счётчики UART-трафика панель<-радио (инкрементятся патчем libdeps
+// bin/patch_deviceui_uartmon.py; без патча остаются нулями). Монотонные
+// 32-бит: чтение из UI при записи из serial-таска безопасно.
+extern volatile uint32_t hzUartRxBytes;  // сырых байт с провода
+extern volatile uint32_t hzUartRxFrames; // валидных кадров FromRadio
+
 class HorizonView : public MeshtasticView
 {
   public:
