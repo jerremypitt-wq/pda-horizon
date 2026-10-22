@@ -99,6 +99,7 @@ class HorizonStore
     void clearConvo(HorizonConvo &c);
     void clearAllDms(void);
     void clearAll(void); // лички + каналы (память;persisted чистит контроллер)
+    void clearDossiers(void); // забыть чужие досье (память + файл)
 
     // Справочник досье (маяки): запомнить/найти по номеру узла.
     void upsertDossier(uint32_t node, const char *callsign, uint8_t rank, uint8_t group, uint32_t now);

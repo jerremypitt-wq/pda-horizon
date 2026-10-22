@@ -81,7 +81,7 @@ void HorizonUI::clearScreen(Screen s)
     chatSub = nullptr;
     chatSendBtn = nullptr;
     contactsList = nullptr;
-    contactsCount = nullptr;
+    contactsFavLabel = nullptr;
     editName = editCall = editRank = editGroup = nullptr;
     setDetailCh = setDetailName = setDetailKey = nullptr;
     setRegion = setPreset = setHops = setRole = setTx = nullptr;
@@ -508,31 +508,32 @@ void HorizonUI::cbModalBlock(lv_event_t *e)
 // ---------------- клавиатура ----------------
 
 namespace {
-// Раскладки: ровно kKbdCols*kKbdRows ключей; "" - пустая клетка.
-// Широкий пробел пишется дубликатами подряд и склеивается (см. kbdSetLayout).
+// Раскладки: ровно kKbdCols*kKbdRows ключей, пустых клеток нет.
+// Широкая клавиша пишется дубликатами подряд и склеивается (см. kbdSetLayout).
 // "Aa" - Shift разового действия (следующий символ - из Shift-карты),
-// "<<" - стереть символ. RU - стандартный ЙЦУКЕН; "э" и "х" живут в нижнем
-// ряду (в 10 колонок полный верхний ряд не влез).
+// "<<" - стереть символ (всегда над OK). Низ везде одинаковый: слева
+// переключатель раскладки, по центру пробел, справа OK. RU - ЙЦУКЕН;
+// "ю", "э", "х" - в нижнем ряду по бокам пробела.
 const char *const kKbdEn[] = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", //
-                              "a", "s", "d", "f", "g", "h", "j", "k", "l", "",  //
-                              "Aa", "z", "x", "c", "v", "b", "n", "m", "'", "-", //
-                              "123", "RU", " ", " ", " ", " ", ",", ".", "OK", "<<"};
+                              "a", "s", "d", "f", "g", "h", "j", "k", "l", "l", //
+                              "Aa", "z", "x", "c", "v", "b", "n", "m", "m", "<<", //
+                              "RU", "123", " ", " ", " ", " ", " ", ",", ".", "OK"};
 const char *const kKbdEnShift[] = {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", //
-                                   "A", "S", "D", "F", "G", "H", "J", "K", "L", "",  //
-                                   "Aa", "Z", "X", "C", "V", "B", "N", "M", "\"", "_", //
-                                   "123", "RU", " ", " ", " ", " ", ";", ":", "OK", "<<"};
+                                   "A", "S", "D", "F", "G", "H", "J", "K", "L", "L", //
+                                   "Aa", "Z", "X", "C", "V", "B", "N", "M", "M", "<<", //
+                                   "RU", "123", " ", " ", " ", " ", " ", ",", ".", "OK"};
 const char *const kKbdRu[] = {"й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", //
                               "ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", //
-                              "Aa", "я", "ч", "с", "м", "и", "т", "ь", "б", "ю", //
-                              "123", "EN", " ", " ", "э", "х", ",", ".", "OK", "<<"};
+                              "Aa", "я", "ч", "с", "м", "и", "т", "ь", "б", "<<", //
+                              "EN", "123", "ю", " ", " ", " ", " ", "э", "х", "OK"};
 const char *const kKbdRuShift[] = {"Й", "Ц", "У", "К", "Е", "Н", "Г", "Ш", "Щ", "З", //
                                    "Ф", "Ы", "В", "А", "П", "Р", "О", "Л", "Д", "Ж", //
-                                   "Aa", "Я", "Ч", "С", "М", "И", "Т", "Ь", "Б", "Ю", //
-                                   "123", "EN", " ", " ", "Э", "Х", ";", ":", "OK", "<<"};
+                                   "Aa", "Я", "Ч", "С", "М", "И", "Т", "Ь", "Б", "<<", //
+                                   "EN", "123", "Ю", " ", " ", " ", " ", "Э", "Х", "OK"};
 const char *const kKbdNum[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", //
-                               "-", "/", ":", ";", "(", ")", "+", "=", "", "<<", //
-                               "АБВ", ",", "?", "!", ".", "@", "#", "%", "'", "", //
-                               "", " ", " ", " ", " ", " ", " ", " ", "OK", ""};
+                               "-", "/", ":", ";", "(", ")", "+", "=", "*", "_", //
+                               ",", "?", "!", ".", "@", "#", "%", "'", "\"", "<<", //
+                               "АБВ", "$", "&", " ", " ", " ", " ", "\\", "^", "OK"};
 constexpr int kKbdCols = 10;
 constexpr int kKbdRows = 4;
 static_assert(sizeof(kKbdEn) / sizeof(kKbdEn[0]) == (size_t)(kKbdCols * kKbdRows), "EN map size");
@@ -630,25 +631,21 @@ void HorizonUI::kbdSetLayout(uint8_t layout)
     lv_obj_set_style_grid_column_dsc_array(kbd, col_dsc, LV_PART_MAIN);
     lv_obj_set_style_grid_row_dsc_array(kbd, row_dsc, LV_PART_MAIN);
 
-    // Широкий пробел занимает все подряд идущие дубликаты в строке;
-    // повторные вхождения пропускаем.
-    bool spaceDone = false;
+    // Широкая клавиша пишется дубликатами подряд и склеивается в одну кнопку
+    // (пробел, широкие буквы): создаём на первом вхождении, повторы пропускаем.
     int cells = kKbdCols * kKbdRows;
     for (int i = 0; i < cells; i++) {
         const char *key = map[i];
         if (!key || !*key)
             continue;
         bool wide = !strcmp(key, " ");
-        if (wide && spaceDone)
-            continue;
         int col = i % kKbdCols;
         int row = i / kKbdCols;
+        if (col > 0 && map[i - 1] && !strcmp(map[i - 1], key))
+            continue; // хвост широкой кнопки
         int span = 1;
-        if (wide) {
-            for (int j = i + 1; j < (row + 1) * kKbdCols && !strcmp(map[j], key); j++)
-                span++;
-            spaceDone = true;
-        }
+        for (int j = i + 1; j < (row + 1) * kKbdCols && map[j] && !strcmp(map[j], key); j++)
+            span++;
         lv_obj_t *b = lv_btn_create(kbd);
         // OK всегда акцентная; "Aa" подсвечена, пока Shift взведён.
         bool accent = !strcmp(key, "OK") || (!strcmp(key, "Aa") && kbdShift);
@@ -684,11 +681,13 @@ void HorizonUI::kbdPress(const char *txt)
     }
     if (!strcmp(txt, "АБВ")) {
         kbdShift = false;
-        kbdSetLayout(1);
+        kbdSetLayout(kbdPrevAlpha); // назад к буквам, где были
         return;
     }
     if (!strcmp(txt, "123")) {
         kbdShift = false;
+        if (kbdLayout != 2)
+            kbdPrevAlpha = kbdLayout; // запомнить, куда возвращаться
         kbdSetLayout(2);
         return;
     }
@@ -1236,6 +1235,8 @@ void HorizonUI::tick(void)
                 // (та же гонка, что была в контактах).
                 if (!fingerDown())
                     buildOpenChats();
+                else
+                    view->pokeMsgsDirty(); // флаг съеден выше - вернуть, попробуем позже
             } else if (current == Screen::CHAT)
                 rebuildChatList();
             refreshMenuBadges();
@@ -1250,6 +1251,8 @@ void HorizonUI::tick(void)
                 // опрашиваем indev напрямую через fingerDown().
                 if (!fingerDown())
                     rebuildContactsList();
+                else
+                    view->pokeNodesDirty(); // флаг съеден выше - вернуть, попробуем позже
             }
             else if (current == Screen::CHAT && !chatIsChannel) {
                 // обновить подпись лички (last heard)

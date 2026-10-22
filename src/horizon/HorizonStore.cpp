@@ -407,6 +407,12 @@ void HorizonStore::clearAll(void)
     msgFs.remove(kMsgPath);
 }
 
+void HorizonStore::clearDossiers(void)
+{
+    dossierDir.clear();
+    saveDossier(); // перезаписать файл пустым
+}
+
 uint32_t HorizonStore::unreadTotal(void) const
 {
     return unreadChannels() + unreadDms();

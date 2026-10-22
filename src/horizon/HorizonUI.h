@@ -119,7 +119,7 @@ class HorizonUI
     void showContactCard(uint32_t node);
     void buildContactCard(void);
     lv_obj_t *contactsList = nullptr;
-    lv_obj_t *contactsCount = nullptr;
+    lv_obj_t *contactsFavLabel = nullptr; // подпись кнопки избранного со счётчиком
 
     // --- Открытые чаты ---
     void buildOpenChats(void);
@@ -142,6 +142,7 @@ class HorizonUI
     void buildSetDisplay(void);
     void buildSetPin(void);
     void buildSetReset(void);
+    void wipeLocalData(bool full); // сброс локального: конфиг+чаты (+досье при full)
     void buildSetAbout(void);
     void buildSetTime(void);
     void buildSetSound(void);
@@ -240,6 +241,7 @@ class HorizonUI
     lv_obj_t *kbdMatrix = nullptr; // buttonmatrix
     lv_obj_t *kbdTarget = nullptr; // textarea
     uint8_t kbdLayout = 1;         // 0=EN 1=RU 2=123 (по умолчанию RU)
+    uint8_t kbdPrevAlpha = 1;      // куда возвращает АБВ (0=EN 1=RU)
     bool kbdShift = false;         // Shift разового действия (только EN/RU)
     bool kbdSuppressClick = false; // долгое нажатие уже вставило символ
     void kbdShow(lv_obj_t *ta);

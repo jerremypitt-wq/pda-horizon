@@ -14,16 +14,17 @@ namespace {
 constexpr uint8_t kBeepPin = 8;
 
 // Мелодии наборов [набор][MESSAGE/DIRECT]: {частота Гц, мс}, {0,0} - конец.
-// «Сталкер»: 4 ноты подряд как ПДА из игры - До2, Фа2, Соль2, Си1.
-const HorizonSound::ToneStep kSetStalkerMsg[] = {
-    {523, 110}, {0, 25}, {698, 110}, {0, 25}, {784, 110}, {0, 25}, {494, 170}, {0, 0}};
-const HorizonSound::ToneStep kSetStalkerDm[] = {{523, 90}, {0, 25}, {698, 150}, {0, 0}};
+// «ПДА»: 4 ноты как ПДА из игры, +2 октавы - До4, Фа4, Соль4, Си3.
+// Паузы ровные (60 мс) - ритм не спотыкается.
+const HorizonSound::ToneStep kSetPdaMsg[] = {
+    {2092, 110}, {0, 60}, {2792, 110}, {0, 60}, {3136, 110}, {0, 60}, {1976, 170}, {0, 0}};
+const HorizonSound::ToneStep kSetPdaDm[] = {{2092, 90}, {0, 60}, {2792, 150}, {0, 0}};
 const HorizonSound::ToneStep kSetDoubleMsg[] = {{2093, 100}, {0, 90}, {2093, 100}, {0, 0}};
 const HorizonSound::ToneStep kSetDoubleDm[] = {{2093, 90}, {0, 70}, {2093, 90}, {0, 70}, {2093, 140}, {0, 0}};
 const HorizonSound::ToneStep kSetSingleMsg[] = {{1568, 200}, {0, 0}};
 const HorizonSound::ToneStep kSetSingleDm[] = {{1568, 110}, {0, 0}};
 const HorizonSound::ToneStep *const kSets[HorizonSound::kSetCount][2] = {
-    {kSetStalkerMsg, kSetStalkerDm}, {kSetDoubleMsg, kSetDoubleDm}, {kSetSingleMsg, kSetSingleDm}};
+    {kSetPdaMsg, kSetPdaDm}, {kSetDoubleMsg, kSetDoubleDm}, {kSetSingleMsg, kSetSingleDm}};
 
 void hzToneOn(uint16_t freq)
 {

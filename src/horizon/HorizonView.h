@@ -193,6 +193,8 @@ class HorizonView : public MeshtasticView
     // Флаги изменений для перерисовки
     bool takeNodesDirty(void);
     bool takeMsgsDirty(void);
+    void pokeNodesDirty(void) { nodesDirty = true; } // вернуть флаг (пропуск под пальцем)
+    void pokeMsgsDirty(void) { msgsDirty = true; }
     bool takeChannelsDirty(void);
     void markMsgsDirty(void) { msgsDirty = true; }
 

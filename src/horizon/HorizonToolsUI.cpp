@@ -198,6 +198,10 @@ void HorizonUI::cbToolRow(lv_event_t *e)
 
 void HorizonUI::refreshTools(void)
 {
+    // Палец на экране: ничего не забираем и не трогаем - флаги целы,
+    // обновление само повторится на следующем тике после отпускания.
+    if (fingerDown())
+        return;
     bool dirty = view->takeToolsDirty();
     switch (current) {
     case Screen::TOOL_DETECTOR:

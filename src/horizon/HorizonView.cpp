@@ -321,10 +321,10 @@ void HorizonView::newMessage(uint32_t from, uint32_t to, uint8_t ch, const char 
     msgsDirty = true;
     if (!restore && ui)
         ui->onMessage(from, to, ch, msg, msgtime);
-    // Короткий одиночный бип на входящее (свои эхо-пакеты не пищим).
-    // Звук один для всех сообщений - выбранный в настройках.
+    // Бип на входящее (свои эхо-пакеты не пищим): личка - DIRECT-паттерном,
+    // общий эфир - MESSAGE. Звук - выбранный в настройках.
     if (!restore && from != ownNode)
-        HorizonSound::instance().play(HorizonSound::MESSAGE);
+        HorizonSound::instance().play(to == ownNode ? HorizonSound::DIRECT : HorizonSound::MESSAGE);
 }
 
 void HorizonView::restoreMessage(const LogMessage &msg)

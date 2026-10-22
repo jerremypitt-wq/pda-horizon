@@ -679,7 +679,7 @@ void HorizonUI::buildSetSound(void)
     lv_obj_add_event_cb(sw, cbSoundToggle, LV_EVENT_VALUE_CHANGED, this);
 
     sectionLabel(body, "Набор звуков");
-    const char *sndNames[3] = {"Сталкер", "Двойной", "Одиночный"};
+    const char *sndNames[3] = {"ПДА", "Двойной", "Одиночный"};
     for (int i = 0; i < 3; i++) {
         char title[48];
         snprintf(title, sizeof(title), "%s %s", cfg.soundSet == i ? "[x]" : "[ ]", sndNames[i]);
@@ -1411,6 +1411,21 @@ void HorizonUI::buildSetReset(void)
     }
 }
 
+void HorizonUI::wipeLocalData(bool full)
+{
+    HorizonConfig::instance().resetToDefaults();
+    HorizonConfig::instance().save();
+    view->getStore().clearAll();
+    view->getController()->removeTextMessages(0, 0, 0);
+    if (full)
+        view->getStore().clearDossiers();
+    DisplayDriver *dd = view->getDisplayDriver();
+    if (dd) {
+        dd->setBrightness(HorizonConfig::instance().brightness);
+        dd->setScreenTimeout(HorizonConfig::instance().timeoutSec);
+    }
+}
+
 void HorizonUI::cbSetReset(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
@@ -1418,15 +1433,7 @@ void HorizonUI::cbSetReset(lv_event_t *e)
     if (id == 0) {
         self->askConfirm("Сбросить все настройки ПДА к заводским?", "Сбросить", [self]() {
             uint8_t oldOrient = HorizonConfig::instance().orientation;
-            HorizonConfig::instance().resetToDefaults();
-            HorizonConfig::instance().save();
-            self->view->getStore().clearAll(); // полный сброс сносит и чаты
-            self->view->getController()->removeTextMessages(0, 0, 0);
-            DisplayDriver *dd = self->view->getDisplayDriver();
-            if (dd) {
-                dd->setBrightness(HorizonConfig::instance().brightness);
-                dd->setScreenTimeout(HorizonConfig::instance().timeoutSec);
-            }
+            self->wipeLocalData(false); // конфиг+чаты; чужие досье живут дальше
             if (oldOrient != 0) {
                 self->askConfirm("Нужна перезагрузка ПДА. Перезагрузить?", "Да", [self]() {
 #if defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
@@ -1451,8 +1458,10 @@ void HorizonUI::cbSetReset(lv_event_t *e)
 #else
         self->askConfirm("ПОЛНЫЙ сброс радиомодуля? Всё сотрётся!", "Сбросить", [self]() {
 #endif
+            self->wipeLocalData(true); // «Всё сотрётся» - включая локальное
             self->view->factoryResetNode();
-            self->toast("Команда отправлена");
+            self->toast("ПДА сброшен");
+            self->showMenu();
         });
     } else if (id == 3) {
         self->askConfirm("Удалить ВСЮ историю сообщений на этом ПДА?", "Удалить", [self]() {

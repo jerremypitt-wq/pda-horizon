@@ -304,11 +304,13 @@ void HorizonUI::buildContacts(void)
     lv_obj_set_flex_align(frow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(frow, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_hor(frow, 8, LV_PART_MAIN);
+    lv_obj_remove_flag(frow, LV_OBJ_FLAG_SCROLLABLE); // фильтры всегда видны целиком
 
     lv_obj_t *fAll = lv_btn_create(frow);
     HorizonTheme::styleButton(fAll, contactsFilter == 0);
-    lv_obj_set_size(fAll, 90, 28);
+    lv_obj_set_size(fAll, 56, 28);
     lv_obj_t *fal = lv_label_create(fAll);
+    lv_obj_set_style_text_font(fal, HorizonTheme::fontSmall(), LV_PART_MAIN);
     lv_label_set_text(fal, "Все");
     lv_obj_center(fal);
     lv_obj_set_user_data(fAll, (void *)(intptr_t)0);
@@ -316,8 +318,9 @@ void HorizonUI::buildContacts(void)
 
     lv_obj_t *fOn = lv_btn_create(frow);
     HorizonTheme::styleButton(fOn, contactsFilter == 1);
-    lv_obj_set_size(fOn, 110, 28);
+    lv_obj_set_size(fOn, 72, 28);
     lv_obj_t *fol = lv_label_create(fOn);
+    lv_obj_set_style_text_font(fol, HorizonTheme::fontSmall(), LV_PART_MAIN);
     lv_label_set_text(fol, "В сети");
     lv_obj_center(fol);
     lv_obj_set_user_data(fOn, (void *)(intptr_t)1);
@@ -325,16 +328,15 @@ void HorizonUI::buildContacts(void)
 
     lv_obj_t *fFav = lv_btn_create(frow);
     HorizonTheme::styleButton(fFav, contactsFilter == 2);
-    lv_obj_set_size(fFav, 140, 28);
-    lv_obj_t *ffl = lv_label_create(fFav);
-    lv_label_set_text(ffl, "★ Избранное");
-    lv_obj_center(ffl);
+    lv_obj_set_size(fFav, 112, 28);
+    contactsFavLabel = lv_label_create(fFav);
+    lv_obj_set_style_text_font(contactsFavLabel, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    lv_label_set_text_fmt(contactsFavLabel, "Избранные (%u)",
+                           (unsigned)HorizonConfig::instance().favorites.size());
+    lv_obj_center(contactsFavLabel);
     lv_obj_set_user_data(fFav, (void *)(intptr_t)2);
     lv_obj_add_event_cb(fFav, cbFilter, LV_EVENT_CLICKED, this);
 
-    contactsCount = lv_label_create(frow);
-    lv_obj_set_style_text_font(contactsCount, HorizonTheme::fontSmall(), LV_PART_MAIN);
-    lv_obj_set_style_text_color(contactsCount, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
 
     int16_t top = kStatusH + kHeaderH + 38;
     contactsList = lv_obj_create(scr);
@@ -393,8 +395,8 @@ void HorizonUI::rebuildContactsList(void)
         }
     }
 
-    if (contactsCount && lv_obj_is_valid(contactsCount))
-        lv_label_set_text_fmt(contactsCount, "Всего: %u", (unsigned)rows.size());
+    if (contactsFavLabel && lv_obj_is_valid(contactsFavLabel))
+        lv_label_set_text_fmt(contactsFavLabel, "Избранные (%u)", (unsigned)cfg.favorites.size());
 
     if (rows.empty()) {
         lv_obj_t *e = lv_label_create(contactsList);
