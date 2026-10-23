@@ -29,8 +29,9 @@ volatile uint32_t hzUartRxFrames = 0;
 
 namespace {
 // Маяк досье: широковещательный текст в общем канале, который Горизонты
-// перехватывают и не показывают. Формат: HZ:DOSSIER:<rank>:<group>:<callsign>
-// rank 0..3, group 0..9, позывной - остаток строки (может содержать ':').
+// перехватывают и не показывают. Формат: HZ:DOSSIER:<rank>:<group>:<epoch>:<callsign>
+// rank 0..3, group 0..9, epoch - время отправителя либо 0 (часы не выставлены),
+// позывной - остаток строки (может содержать ':').
 constexpr const char *kDossierBeaconPrefix = "HZ:DOSSIER:";
 constexpr size_t kDossierBeaconPrefixLen = sizeof("HZ:DOSSIER:") - 1;
 constexpr uint32_t kBeaconMinIntervalMs = 5000; // rate-limit маяков
@@ -665,8 +666,10 @@ void HorizonView::handleDossierBeacon(uint32_t from, const char *msg, bool canRe
 {
     if (from == 0 || from == ownNode || !msg)
         return;
-    // Формат: HZ:DOSSIER:<rank>:<group>[:<epoch>]:<callsign>. Epoch валиден
-    // только >1000000, иначе остаток - позывной целиком (старые маяки).
+    // Формат: HZ:DOSSIER:<rank>:<group>[:<epoch>]:<callsign>. Третье числовое
+    // поле - всегда epoch нового формата: валидное время либо 0 (часы гостя
+    // не выставлены). Ноль тоже пропускаем, иначе позывной получит префикс
+    // «0:». Без третьего числового поля остаток - позывной целиком (старье).
     const char *p = msg + kDossierBeaconPrefixLen;
     char *e1 = nullptr;
     char *e2 = nullptr;
@@ -683,7 +686,7 @@ void HorizonView::handleDossierBeacon(uint32_t from, const char *msg, bool canRe
     const char *callsign = rest;
     uint32_t epoch = 0;
     unsigned long maybeEpoch = strtoul(rest, &e3, 10);
-    if (e3 && *e3 == ':' && *(e3 + 1) && maybeEpoch > 1000000) {
+    if (e3 && *e3 == ':' && *(e3 + 1) && (maybeEpoch > 1000000 || maybeEpoch == 0)) {
         epoch = (uint32_t)maybeEpoch;
         callsign = e3 + 1;
     }
