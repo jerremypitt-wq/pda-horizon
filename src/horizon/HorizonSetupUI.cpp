@@ -734,7 +734,7 @@ void HorizonUI::buildSetSound(void)
     lv_obj_add_event_cb(sw, cbSoundToggle, LV_EVENT_VALUE_CHANGED, this);
 
     sectionLabel(body, "Набор звуков");
-    const char *sndNames[3] = {"ПДА", "Двойной", "Одиночный"};
+    const char *sndNames[3] = {"Тройной", "Двойной", "Одиночный"};
     for (int i = 0; i < 3; i++) {
         char title[48];
         snprintf(title, sizeof(title), "%s %s", cfg.soundSet == i ? "[x]" : "[ ]", sndNames[i]);

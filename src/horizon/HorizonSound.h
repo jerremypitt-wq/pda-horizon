@@ -17,7 +17,7 @@ class HorizonSound
         MESSAGE = 0, // входящее в канал
         DIRECT = 1,  // личное сообщение
     };
-    static constexpr uint8_t kSetCount = 3; // наборов: ПДА, Двойной, Одиночный
+    static constexpr uint8_t kSetCount = 3; // наборов: Тройной, Двойной, Одиночный
 
     // Шаг мелодии: частота в Гц (0 - пауза) + длительность в мс. Конец - {0, 0}.
     struct ToneStep {
