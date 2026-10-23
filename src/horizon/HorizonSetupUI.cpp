@@ -214,33 +214,20 @@ void HorizonUI::cbRow(lv_event_t *e)
         return;
     switch (id) {
     case 0:
-        self->buildSetChannels();
-        break;
-    case 1:
-        self->buildSetDevice();
-        break;
-    case 2:
         self->buildSetDisplay();
         break;
-    case 3:
+    case 1:
         self->buildSetTime();
         break;
-    case 4:
+    case 2:
         self->buildSetSound();
         break;
-    case 5:
-        self->buildSetTools();
-        break;
-    case 6:
-        self->buildSetPin();
-        break;
-    case 7:
-        // Сбросы деструктивны: мастер-PIN спрашиваем повторно,
-        // даже если в настройки уже вошли по PIN.
-        self->askPin("Мастер-PIN для сброса:", [self]() { self->buildSetReset(); });
-        break;
-    case 8:
+    case 3:
         self->buildSetAbout();
+        break;
+    case 4:
+        // Вложенный раздел мастера: единственный PIN-гейт в настройках.
+        self->askPin("Мастер-PIN:", [self]() { self->showMaster(); });
         break;
     default:
         break;
@@ -529,19 +516,87 @@ void HorizonUI::buildSettings(void)
     lv_obj_set_style_pad_row(body, 6, LV_PART_MAIN);
 
     HorizonConfig &cfg = HorizonConfig::instance();
-    char chsub[64];
-    snprintf(chsub, sizeof(chsub), "Общий %u · Группа %u · Объявл. %u", cfg.generalCh, cfg.groupCh, cfg.announceCh);
-    rowButton(body, "Каналы чатов", chsub, 0);
-    rowButton(body, "Устройство (LoRa)", "Регион, пресет, роль, радиомолчание", 1);
-    rowButton(body, "Экран и тема", kThemes[cfg.theme], 2);
+    rowButton(body, "Экран и тема", kThemes[cfg.theme], 0);
     char timesub[16];
     fmtTime(view->getActTime(), timesub, sizeof(timesub));
-    rowButton(body, "Время", timesub, 3);
-    rowButton(body, "Звук", cfg.silent ? "Бесшумный режим" : "Звук включён", 4);
-    rowButton(body, "Инструменты Mesh", "Детектор, сканер, маршрут", 5);
-    rowButton(body, "Мастер-пароль", "Смена PIN", 6);
-    rowButton(body, "Сброс", "ПДА, NodeDB, заводской", 7);
-    rowButton(body, "О ПДА", "Версия и состояние", 8);
+    rowButton(body, "Время", timesub, 1);
+    rowButton(body, "Звук", cfg.silent ? "Бесшумный режим" : "Звук включён", 2);
+    rowButton(body, "О ПДА", "Версия и состояние", 3);
+    rowButton(body, "Мастер", "Каналы, радио, сброс (PIN)", 4);
+}
+
+// ---------------- настройки: раздел мастера ----------------
+
+void HorizonUI::showMaster(void)
+{
+    buildSetMaster();
+}
+
+void HorizonUI::cbMasterRow(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
+    if (self->current != Screen::SET_MASTER)
+        return;
+    switch (id) {
+    case 0:
+        self->buildSetChannels();
+        break;
+    case 1:
+        self->buildSetDevice();
+        break;
+    case 2:
+        self->buildSetTools();
+        break;
+    case 3:
+        self->buildSetPin();
+        break;
+    case 4:
+        // Сюда уже вошли по PIN - повтор не спрашиваем, у каждого
+        // сброса своё подтверждение.
+        self->buildSetReset();
+        break;
+    default:
+        break;
+    }
+}
+
+void HorizonUI::buildSetMaster(void)
+{
+    clearScreen(Screen::SET_MASTER);
+    addStatusBar(scr);
+    addNavHeader(scr, "Мастер", "Каналы, радио, сброс");
+
+    lv_obj_t *body = lv_obj_create(scr);
+    lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
+    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 2);
+    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(body, 6, LV_PART_MAIN);
+
+    HorizonConfig &cfg = HorizonConfig::instance();
+    char chsub[64];
+    snprintf(chsub, sizeof(chsub), "Общий %u · Группа %u · Объявл. %u", cfg.generalCh, cfg.groupCh, cfg.announceCh);
+    struct MRow {
+        const char *t;
+        const char *s;
+    };
+    MRow rows[5] = {
+        {"Каналы чатов", chsub},
+        {"Устройство (LoRa)", "Регион, пресет, роль, радиомолчание"},
+        {"Инструменты Mesh", "Детектор, сканер, маршрут"},
+        {"Мастер-пароль", "Смена PIN"},
+        {"Сброс", "ПДА, NodeDB, заводской"},
+    };
+    for (int i = 0; i < 5; i++) {
+        lv_obj_t *b = rowButton(body, rows[i].t, rows[i].s, i);
+        // rowButton вешает cbRow (работает только на экране SETTINGS) -
+        // переназначить на обработчик раздела.
+        lv_obj_remove_event_cb(b, cbRow);
+        lv_obj_add_event_cb(b, cbMasterRow, LV_EVENT_CLICKED, this);
+    }
 }
 
 // ---------------- настройки: время ----------------
@@ -1355,7 +1410,7 @@ void HorizonUI::cbSetApplyPin(lv_event_t *e)
     cfg.setPin(n1);
     cfg.save();
     self->toast("PIN изменён");
-    self->showSettings();
+    self->showMaster();
 }
 
 // ---------------- настройки: сброс ----------------

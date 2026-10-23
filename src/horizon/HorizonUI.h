@@ -34,6 +34,7 @@ class HorizonUI
     void showOpenChats(void);
     void showDossier(void);
     void showSettings(void);
+    void showMaster(void); // раздел мастера (вход по PIN из настроек)
 
   private:
     enum class Screen : uint8_t {
@@ -56,6 +57,7 @@ class HorizonUI
         SET_TIME,
         SET_SOUND,
         SET_TOOLS,
+        SET_MASTER,
         TOOL_DETECTOR,
         TOOL_PICK,
         TOOL_SCAN,
@@ -135,7 +137,6 @@ class HorizonUI
 
     // --- Настройки ---
     void buildSettings(void);
-    void openSettingsGated(void); // вход в настройки через мастер-PIN
     void buildSetChannels(void);
     void buildSetChannelDetail(void);
     void buildSetDevice(void);
@@ -147,6 +148,7 @@ class HorizonUI
     void buildSetTime(void);
     void buildSetSound(void);
     void buildSetTools(void);
+    void buildSetMaster(void);
 
     // --- Инструменты Mesh ---
     void buildToolDetector(void);
@@ -270,6 +272,7 @@ class HorizonUI
     // статические колбэки LVGL
     static void cbTile(lv_event_t *e);
     static void cbBack(lv_event_t *e);
+    static void cbMasterRow(lv_event_t *e);
     static void cbRow(lv_event_t *e);
     static void cbSend(lv_event_t *e);
     static void cbInputFocus(lv_event_t *e);

@@ -1008,7 +1008,7 @@ void HorizonUI::cbTile(lv_event_t *e)
         self->showDossier();
         break;
     case 6:
-        self->openSettingsGated();
+        self->showSettings(); // вход свободный, под PIN только раздел «Мастер»
         break;
     case 7:
         self->toast("Карта появится позже");
@@ -1045,7 +1045,7 @@ void HorizonUI::cbBack(lv_event_t *e)
                     self->view->rebootNode();
                     self->toast("ПДА перезагружается...");
                 },
-                [self]() { self->showSettings(); });
+                [self]() { self->showMaster(); });
 #else
             self->askConfirm(
                 "Перезагрузить радиомодуль, чтобы ключи вступили в силу?", "Да",
@@ -1053,20 +1053,23 @@ void HorizonUI::cbBack(lv_event_t *e)
                     self->view->rebootNode();
                     self->toast("Узел перезагружается...");
                 },
-                [self]() { self->showSettings(); });
+                [self]() { self->showMaster(); });
 #endif
             break;
         }
-        self->showSettings();
+        self->showMaster();
         break;
     case Screen::SET_DEVICE:
-    case Screen::SET_DISPLAY:
     case Screen::SET_PIN:
     case Screen::SET_RESET:
+    case Screen::SET_TOOLS:
+        self->showMaster();
+        break;
+    case Screen::SET_MASTER:
+    case Screen::SET_DISPLAY:
     case Screen::SET_ABOUT:
     case Screen::SET_TIME:
     case Screen::SET_SOUND:
-    case Screen::SET_TOOLS:
         self->showSettings();
         break;
     case Screen::TOOL_SCAN:
@@ -1284,12 +1287,6 @@ void HorizonUI::formatSender(uint32_t node, char *out, size_t cap)
     } else {
         snprintf(out, cap, "%s", view->displayName(node));
     }
-}
-
-void HorizonUI::openSettingsGated(void)
-{
-    // Настройки ставит техник: вход только по мастер-PIN.
-    askPin("Мастер-PIN:", [this]() { showSettings(); });
 }
 
 void HorizonUI::fmtTime(uint32_t t, char *out, size_t cap)
