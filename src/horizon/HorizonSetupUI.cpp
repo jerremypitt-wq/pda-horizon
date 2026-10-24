@@ -1197,14 +1197,6 @@ void HorizonUI::buildSetDisplay(void)
     lv_obj_set_width(setTimeout, lv_pct(100));
     styleDropdownList(setTimeout);
 
-    sectionLabel(body, "Ориентация");
-    setOrientation = lv_dropdown_create(body);
-    HorizonTheme::styleField(setOrientation);
-    lv_dropdown_set_options(setOrientation, "Альбомная\nКнижная");
-    lv_dropdown_set_selected(setOrientation, cfg.orientation);
-    lv_obj_set_width(setOrientation, lv_pct(100));
-    styleDropdownList(setOrientation);
-
     sectionLabel(body, "Цветовая тема");
     setTheme = lv_dropdown_create(body);
     HorizonTheme::styleField(setTheme);
@@ -1221,8 +1213,18 @@ void HorizonUI::buildSetDisplay(void)
     lv_obj_set_width(setTheme, lv_pct(100));
     styleDropdownList(setTheme);
 
+    sectionLabel(body, "Ориентация");
+    setOrientation = lv_dropdown_create(body);
+    HorizonTheme::styleField(setOrientation);
+    lv_dropdown_set_options(setOrientation, "Альбомная\nКнижная");
+    lv_dropdown_set_selected(setOrientation, cfg.orientation);
+    lv_obj_set_width(setOrientation, lv_pct(100));
+    styleDropdownList(setOrientation);
+
     lv_obj_t *hint = lv_label_create(body);
     lv_label_set_text(hint, "Ориентация применится после перезагрузки ПДА.");
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP); // без переноса вылезал скроллбар
+    lv_obj_set_width(hint, lv_pct(100));
     lv_obj_set_style_text_font(hint, HorizonTheme::fontSmall(), LV_PART_MAIN);
     lv_obj_set_style_text_color(hint, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
 

@@ -803,13 +803,14 @@ void HorizonUI::buildOpenChats(void)
         lv_obj_add_event_cb(b, cbOpenChat, LV_EVENT_CLICKED, this);
     }
 
-    // Кнопка очистки
+    // Кнопка очистки личек: маленькая корзина слева внизу.
     lv_obj_t *clr = lv_btn_create(scr);
     HorizonTheme::styleDangerButton(clr);
-    lv_obj_set_size(clr, lv_pct(60), 36);
-    lv_obj_align(clr, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_size(clr, 52, 40);
+    lv_obj_align(clr, LV_ALIGN_BOTTOM_LEFT, 8, -8);
     lv_obj_t *cl = lv_label_create(clr);
-    lv_label_set_text(cl, "Очистить всё");
+    lv_label_set_text(cl, kGlyphTrash);
+    lv_obj_set_style_text_font(cl, HorizonTheme::fontNormal(), LV_PART_MAIN); // эмодзи только в 12/14
     lv_obj_center(cl);
     lv_obj_add_event_cb(clr, cbClearChats, LV_EVENT_CLICKED, this);
 }
@@ -824,7 +825,7 @@ void HorizonUI::cbOpenChat(lv_event_t *e)
 void HorizonUI::cbClearChats(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    self->askConfirm("Удалить ВСЮ историю сообщений на этом ПДА?", "Удалить", [self]() {
+    self->askConfirm("Удалить ВСЮ историю личных сообщений на этом ПДА?", "Удалить", [self]() {
         self->view->getStore().clearAll();
         self->view->getController()->removeTextMessages(0, 0, 0);
         self->buildOpenChats();

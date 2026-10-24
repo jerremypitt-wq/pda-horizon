@@ -39,7 +39,7 @@ class HorizonTheme
         LIGHT = 1,        // светлая
         DUTY = 2,         // Долг (красно-чёрная)
         FREEDOM = 3,      // Свобода (жёлто-зелёная)
-        LONERS = 4,       // Одиночки (хаки)
+        LONERS = 4,       // Одиночки
     };
 
     static const HorizonPalette &palette(uint8_t id);

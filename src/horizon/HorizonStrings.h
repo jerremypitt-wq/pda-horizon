@@ -16,7 +16,7 @@ constexpr const char *kAppSub = "MESH-СВЯЗЬ // STALKER NET";
 // Версия прошивки ПДА: MAJOR.MINOR.PATCH. Бампить КАЖДЫМ функциональным
 // изменением (MINOR - фича/партия, PATCH - хотфикс), чтобы по экрану «О ПДА»,
 // сплэшу и логу было видно, что зашито в устройство. Всё до ввода правила = 1.0.0.
-constexpr const char *kFirmwareVersion = "1.4.1";
+constexpr const char *kFirmwareVersion = "1.4.2";
 
 // Ранги персонажа
 constexpr uint8_t kRankCount = 4;
@@ -88,6 +88,7 @@ constexpr const char *kGlyphMaps = "🗺";  // карта (плитка забл
 constexpr const char *kGlyphMail = "📩";  // непрочитанные/тосты
 constexpr const char *kGlyphClock = "🕐"; // часы в статусбаре
 constexpr const char *kGlyphWarn = "!";   // ASCII: misc-символов нет в шрифтах
+constexpr const char *kGlyphTrash = "🗑"; // корзина (есть в montserrat-12/14)
 
 // Скопировать строку в буфер cap байт, не разрывая UTF-8 символ на границе.
 // Строки, влезшие целиком, не трогает вообще; режет хвост только при переполнении.

@@ -237,6 +237,7 @@ void HorizonUI::toast(const char *fmt, ...)
         lv_obj_set_width(toastBtn, lv_pct(92));
         lv_obj_set_height(toastBtn, LV_SIZE_CONTENT);
         lv_obj_set_style_min_height(toastBtn, 34, LV_PART_MAIN);
+        lv_obj_remove_flag(toastBtn, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_align(toastBtn, LV_ALIGN_BOTTOM_MID, 0, -8);
         toastLabel = lv_label_create(toastBtn);
         lv_label_set_long_mode(toastLabel, LV_LABEL_LONG_WRAP);
@@ -322,6 +323,7 @@ void HorizonUI::askPin(const char *prompt, std::function<void(void)> onOk)
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(panel, 10, LV_PART_MAIN);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *t = lv_label_create(panel);
     lv_label_set_text(t, prompt);
@@ -358,6 +360,7 @@ void HorizonUI::askPin(const char *prompt, std::function<void(void)> onOk)
     }
 
     lv_obj_t *row = lv_obj_create(panel);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE); // кнопки всегда помещаются
     lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
@@ -441,7 +444,7 @@ void HorizonUI::askConfirm(const char *text, const char *okLabel, std::function<
     lv_obj_set_style_border_width(modal, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(modal, 0, LV_PART_MAIN);
 
-    int32_t pw = isPortrait() ? lv_pct(86) : 330;
+    int32_t pw = isPortrait() ? lv_pct(90) : 360;
     lv_obj_t *panel = lv_obj_create(modal);
     HorizonTheme::stylePanel(panel);
     lv_obj_set_size(panel, pw, LV_SIZE_CONTENT);
@@ -449,6 +452,7 @@ void HorizonUI::askConfirm(const char *text, const char *okLabel, std::function<
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(panel, 12, LV_PART_MAIN);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE); // диалог компактный - скролл не нужен
 
     lv_obj_t *t = lv_label_create(panel);
     lv_label_set_text(t, text);
@@ -457,6 +461,7 @@ void HorizonUI::askConfirm(const char *text, const char *okLabel, std::function<
     lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
 
     lv_obj_t *row = lv_obj_create(panel);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE); // кнопки всегда помещаются
     lv_obj_set_size(row, lv_pct(100), LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
