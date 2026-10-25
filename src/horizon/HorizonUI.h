@@ -107,7 +107,8 @@ class HorizonUI
     uint32_t chatPeer = 0;
     void buildChat(void);
     void rebuildChatList(void);
-    void appendChatBubble(uint32_t from, const char *text, uint32_t time, bool outgoing, bool failed = false);
+    void appendChatBubble(uint32_t from, const char *text, uint32_t time, bool outgoing, bool failed = false,
+                          bool deferLayout = false);
     void sendChatInput(void);
     lv_obj_t *chatList = nullptr;
     lv_obj_t *chatInput = nullptr;
@@ -161,6 +162,7 @@ class HorizonUI
     void buildToolLog(void);
     void refreshTools(void); // тик-обновление открытого инструмента
     static bool fingerDown(void); // палец сейчас на экране (опрос indev напрямую, не get_act)
+    static uint32_t nowMs(void); // lv_tick_get (единые часы UI)
     lv_obj_t *toolBody(void); // тело экрана инструмента (под шапкой)
     void refreshDetector(void);
     void refreshScan(void);
@@ -274,6 +276,9 @@ class HorizonUI
     uint32_t lastTickMs = 0;
     uint32_t lastSlowMs = 0;
     uint32_t lastContactsMs = 0;
+    uint32_t lastDetectorMs = 0;
+    uint32_t chatRevShown = 0; // ревизия открытого диалога, отрисованная в списке
+    uint32_t openRevShown = 0; // ревизия личек, отрисованная в открытых чатах
 
     // статические колбэки LVGL
     static void cbTile(lv_event_t *e);

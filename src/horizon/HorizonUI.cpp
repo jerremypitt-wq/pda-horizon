@@ -25,11 +25,12 @@ constexpr int16_t kStatusH = 22;
 constexpr int16_t kHeaderH = 40;
 constexpr int16_t kInputH = 48;
 
-uint32_t nowMs(void)
+} // namespace
+
+uint32_t HorizonUI::nowMs(void)
 {
     return lv_tick_get();
 }
-} // namespace
 
 HorizonUI::HorizonUI(HorizonView *v) : view(v)
 {
@@ -1241,12 +1242,23 @@ void HorizonUI::tick(void)
             if (current == Screen::OPENCHATS) {
                 // Не пересобирать список под пальцем, иначе tap теряется
                 // (та же гонка, что была в контактах).
-                if (!fingerDown())
-                    buildOpenChats();
-                else
+                if (!fingerDown()) {
+                    // Пересборка только при реальных изменениях личек,
+                    // иначе дёргаем весь экран на каждое сообщение в канале.
+                    if (view->getStore().dmRev != openRevShown)
+                        buildOpenChats();
+                } else
                     view->pokeMsgsDirty(); // флаг съеден выше - вернуть, попробуем позже
-            } else if (current == Screen::CHAT)
-                rebuildChatList();
+            } else if (current == Screen::CHAT) {
+                // Пересборка только при изменениях открытого диалога: новые
+                // пузыри уже добавлены инкрементально (onMessage/sendChatInput),
+                // чужие диалоги и ACK по ним этот экран не трогают.
+                HorizonStore &st = view->getStore();
+                const HorizonConvo *c =
+                    chatIsChannel ? st.findChannelConvo(chatCh) : st.findDmConvo(chatPeer);
+                if (!c || c->rev != chatRevShown)
+                    rebuildChatList();
+            }
             refreshMenuBadges();
         }
         if (view->takeNodesDirty() || view->takeChannelsDirty()) {

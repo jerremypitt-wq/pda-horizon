@@ -1254,6 +1254,16 @@ void HorizonView::pollTools(uint32_t nowMs)
         traceReq = 0;
         toolsDirty = true;
     }
+    // Отложенная перезапись лога после ACK: тяжёлая операция (весь файл),
+    // не чаще раза в 10 с, чтобы не вешать интерфейс на каждой доставке.
+    if (store.takeRewritePending()) {
+        if (nowMs - lastMsgRewriteMs >= 10000) {
+            store.rewriteMessages();
+            lastMsgRewriteMs = nowMs;
+        } else {
+            store.setRewritePending(); // попробуем на следующем тике
+        }
+    }
 }
 
 void HorizonView::handleResponse(uint32_t from, uint32_t id, const meshtastic_Routing &routing,

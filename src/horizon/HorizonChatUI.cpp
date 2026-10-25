@@ -8,6 +8,7 @@
 #include "horizon/HorizonUI.h"
 #include "horizon/HorizonView.h"
 #include "graphics/common/ViewController.h"
+#include <algorithm>
 #include <stdio.h>
 #include <string.h>
 #include <vector>
@@ -131,7 +132,8 @@ void HorizonUI::rebuildChatList(void)
         lv_obj_set_width(e, lv_pct(100));
     } else {
         for (auto &m : c.messages)
-            appendChatBubble(m.from, m.text.c_str(), m.time, m.outgoing, m.sendStatus == kHzSendFailed);
+            appendChatBubble(m.from, m.text.c_str(), m.time, m.outgoing, m.sendStatus == kHzSendFailed,
+                             true); // раскладка один раз в конце, а не O(n^2)
         // в конец
         uint32_t n = lv_obj_get_child_count(chatList);
         if (n > 0) {
@@ -139,12 +141,14 @@ void HorizonUI::rebuildChatList(void)
             lv_obj_scroll_to_view(lv_obj_get_child(chatList, n - 1), LV_ANIM_OFF);
         }
     }
+    chatRevShown = c.rev;
     st.markRead(c);
     refreshStatus();
     refreshMenuBadges();
 }
 
-void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time, bool outgoing, bool failed)
+void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time, bool outgoing, bool failed,
+                                bool deferLayout)
 {
     if (current != Screen::CHAT || !chatList || !lv_obj_is_valid(chatList))
         return;
@@ -210,8 +214,15 @@ void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time,
     lv_obj_set_width(body, lv_pct(100));
     lv_obj_set_style_text_color(body, fg, LV_PART_MAIN);
 
-    lv_obj_update_layout(chatList);
-    lv_obj_scroll_to_view(row, LV_ANIM_OFF);
+    {
+        HorizonStore &st = view->getStore();
+        const HorizonConvo *c = chatIsChannel ? st.findChannelConvo(chatCh) : st.findDmConvo(chatPeer);
+        chatRevShown = c ? c->rev : 0;
+    }
+    if (!deferLayout) {
+        lv_obj_update_layout(chatList);
+        lv_obj_scroll_to_view(row, LV_ANIM_OFF);
+    }
 }
 
 void HorizonUI::sendChatInput(void)
@@ -385,15 +396,11 @@ void HorizonUI::rebuildContactsList(void)
         rows.push_back({kv.first, kv.second.lastHeard, fav});
     }
     // избранное сверху, дальше свежие сверху
-    for (size_t i = 0; i < rows.size(); i++) {
-        for (size_t j = i + 1; j < rows.size(); j++) {
-            if ((rows[j].fav && !rows[i].fav) || (rows[j].fav == rows[i].fav && rows[j].lh > rows[i].lh)) {
-                Row t = rows[i];
-                rows[i] = rows[j];
-                rows[j] = t;
-            }
-        }
-    }
+    std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+        if (a.fav != b.fav)
+            return a.fav > b.fav;
+        return a.lh > b.lh;
+    });
 
     if (contactsFavLabel && lv_obj_is_valid(contactsFavLabel))
         lv_label_set_text_fmt(contactsFavLabel, "Избранные (%u)", (unsigned)cfg.favorites.size());
@@ -722,7 +729,9 @@ void HorizonUI::buildOpenChats(void)
     addStatusBar(scr);
     addNavHeader(scr, "Открытые чаты", "История личных сообщений");
 
-    auto dms = view->getStore().dmList();
+    HorizonStore &st = view->getStore();
+    auto dms = st.dmList();
+    openRevShown = st.dmRev;
 
     int16_t top = kStatusH + kHeaderH + 2;
     int16_t bottomBar = dms.empty() ? 2 : 52;

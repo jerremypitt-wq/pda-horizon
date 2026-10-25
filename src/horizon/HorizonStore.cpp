@@ -171,6 +171,9 @@ HorizonConvo &HorizonStore::addMessage(uint32_t from, uint32_t to, uint8_t ch, u
         c->lastActivity = time;
     if (countUnread && !m.outgoing)
         c->unread++;
+    c->rev++;
+    if (!isBroadcast)
+        dmRev++;
     if (persist)
         saveMessage(c->messages.back());
     return *c;
@@ -185,21 +188,30 @@ bool HorizonStore::markTextDelivered(uint32_t reqId, bool ok)
             if (m.outgoing && m.reqId == reqId && m.sendStatus == kHzSendPending) {
                 m.sendStatus = ok ? kHzSendOk : kHzSendFailed;
                 m.reqId = 0;
+                c.rev++;
                 return true;
             }
         }
         return false;
     };
-    bool hit = false;
+    bool hit = false, hitDm = false;
     for (uint8_t i = 0; i < kMaxChannels && !hit; i++)
         hit = sweep(chanConvos[i]);
     for (auto &c : dms) {
         if (hit)
             break;
-        hit = sweep(c);
+        if (sweep(c)) {
+            hit = true;
+            hitDm = true;
+        }
     }
-    if (hit)
-        rewriteMessages(); // статус тоже пережил бы перезагрузку
+    if (hit) {
+        if (hitDm)
+            dmRev++;
+        // Перезапись лога - тяжёлая (весь файл до 96 КБ), не делать на
+        // пакетном пути: View подберёт флаг в pollTools не чаще раза в 10 с.
+        setRewritePending();
+    }
     return hit;
 }
 
@@ -388,12 +400,16 @@ void HorizonStore::clearConvo(HorizonConvo &c)
 {
     c.messages.clear();
     c.unread = 0;
+    c.rev++;
+    if (!c.isChannel)
+        dmRev++;
     rewriteMessages();
 }
 
 void HorizonStore::clearAllDms(void)
 {
     dms.clear();
+    dmRev++;
     rewriteMessages();
 }
 
@@ -410,9 +426,11 @@ uint32_t HorizonStore::maxDmTime(void) const
 void HorizonStore::clearAll(void)
 {
     dms.clear();
+    dmRev++;
     for (uint8_t i = 0; i < kMaxChannels; i++) {
         chanConvos[i].messages.clear();
         chanConvos[i].unread = 0;
+        chanConvos[i].rev++;
     }
     msgFs.remove(kMsgPath);
 }

@@ -7,6 +7,7 @@
 #include "horizon/HorizonTheme.h"
 #include "horizon/HorizonUI.h"
 #include "horizon/HorizonView.h"
+#include <algorithm>
 #include <stdio.h>
 #include <string.h>
 #include <vector>
@@ -204,12 +205,19 @@ void HorizonUI::refreshTools(void)
         return;
     bool dirty = view->takeToolsDirty();
     switch (current) {
-    case Screen::TOOL_DETECTOR:
+    case Screen::TOOL_DETECTOR: {
         // takeNodesDirty дёргаем только здесь: на экране контактов его
         // забирает ветка контактов тика (экраны взаимоисключающие).
-        if (dirty || view->takeNodesDirty())
+        // Троттлинг 3 с: флаги прилетают на каждый пакет, а полный пересбор
+        // списка узлов каждую секунду вешает скролл (паттерн контактов).
+        bool fire = dirty || view->takeNodesDirty();
+        uint32_t now = nowMs();
+        if (fire && now - lastDetectorMs >= 3000) {
+            lastDetectorMs = now;
             refreshDetector();
+        }
         break;
+    }
     case Screen::TOOL_SCAN:
         refreshScan(); // каждый тик: прогресс и значения
         break;
@@ -274,15 +282,7 @@ void HorizonUI::refreshDetector(void)
         rows.push_back({kv.first, kv.second.lastHeard});
     }
     // свежие сверху
-    for (size_t i = 0; i < rows.size(); i++) {
-        for (size_t j = i + 1; j < rows.size(); j++) {
-            if (rows[j].lh > rows[i].lh) {
-                Row t = rows[i];
-                rows[i] = rows[j];
-                rows[j] = t;
-            }
-        }
-    }
+    std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return a.lh > b.lh; });
 
     if (detSub && lv_obj_is_valid(detSub))
         lv_label_set_text_fmt(detSub, "Узлов в эфире: %u", (unsigned)rows.size());

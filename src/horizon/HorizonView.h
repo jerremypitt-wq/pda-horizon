@@ -273,6 +273,7 @@ class HorizonView : public MeshtasticView
     void handleDossierBeacon(uint32_t from, const char *msg, bool canReply);
     bool handleTimeSync(const meshtastic_MeshPacket &p); // PRIVATE_APP HZT1, true = съеден
     HzController *hzController(void); // controller - всегда HzController (см. ctor)
+    uint32_t lastMsgRewriteMs = 0; // троттлинг перезаписи лога после ACK
     uint32_t lastBeaconMs = 0; // rate-limit маяков
     uint32_t lastPeriodicBeaconMs = 0; // переозвучка досье раз в 15 минут
     uint8_t nodeChannel(uint32_t nodeNum) const;

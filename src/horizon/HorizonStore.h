@@ -35,6 +35,7 @@ struct HorizonConvo {
     std::vector<HorizonMessage> messages;
     uint32_t unread = 0;
     uint32_t lastActivity = 0;
+    uint32_t rev = 0; // счётчик изменений (гвард перестроений UI)
 };
 
 // Досье чужого игрока, узнанное из маяка «HZ:DOSSIER:» (см. HorizonView).
@@ -114,11 +115,16 @@ class HorizonStore
 
     HorizonChannelInfo channels[kMaxChannels];
 
+    uint32_t dmRev = 0; // счётчик изменений личек (гвард экрана открытых чатов)
+    void setRewritePending(void) { rewritePending = true; }
+    bool takeRewritePending(void) { bool v = rewritePending; rewritePending = false; return v; }
+
     void saveMessage(const HorizonMessage &m); // дописать одно сообщение в лог
     void rewriteMessages(void); // перезаписать лог из памяти (чистка/компакт)
 
   private:
     uint32_t myNode = 0;
+    bool rewritePending = false; // ACK просит перезапись лога (см. pollTools)
     HorizonConvo chanConvos[kMaxChannels];
     std::vector<HorizonConvo> dms;
     std::map<uint32_t, HorizonDossierInfo> dossierDir;
