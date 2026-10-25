@@ -24,6 +24,7 @@ class HorizonUI;
 extern volatile uint32_t hzUartRxBytes;  // сырых байт с провода
 extern volatile uint32_t hzUartRxFrames; // валидных кадров FromRadio
 
+class HzController;
 class HorizonView : public MeshtasticView
 {
   public:
@@ -203,6 +204,7 @@ class HorizonView : public MeshtasticView
     void sendChannelRaw(uint8_t ch, const char *text); // без записи в локальную историю (маяки)
     void announceDossier(void);                        // маяк «HZ:DOSSIER:» в общий канал
     void sendDirectMessage(uint32_t peer, const char *text);
+    void broadcastTimeSync(void); // Мастер: разослать время сети (PRIVATE_APP)
     void applyOwnerFromDossier(void);
     // simpleKey: 0=без ключа, 1=default, 2..11=simple1..10, 0xFF=не менять
     void applyChannelSettings(uint8_t idx, const char *name, uint8_t simpleKey);
@@ -269,6 +271,8 @@ class HorizonView : public MeshtasticView
                         bool viaMqtt);
     // Разобрать маяк досье (canReply=false для восстановленных из истории)
     void handleDossierBeacon(uint32_t from, const char *msg, bool canReply);
+    bool handleTimeSync(const meshtastic_MeshPacket &p); // PRIVATE_APP HZT1, true = съеден
+    HzController *hzController(void); // controller - всегда HzController (см. ctor)
     uint32_t lastBeaconMs = 0; // rate-limit маяков
     uint32_t lastPeriodicBeaconMs = 0; // переозвучка досье раз в 15 минут
     uint8_t nodeChannel(uint32_t nodeNum) const;

@@ -25,6 +25,8 @@ class HorizonUI
     void onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *text, uint32_t msgtime);
 
     void toast(const char *fmt, ...);
+    static void fmtTime(uint32_t t, char *out, size_t cap); // HH:MM (публично: тост синхронизации)
+    static void fmtDate(uint32_t t, char *out, size_t cap); // DD.MM.YYYY (публично: тост синхронизации)
 
     // Навигация
     void showMenu(void);
@@ -265,8 +267,6 @@ class HorizonUI
 
     // --- Утилиты ---
     void formatSender(uint32_t node, char *out, size_t cap); // «позывной, ранг» или имя узла
-    static void fmtTime(uint32_t t, char *out, size_t cap); // HH:MM
-    static void fmtDate(uint32_t t, char *out, size_t cap); // DD.MM.YYYY
     static void fmtLastHeard(HorizonView *v, uint32_t lh, char *out, size_t cap);
     uint32_t visibleUnread(void);
 

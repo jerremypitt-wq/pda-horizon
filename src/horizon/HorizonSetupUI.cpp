@@ -116,6 +116,8 @@ int32_t timeDaysSinceEpoch(int year, int month, int day)
 
 // База для ручной установки времени: валидные часы ПДА, иначе сохранённые,
 // иначе дата сборки прошивки. Черновик степперов - из даты базы.
+char gTimeSyncConfirm[96]; // текст подтверждения рассылки (живёт вечно, askConfirm может держать указатель)
+
 uint32_t manualTimeBase(HorizonView *view)
 {
     uint32_t t = view->getActTime();
@@ -576,7 +578,18 @@ void HorizonUI::cbMasterRow(lv_event_t *e)
     case 3:
         self->buildSetPin();
         break;
-    case 4:
+    case 4: {
+        // Рассылка времени мастером: подтверждение с датой/временем,
+        // отправка - в виде (там же проверки связи и часов).
+        uint32_t ep = self->view->getActTime();
+        char db[16], tb[16];
+        fmtDate(ep, db, sizeof(db));
+        fmtTime(ep, tb, sizeof(tb));
+        snprintf(gTimeSyncConfirm, sizeof(gTimeSyncConfirm), "Разослать %s %s всем устройствам?", db, tb);
+        self->askConfirm(gTimeSyncConfirm, "Отправить", [self]() { self->view->broadcastTimeSync(); });
+        break;
+    }
+    case 5:
         // Сюда уже вошли по PIN - повтор не спрашиваем, у каждого
         // сброса своё подтверждение.
         self->buildSetReset();
@@ -608,14 +621,15 @@ void HorizonUI::buildSetMaster(void)
         const char *t;
         const char *s;
     };
-    MRow rows[5] = {
+    MRow rows[6] = {
         {"Каналы чатов", chsub},
         {"Устройство (LoRa)", "Регион, пресет, роль, радиомолчание"},
         {"Инструменты Mesh", "Детектор, сканер, маршрут"},
         {"Мастер-пароль", "Смена PIN"},
+        {"Синхронизация времени", "Разослать дату/время всем"},
         {"Сброс", "ПДА, NodeDB, заводской"},
     };
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
         lv_obj_t *b = rowButton(body, rows[i].t, rows[i].s, i);
         // rowButton вешает cbRow (работает только на экране SETTINGS) -
         // переназначить на обработчик раздела.

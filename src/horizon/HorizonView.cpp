@@ -36,6 +36,14 @@ constexpr const char *kDossierBeaconPrefix = "HZ:DOSSIER:";
 constexpr size_t kDossierBeaconPrefixLen = sizeof("HZ:DOSSIER:") - 1;
 constexpr uint32_t kBeaconMinIntervalMs = 5000; // rate-limit маяков
 constexpr uint32_t kBeaconPeriodicMs = 15 * 60 * 1000; // переозвучка досье
+// Синхронизация времени от мастера: PRIVATE_APP-пакет, который Горизонты
+// перехватывают в packetReceived и применяют. Формат: "HZT1" + uint32 LE epoch.
+// Штатные клиенты PRIVATE_APP молча игнорируют - эфир не засоряем.
+constexpr const char *kTimeSyncMagic = "HZT1";
+constexpr size_t kTimeSyncMagicLen = 4;
+constexpr size_t kTimeSyncPayloadLen = 8;
+constexpr uint32_t kTimeSyncMinEpoch = 1704067200; // 2024-01-01 UTC
+constexpr uint32_t kTimeSyncMaxEpoch = 2082758400; // 2036-01-01 UTC
 } // namespace
 
 // Ориентация для конструктора панели (variants/elecrow-adv-35/config.h).
@@ -63,8 +71,30 @@ HorizonView &HorizonView::instance(void)
     return *gui;
 }
 
+// Подкласс контроллера: открывает protected generic send() для сырых пакетов
+// (синхронизация времени через PRIVATE_APP). Форк не трогаем.
+class HzController : public ViewController {
+  public:
+    bool sendRaw(uint32_t to, uint8_t ch, uint8_t hopLimit, meshtastic_PortNum portnum,
+                 const unsigned char *bytes, size_t len)
+    {
+        // NOTE: send() читает все 233 байта буфера независимо от len (см. форк),
+        // поэтому передаём только полный занулённый буфер - перечтения нет.
+        unsigned char buf[meshtastic_Constants_DATA_PAYLOAD_LEN] = {};
+        if (len > sizeof(buf))
+            return false;
+        memcpy(buf, bytes, len);
+        return send(to, ch, hopLimit, 0, portnum, false, false, buf, len);
+    }
+};
+
+HzController *HorizonView::hzController(void)
+{
+    return static_cast<HzController *>(controller);
+}
+
 HorizonView::HorizonView(const DisplayDriverConfig *cfg, DisplayDriver *driver)
-    : MeshtasticView(cfg, driver, new ViewController)
+    : MeshtasticView(cfg, driver, new HzController)
 {
     memset(radioCh, 0, sizeof(radioCh));
     time(&bootTime);
@@ -280,6 +310,10 @@ void HorizonView::updateLastHeard(uint32_t nodeNum)
 
 void HorizonView::packetReceived(const meshtastic_MeshPacket &p)
 {
+    if (p.decoded.portnum == meshtastic_PortNum_PRIVATE_APP && handleTimeSync(p)) {
+        notePacketTools(p); // в статистику пакет идёт, в чат/лог/звук - нет
+        return;
+    }
     MeshtasticView::packetReceived(p);
     // Синхронизация часов от сети: часы не шли вообще - принять любое валидное
     // время; восстановлены из файла - принять первое время, идущее вперёд.
@@ -664,6 +698,68 @@ void HorizonView::announceDossier(void)
     snprintf(buf, sizeof(buf), "%s%u:%u:%u:%s", kDossierBeaconPrefix, cfg.rank, cfg.group, ep, cfg.callsign);
     ILOG_INFO("Horizon: announce dossier '%s'", buf);
     sendChannelRaw(cfg.generalCh, buf);
+}
+
+void HorizonView::broadcastTimeSync(void)
+{
+    if (!radioConnected()) {
+        if (ui)
+            ui->toast(HZ_NO_LINK);
+        return;
+    }
+    uint32_t ep = getActTime();
+    if (ep < 1000000 || timeStale) {
+        if (ui)
+            ui->toast("Сначала установите время");
+        return;
+    }
+    uint8_t hop = gotLoRa ? (uint8_t)lora.hop_limit : 3;
+    if (hop == 0)
+        hop = 3;
+    HorizonConfig &cfg = HorizonConfig::instance();
+    unsigned char payload[kTimeSyncPayloadLen];
+    memcpy(payload, kTimeSyncMagic, kTimeSyncMagicLen);
+    payload[4] = (unsigned char)(ep & 0xFF);
+    payload[5] = (unsigned char)((ep >> 8) & 0xFF);
+    payload[6] = (unsigned char)((ep >> 16) & 0xFF);
+    payload[7] = (unsigned char)((ep >> 24) & 0xFF);
+    if (hzController()->sendRaw(0xFFFFFFFFu, cfg.generalCh, hop, meshtastic_PortNum_PRIVATE_APP, payload,
+                                kTimeSyncPayloadLen)) {
+        if (ui)
+            ui->toast("Время разослано");
+    } else if (ui) {
+        ui->toast(HZ_NO_LINK);
+    }
+    ILOG_INFO("Horizon: time sync broadcast %u", (unsigned)ep);
+}
+
+bool HorizonView::handleTimeSync(const meshtastic_MeshPacket &p)
+{
+    if (p.which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+        return false;
+    const meshtastic_Data &d = p.decoded;
+    if (d.payload.size < kTimeSyncPayloadLen || memcmp(d.payload.bytes, kTimeSyncMagic, kTimeSyncMagicLen) != 0)
+        return false;
+    if (p.from == ownNode)
+        return true; // своё эхо (релей вернул) - часы уже такие
+    uint32_t ep = (uint32_t)d.payload.bytes[4] | ((uint32_t)d.payload.bytes[5] << 8) |
+                  ((uint32_t)d.payload.bytes[6] << 16) | ((uint32_t)d.payload.bytes[7] << 24);
+    if (ep < kTimeSyncMinEpoch || ep >= kTimeSyncMaxEpoch) {
+        ILOG_INFO("Horizon: time sync out of range %u", (unsigned)ep);
+        return true;
+    }
+    // Явная команда мастера - применяем всегда, в т.ч. назад (отмотка игры).
+    setManualTime(ep);
+    if (ui) {
+        char db[16], tb[16];
+        HorizonUI::fmtDate(ep, db, sizeof(db));
+        HorizonUI::fmtTime(ep, tb, sizeof(tb));
+        char msg[96];
+        snprintf(msg, sizeof(msg), "Время: %s %s (%.32s)", db, tb, displayName(p.from));
+        ui->toast(msg);
+    }
+    ILOG_INFO("Horizon: time sync applied %u from 0x%08x", (unsigned)ep, (unsigned)p.from);
+    return true;
 }
 
 void HorizonView::handleDossierBeacon(uint32_t from, const char *msg, bool canReply)
