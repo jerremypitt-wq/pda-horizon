@@ -4,9 +4,17 @@
 страйкбольных ролевых игр живого действия.
 
 **Железо:** Elecrow CrowPanel Advance 3.5" (ESP32-S3) + LoRa-модуль SX1262
-на разъёме UART0 (J10, пины 44/43) + батарея 3.7 В в штатный разъём J3.
+отдельной платой в слот J9+J11 (SPI + DIO1/BUSY/NRESET) + батарея 3.7 В
+в штатный разъём J3.
 
 ## Сборка и прошивка
+
+Основной путь — single-MCU: сборка в дереве `meshtastic/firmware`
+стоковым env `elecrow-adv-35-tft` через `fw/overlay.py`
+(процедура — в [fw/README.md](fw/README.md)).
+
+Запасной путь — standalone (панель + внешнее радио по UART0/J10,
+сейчас не используется — J10 свободен):
 
 ```bash
 pio run -e elecrow-adv-35-horizon             # сборка

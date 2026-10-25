@@ -9,6 +9,8 @@ PacketAPI (PacketServer + PacketClient) вместо UART-клиента.
 `fw/overlay.py` — единственный инструмент переноса: **только копирование
 файлов**, без форка прошивки и без правок её `platformio.ini`. Вкус сборки
 переключается перезаписываемым `horizon_target.h` (флаг `HORIZON_PACKET_LINK`).
+Слот радиоплагина на плате — J9+J11 (распиновка и нюансы: ключ U8/IO45,
+общий CS/BOOT, общий I2C с тачем — в `docs/HORIZON.md`, раздел single-MCU).
 
 ## Пины (проверено)
 
