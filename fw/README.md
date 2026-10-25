@@ -79,6 +79,20 @@ extra-скрипт самого device-ui по `-D VIEW_320x240`; логи `ILOG
 
 ## Диагностика
 
+- `TypeError: ... not NoneType` в `arduino.py`, строка `Path(FRAMEWORK_DIR)` →
+  не установлен пакет платформы `framework-arduinoespressif32` (в списке
+  PACKAGES его нет, есть только `...-libs`). Сам оверлей тут ни при чём:
+  он только копирует файлы и пакеты PlatformIO не трогает. Лечение —
+  переустановить платформу начисто (закрыть VSCode, PowerShell):
+  ```powershell
+  pio platform uninstall espressif32
+  Remove-Item -Recurse -Force ~\.platformio\packages\framework-arduinoespressif32*
+  pio run -e elecrow-adv-35-tft
+  ```
+  Платформа и фреймворк скачаются заново (~1 ГБ, несколько минут).
+  Если раньше правили `platform.json` под SCons (обход конфликта версий
+  tool-scons) — правку внести заново после переустановки. Не помогло —
+  также удалить `~\.platformio\packages\framework-espidf` и повторить.
 - Overlay ругается на пин device-ui → дерево не на v2.8.1 (либо `--force`
   на свой риск: API могло уплыть).
 - `HORIZON_PACKET_LINK` не задан (собрался UART-вкус в прошивке: вечное
