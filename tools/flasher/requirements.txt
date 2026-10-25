@@ -1,0 +1,5 @@
+# Зависимости HorizonFlasher (пины под esptool v5: команды через дефис).
+esptool>=5.6,<6
+pyserial>=3.5
+# Только для сборки .exe через build_exe.bat:
+pyinstaller

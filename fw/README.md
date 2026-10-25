@@ -40,6 +40,9 @@ pio run -e elecrow-adv-35-tft
 установленный device-ui. Если libdeps не было — overlay предупредит, файлы
 всё равно скопируются; тогда повторить `overlay.py` после первой сборки.
 
+Полевая прошивка готовых бинарников без VSCode/интернета — отдельный
+инструмент `tools/flasher/` (один `.exe` + папка пакета): см. его README.
+
 Проверка без сборки: `overlay.py --fw . --dry-run`. Откат оверлея:
 `overlay.py --fw . --revert` (восстановит `tftSetup.cpp` из `.stock`,
 удалит `src/horizon`; boot-патч в `.pio` не откатывается — он безвреден
