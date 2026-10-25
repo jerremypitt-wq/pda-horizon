@@ -826,10 +826,19 @@ void HorizonUI::cbClearChats(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     self->askConfirm("Удалить ВСЮ историю личных сообщений на этом ПДА?", "Удалить", [self]() {
-        self->view->getStore().clearAll();
-        self->view->getController()->removeTextMessages(0, 0, 0);
+        // Только лички: каналы не трогаем. Журнал контроллера выборочно
+        // удалять не умеет - старые лички останутся в нём, но рестор
+        // их отсечёт по метке (см. restoreMessage).
+        HorizonConfig &cfg = HorizonConfig::instance();
+        uint32_t cut = self->view->getActTime();
+        uint32_t mt = self->view->getStore().maxDmTime();
+        cfg.dmsClearedAt = cut > mt ? cut : mt;
+        cfg.save();
+        self->view->getStore().clearAllDms();
         self->buildOpenChats();
-        self->toast("История очищена");
+        self->refreshStatus();
+        self->refreshMenuBadges();
+        self->toast("Личные чаты очищены");
     });
 }
 

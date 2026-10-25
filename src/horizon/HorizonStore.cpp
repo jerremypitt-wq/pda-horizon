@@ -397,6 +397,16 @@ void HorizonStore::clearAllDms(void)
     rewriteMessages();
 }
 
+uint32_t HorizonStore::maxDmTime(void) const
+{
+    uint32_t m = 0;
+    for (auto &c : dms) {
+        if (c.lastActivity > m)
+            m = c.lastActivity;
+    }
+    return m;
+}
+
 void HorizonStore::clearAll(void)
 {
     dms.clear();

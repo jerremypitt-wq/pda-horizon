@@ -87,7 +87,7 @@ void HorizonUI::clearScreen(Screen s)
     setRegion = setPreset = setHops = setRole = setTx = nullptr;
     setBrightness = setBrightnessVal = setTimeout = setOrientation = setTheme = nullptr;
     pinOld = pinNew1 = pinNew2 = nullptr;
-    timeHVal = timeMVal = timeCur = nullptr;
+    timeHVal = timeMVal = timeDVal = timeMoVal = timeYVal = timeCur = nullptr;
     detList = detSub = nullptr;
     scanBig = scanPct = scanProg = nullptr;
     routeStatus = routeBox = nullptr;

@@ -89,8 +89,33 @@ uint32_t buildEpoch(void)
     return (uint32_t)(days * 86400);
 }
 
+constexpr int kTimeYearMin = 2024;
+constexpr int kTimeYearMax = 2036;
+
+// Дней в месяце (Григорианский календарь).
+int timeDaysIn(int year, int month)
+{
+    static const uint8_t dm[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (month < 1 || month > 12)
+        return 30;
+    if (month == 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)))
+        return 29;
+    return dm[month - 1];
+}
+
+// Дней от 1970-01-01 до даты (UTC, алгоритм days_from_civil).
+int32_t timeDaysSinceEpoch(int year, int month, int day)
+{
+    year -= month <= 2 ? 1 : 0;
+    int era = (year >= 0 ? year : year - 399) / 400;
+    int yoe = year - era * 400;
+    int doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    int doe = yoe * 365 + yoe / 4 - yoe / 100 + yoe / 400 + doy;
+    return era * 146097 + doe - 719468;
+}
+
 // База для ручной установки времени: валидные часы ПДА, иначе сохранённые,
-// иначе дата сборки прошивки. Часы/минуты степперов лягут поверх даты базы.
+// иначе дата сборки прошивки. Черновик степперов - из даты базы.
 uint32_t manualTimeBase(HorizonView *view)
 {
     uint32_t t = view->getActTime();
@@ -633,21 +658,29 @@ void HorizonUI::buildSetTime(void)
         lv_obj_set_style_text_color(dl, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
     }
 
-    // Черновик - из текущих часов (или 12:00, если часы не идут).
-    uint32_t t = view->getActTime();
-    if (t > 1000000) {
-        time_t tt = (time_t)t;
+    // Черновик - из базы (часы, сохранённые или дата сборки): всегда валиден.
+    {
+        time_t tt = (time_t)manualTimeBase(view);
         struct tm tmv;
         gmtime_r(&tt, &tmv);
         timeH = tmv.tm_hour;
         timeM = tmv.tm_min;
-    } else {
-        timeH = 12;
-        timeM = 0;
+        timeD = tmv.tm_mday;
+        timeMo = tmv.tm_mon + 1;
+        timeY = tmv.tm_year + 1900;
+        if (timeY < kTimeYearMin) // дата сборки старше диапазона - подтянуть
+            timeY = kTimeYearMin;
+        if (timeY > kTimeYearMax)
+            timeY = kTimeYearMax;
     }
     sectionLabel(body, "Установить время");
     timeHVal = makeStepper(body, "Часы", timeH, 0, cbTimeStep, this);
     timeMVal = makeStepper(body, "Минуты", timeM, 2, cbTimeStep, this);
+    sectionLabel(body, "Установить дату");
+    timeDVal = makeStepper(body, "День", timeD, 4, cbTimeStep, this);
+    timeMoVal = makeStepper(body, "Месяц", timeMo, 6, cbTimeStep, this);
+    timeYVal = makeStepper(body, "Год", timeY, 8, cbTimeStep, this);
+    lv_obj_set_width(timeYVal, 56); // 4 цифры не влезают в 44
 
     lv_obj_t *apply = lv_btn_create(body);
     HorizonTheme::styleButton(apply, true);
@@ -659,8 +692,8 @@ void HorizonUI::buildSetTime(void)
     lv_obj_add_event_cb(apply, cbTimeApply, LV_EVENT_CLICKED, this);
 
     lv_obj_t *hint = lv_label_create(body);
-    lv_label_set_text(hint, "Дата - из сети или прошивки. Часы сохраняются раз в минуту и переживают "
-                            "перезагрузку; после долгого выключения их подправит сеть.");
+    lv_label_set_text(hint, "Дата и время сохраняются и переживают перезагрузку; "
+                            "после долгого выключения их подправит сеть.");
     lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(hint, lv_pct(100));
     lv_obj_set_style_text_font(hint, HorizonTheme::fontSmall(), LV_PART_MAIN);
@@ -679,11 +712,49 @@ void HorizonUI::cbTimeStep(lv_event_t *e)
         self->timeM = (self->timeM + 59) % 60;
     else if (id == 3)
         self->timeM = (self->timeM + 1) % 60;
+    else if (id == 4 || id == 5) {
+        int dim = timeDaysIn(self->timeY, self->timeMo);
+        self->timeD = id == 4 ? (self->timeD + dim - 2) % dim + 1 : self->timeD % dim + 1;
+    } else if (id == 6)
+        self->timeMo = (self->timeMo + 10) % 12 + 1;
+    else if (id == 7)
+        self->timeMo = self->timeMo % 12 + 1;
+    else if (id == 8)
+        self->timeY = self->timeY <= kTimeYearMin ? kTimeYearMax : self->timeY - 1;
+    else if (id == 9)
+        self->timeY = self->timeY >= kTimeYearMax ? kTimeYearMin : self->timeY + 1;
     else
         return;
+    // Смена месяца/года может укоротить месяц - подтянуть день.
+    if (id >= 6) {
+        int dim = timeDaysIn(self->timeY, self->timeMo);
+        if (self->timeD > dim) {
+            self->timeD = dim;
+            if (self->timeDVal && lv_obj_is_valid(self->timeDVal)) {
+                char db[8];
+                snprintf(db, sizeof(db), "%02d", self->timeD);
+                lv_label_set_text(self->timeDVal, db);
+            }
+        }
+    }
     char vb[8];
-    snprintf(vb, sizeof(vb), "%02d", id < 2 ? self->timeH : self->timeM);
-    lv_obj_t *lbl = id < 2 ? self->timeHVal : self->timeMVal;
+    lv_obj_t *lbl = nullptr;
+    if (id < 2) {
+        snprintf(vb, sizeof(vb), "%02d", self->timeH);
+        lbl = self->timeHVal;
+    } else if (id < 4) {
+        snprintf(vb, sizeof(vb), "%02d", self->timeM);
+        lbl = self->timeMVal;
+    } else if (id < 6) {
+        snprintf(vb, sizeof(vb), "%02d", self->timeD);
+        lbl = self->timeDVal;
+    } else if (id < 8) {
+        snprintf(vb, sizeof(vb), "%02d", self->timeMo);
+        lbl = self->timeMoVal;
+    } else {
+        snprintf(vb, sizeof(vb), "%04d", self->timeY);
+        lbl = self->timeYVal;
+    }
     if (lbl && lv_obj_is_valid(lbl))
         lv_label_set_text(lbl, vb);
 }
@@ -691,11 +762,10 @@ void HorizonUI::cbTimeStep(lv_event_t *e)
 void HorizonUI::cbTimeApply(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    uint32_t base = manualTimeBase(self->view);
-    uint32_t epoch =
-        base - (base % 86400) + (uint32_t)self->timeH * 3600 + (uint32_t)self->timeM * 60;
+    int32_t days = timeDaysSinceEpoch(self->timeY, self->timeMo, self->timeD);
+    uint32_t epoch = (uint32_t)days * 86400 + (uint32_t)self->timeH * 3600 + (uint32_t)self->timeM * 60;
     self->view->setManualTime(epoch);
-    self->toast("Время установлено");
+    self->toast("Дата и время установлены");
     self->buildSetTime();
 }
 

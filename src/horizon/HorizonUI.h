@@ -197,8 +197,14 @@ class HorizonUI
     // Время: черновик часов/минут + указатели экрана
     int timeH = 12;
     int timeM = 0;
+    int timeD = 1;
+    int timeMo = 1;
+    int timeY = 2026;
     lv_obj_t *timeHVal = nullptr;
     lv_obj_t *timeMVal = nullptr;
+    lv_obj_t *timeDVal = nullptr;
+    lv_obj_t *timeMoVal = nullptr;
+    lv_obj_t *timeYVal = nullptr;
     lv_obj_t *timeCur = nullptr;
     uint32_t lastTimeSaveMs = 0;
     // Инструменты Mesh: состояние экранов

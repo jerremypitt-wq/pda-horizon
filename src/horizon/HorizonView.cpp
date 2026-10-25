@@ -335,6 +335,10 @@ void HorizonView::restoreMessage(const LogMessage &msg)
     memcpy(buf, msg.bytes, n);
     buf[n] = '\0';
     uint32_t t = (uint32_t)msg.time;
+    // Корзина личек: выборочного удаления в журнале контроллера нет, старые
+    // лички лежат там бессрочно - отсекаем по метке очистки. Каналы льются всегда.
+    if (msg.to != 0xFFFFFFFFu && t <= HorizonConfig::instance().dmsClearedAt)
+        return;
     // Восстановленные - без непрочитанных
     newMessage(msg.from, msg.to, msg.ch, buf, t, true);
 }

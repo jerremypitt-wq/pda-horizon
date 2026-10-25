@@ -98,6 +98,7 @@ class HorizonStore
     void markRead(HorizonConvo &c);
     void clearConvo(HorizonConvo &c);
     void clearAllDms(void);
+    uint32_t maxDmTime(void) const; // макс. время в личках (метка для корзины)
     void clearAll(void); // лички + каналы (память;persisted чистит контроллер)
     void clearDossiers(void); // забыть чужие досье (память + файл)
 

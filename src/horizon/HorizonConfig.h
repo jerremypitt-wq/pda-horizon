@@ -29,6 +29,7 @@ class HorizonConfig
     // --- Звук ---
     bool silent = false;   // бесшумный режим (без бипов уведомлений)
     uint8_t soundSet = 0;  // набор звуков 0..2 (см. HorizonSound)
+    uint32_t dmsClearedAt = 0; // метка чистки личек: рестор старше отсекает (0 - не чистили)
 
     // --- Время (персист между перезагрузками, отдельный файл /horizon.time) ---
     uint32_t savedEpoch = 0; // последний известный epoch (UTC)
