@@ -306,9 +306,10 @@ LovyanGFX объявляет глобальный `namespace fonts`, конфл�
 используется осознанно: он ломал LDF чужих библиотек. `DisplayDriverFactory`
 из device-ui в этой прошивке не вызывается.
 
-Окружение `elecrow-adv-35-mui` (штатный MUI на той же плате) идёт через
-фабрику и дополнительно требует применить к форку device-ui патч
-`docs/patches/device-ui-elecrow35-factory.patch`.
+Штатный MUI на той же плате (бывшее окружение `elecrow-adv-35-mui`,
+удалено из `platformio.ini`) шёл через фабрику и дополнительно требовал
+применить к форку device-ui патч
+`docs/patches/device-ui-elecrow35-factory.patch` (сохранён для истории).
 
 ## Структура кода
 
