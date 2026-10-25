@@ -5,3 +5,10 @@
 .vscode/launch.json
 .vscode/ipch
 .vscode/extensions.json
+
+# Python / PyInstaller (tools/flasher)
+__pycache__/
+*.py[cod]
+tools/flasher/dist/
+tools/flasher/build/
+tools/flasher/*.spec
