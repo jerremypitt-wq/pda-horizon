@@ -109,6 +109,15 @@ extra-скрипт самого device-ui по `-D VIEW_320x240`; логи `ILOG
   Если после этого снова встал v4 — ищите ручную правку `tool-esptoolpy`
   в `~\.platformio\platforms\espressif32*\platform.json` (следы старых
   обходов конфликтов пакетов), откатите её либо переустановите платформу.
+- `InvalidSchema: Missing dependencies for SOCKS support` при скачивании
+  пакетов → в системе/переменных окружения задан SOCKS-прокси, а в Python
+  PlatformIO нет `PySocks`. Лечение:
+  ```powershell
+  ~\.platformio\penv\Scripts\python -m pip install "requests[socks]"
+  pio run -e elecrow-adv-35-tft
+  ```
+  Если прокси мёртв или не нужен — вместо этого выключить его (переменные
+  `*_PROXY` и «Параметры → Сеть → Прокси» Windows) и повторить сборку.
 - Overlay ругается на пин device-ui → дерево не на v2.8.1 (либо `--force`
   на свой риск: API могло уплыть).
 - `HORIZON_PACKET_LINK` не задан (собрался UART-вкус в прошивке: вечное
