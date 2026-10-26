@@ -34,6 +34,11 @@ cd firmware-hz
 pio pkg install -e elecrow-adv-35-tft
 python C:\path\to\pda-horizon\fw\overlay.py --fw .
 pio run -e elecrow-adv-35-tft
+# проверка, что собрался именно Горизонт, а не стоковый MUI:
+Select-String "HORIZON_PACKET_LINK" .\src\horizon\horizon_target.h
+# заливка в ПДА, подключённый по USB (J1), и просмотр логов загрузки:
+pio run -e elecrow-adv-35-tft -t upload
+pio device monitor -b 115200
 ```
 
 `pio pkg install` нужен ДО оверлея, чтобы шаг 6 (boot-заливка) застал
