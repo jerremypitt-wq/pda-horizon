@@ -96,6 +96,19 @@ extra-скрипт самого device-ui по `-D VIEW_320x240`; логи `ILOG
   Если раньше правили `platform.json` под SCons (обход конфликта версий
   tool-scons) — правку внести заново после переустановки. Не помогло —
   также удалить `~\.platformio\packages\framework-espidf` и повторить.
+- `esptool: error: unrecognized arguments: --flash-mode ...` на шаге
+  `elf2image` → в `~\.platformio\packages` залежался `tool-esptoolpy` v4
+  (понимает только `--flash_mode` с подчёркиванием), а платформа 55.03.311
+  шлёт ему синтаксис v5 (`--flash-mode` с дефисом) и требует свой
+  `esptoolpy-v5.3.0`. Сам оверлей ни при чём. Объекты в `.pio/build` целы —
+  после лечения добьётся быстро, 7 минут компиляции не потеряны:
+  ```powershell
+  Remove-Item -Recurse -Force ~\.platformio\packages\tool-esptoolpy*
+  pio run -e elecrow-adv-35-tft
+  ```
+  Если после этого снова встал v4 — ищите ручную правку `tool-esptoolpy`
+  в `~\.platformio\platforms\espressif32*\platform.json` (следы старых
+  обходов конфликтов пакетов), откатите её либо переустановите платформу.
 - Overlay ругается на пин device-ui → дерево не на v2.8.1 (либо `--force`
   на свой риск: API могло уплыть).
 - `HORIZON_PACKET_LINK` не задан (собрался UART-вкус в прошивке: вечное
