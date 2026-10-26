@@ -74,6 +74,7 @@ void HorizonConfig::resetToDefaults(void)
     theme = 0;
     silent = false;
     soundSet = 0;
+    vbatScale = 1000;
     dmsClearedAt = 0;
     strcpy(charName, "Сталкер");
     strcpy(callsign, "Новичок");
@@ -146,6 +147,8 @@ void HorizonConfig::load(void)
             silent = parseInt(val, 0, 0, 1) != 0;
         else if (!strcmp(key, "soundSet"))
             soundSet = (uint8_t)parseInt(val, 0, 0, 2);
+        else if (!strcmp(key, "vbatScale"))
+            vbatScale = (uint16_t)parseInt(val, 1000, 800, 1200);
         else if (!strcmp(key, "dmsClearedAt"))
             dmsClearedAt = (uint32_t)parseInt(val, 0, 0, 2147483647);
         else if (!strcmp(key, "charName"))
@@ -197,6 +200,7 @@ void HorizonConfig::save(void) const
     f.printf("theme=%u\n", theme);
     f.printf("silent=%u\n", silent ? 1 : 0);
     f.printf("soundSet=%u\n", soundSet);
+    f.printf("vbatScale=%u\n", vbatScale);
     f.printf("dmsClearedAt=%u\n", (unsigned)dmsClearedAt);
     f.printf("charName=%s\n", charName);
     f.printf("callsign=%s\n", callsign);

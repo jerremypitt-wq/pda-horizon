@@ -253,6 +253,9 @@ void HorizonUI::cbRow(lv_event_t *e)
         self->buildSetAbout();
         break;
     case 4:
+        self->buildSetBattery();
+        break;
+    case 5:
         // Вложенный раздел мастера: единственный PIN-гейт в настройках.
         self->askPin("Мастер-PIN:", [self]() { self->showMaster(); });
         break;
@@ -549,7 +552,15 @@ void HorizonUI::buildSettings(void)
     rowButton(body, "Время", timesub, 1);
     rowButton(body, "Звук", cfg.silent ? "Бесшумный режим" : "Звук включён", 2);
     rowButton(body, "О ПДА", "Версия и состояние", 3);
-    rowButton(body, "Мастер", "Каналы, радио, сброс (PIN)", 4);
+    {
+        char vbsub[28];
+        if (view->batteryMv() > 0)
+            snprintf(vbsub, sizeof(vbsub), "%d.%02d В", view->batteryMv() / 1000, (view->batteryMv() % 1000) / 10);
+        else
+            strcpy(vbsub, "замер не найден");
+        rowButton(body, "Батарея", vbsub, 4);
+    }
+    rowButton(body, "Мастер", "Каналы, радио, сброс (PIN)", 5);
 }
 
 // ---------------- настройки: раздел мастера ----------------
@@ -1388,6 +1399,96 @@ void HorizonUI::cbSetApplyDisplay(lv_event_t *e)
         return;
     }
     self->toast("Экран настроен");
+    self->showSettings();
+}
+
+// ---------------- настройки: батарея ----------------
+
+void HorizonUI::refreshVbatInfo(int scale)
+{
+    if (!setVbatInfo || !lv_obj_is_valid(setVbatInfo))
+        return;
+    int raw = view->batteryRawMv();
+    if (raw < 0) {
+        lv_label_set_text(setVbatInfo, "Делитель не найден.\nПроверьте пайку и J15 pin 2.");
+        return;
+    }
+    int mv = raw * 2 * scale / 1000;
+    lv_label_set_text_fmt(setVbatInfo, "Замер: %d.%02d В (GPIO%d)", mv / 1000, (mv % 1000) / 10,
+                          view->batteryPin());
+}
+
+void HorizonUI::buildSetBattery(void)
+{
+    clearScreen(Screen::SET_BATTERY);
+    HorizonConfig &cfg = HorizonConfig::instance();
+    addStatusBar(scr);
+    addNavHeader(scr, "Батарея", "Замер и калибровка");
+
+    lv_obj_t *body = lv_obj_create(scr);
+    lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
+    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 56);
+    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(body, 4, LV_PART_MAIN);
+
+    sectionLabel(body, "Замер делителя");
+    setVbatInfo = lv_label_create(body);
+    lv_label_set_long_mode(setVbatInfo, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(setVbatInfo, lv_pct(100));
+    lv_obj_set_style_text_font(setVbatInfo, HorizonTheme::fontMedium(), LV_PART_MAIN);
+    refreshVbatInfo(cfg.vbatScale);
+
+    sectionLabel(body, "Калибровка");
+    setVbatScale = lv_slider_create(body);
+    lv_slider_set_range(setVbatScale, 900, 1100);
+    lv_slider_set_value(setVbatScale, cfg.vbatScale, LV_ANIM_OFF);
+    lv_obj_set_width(setVbatScale, lv_pct(100));
+    lv_obj_set_style_bg_color(setVbatScale, hzColor(HorizonTheme::current().panel), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(setVbatScale, hzColor(HorizonTheme::current().accent), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(setVbatScale, hzColor(HorizonTheme::current().accent), LV_PART_KNOB);
+    lv_obj_add_event_cb(setVbatScale, cbVbatScale, LV_EVENT_VALUE_CHANGED, this);
+
+    lv_obj_t *hint = lv_label_create(body);
+    lv_label_set_text(hint, "Замерьте батарею мультиметром, подгоните ползунок под его показания и нажмите Применить.");
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(hint, lv_pct(100));
+    lv_obj_set_style_text_font(hint, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(hint, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
+
+    lv_obj_t *apply = lv_btn_create(scr);
+    HorizonTheme::styleButton(apply, true);
+    lv_obj_set_size(apply, lv_pct(70), 40);
+    lv_obj_align(apply, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_t *al = lv_label_create(apply);
+    lv_label_set_text(al, "Применить");
+    lv_obj_center(al);
+    lv_obj_add_event_cb(apply, cbSetApplyBattery, LV_EVENT_CLICKED, this);
+}
+
+void HorizonUI::cbVbatScale(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    if (self->setVbatScale)
+        self->refreshVbatInfo(lv_slider_get_value(self->setVbatScale));
+}
+
+void HorizonUI::cbSetApplyBattery(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    HorizonConfig &cfg = HorizonConfig::instance();
+    if (self->setVbatScale) {
+        int v = lv_slider_get_value(self->setVbatScale);
+        if (v < 800)
+            v = 800;
+        if (v > 1200)
+            v = 1200;
+        cfg.vbatScale = (uint16_t)v;
+    }
+    cfg.save();
+    self->toast("Калибровка сохранена");
     self->showSettings();
 }
 

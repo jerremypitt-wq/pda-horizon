@@ -169,6 +169,18 @@ void HorizonView::task_handler(void)
         lastPeriodicBeaconMs = nowMs;
         announceDossier();
     }
+    pollBattery(nowMs);
+}
+
+void HorizonView::pollBattery(uint32_t nowMs)
+{
+    if (batteryProbed && nowMs - lastBatteryMs < 30000)
+        return; // чаще раза в 30 с батарею не дёргаем
+    batteryProbed = true;
+    lastBatteryMs = nowMs;
+    hzBatteryPoll(vbat, HorizonConfig::instance().vbatScale);
+    if (vbat.percent >= 0)
+        battery = vbat.percent; // делитель главнее телеметрии радио
 }
 
 bool HorizonView::bootReady(void) const

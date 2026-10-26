@@ -13,7 +13,7 @@ pio run -e elecrow-adv-35-horizon        # сборка
 pio run -e elecrow-adv-35-horizon -t upload  # прошивка
 ```
 
-Версия прошивки: `1.6.1` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
+Версия прошивки: `1.7.0` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
 
 Windows: путь к проекту — только латиница без пробелов (пиннутый
 xtensa GCC 8.4.0 не открывает абсолютные пути с кириллицей, падает
@@ -290,6 +290,14 @@ UI использует только шрифты `ui_font_montserrat_*` (12/14/
   инкрементально добавленное не пересобирается); покомпонентный
   `update_layout` в цикле пересбора убран (один в конце); детектор
   троттлится до 3 с как контакты; пузырьковые сортировки — `std::sort`.
+- Замер батареи (1.7.0, `HorizonBattery.{h,cpp}` + Настройки → Батарея):
+  делитель 100k/100k с J3.1 (VBAT) на свободный J15 (GPIO17 штатно,
+  GPIO18 запасной); прошивка сама находит живой пин, читает медиану
+  из 7 с отбросом нулей ADC2, раз в 30 с. Проценты — по калибровочной
+  таблице Li-Ion со ступеньками; делитель перекрывает телеметрию с радио,
+  при отвале держится последнее значение и идёт перепоиск. Калибровка
+  `vbatScale` (‰, по одному замеру мультиметром): слайдер 900..1100
+  в меню, хранится в `/horizon.cfg`, применяется сразу.
 - Синхронизация времени от мастера: Настройки → Мастер →
   «Синхронизация времени» (с подтверждением) рассылает дату/время
   широковещательным PRIVATE_APP-пакетом `HZT1` + epoch (HzController::sendRaw
@@ -323,7 +331,7 @@ syntax-check через g++ с настоящими заголовками LVGL 
 
 ```sh
 # зависимости: LVGL v9.3.0, nanopb, device-ui, стабы Arduino/FS/LittleFS
-g++ -fsyntax-only -std=c++17 -DHORIZON_UI -DARCH_ESP32 -DUSE_ILOG \
+g++ -fsyntax-only -std=c++17 -DHORIZON_UI -DARDUINO_ARCH_ESP32 -DUSE_ILOG \
   -DVIEW_320x240 -DHAS_TFT=1 -DRAM_SIZE=1560 \
   -DLV_LVGL_H_INCLUDE_SIMPLE -DLV_CONF_INCLUDE_SIMPLE \
   -DLV_COMP_CONF_INCLUDE_SIMPLE -DLV_BUILD_TEST=0 \
@@ -335,9 +343,9 @@ g++ -fsyntax-only -std=c++17 -DHORIZON_UI -DARCH_ESP32 -DUSE_ILOG \
 ```
 
 Все единицы трансляции (`HorizonStrings`, `HorizonStore`, `HorizonConfig`,
-`HorizonTheme`, `HorizonSound`, `HorizonView`, `HorizonUI`, `HorizonChatUI`,
-`HorizonSetupUI`, `HorizonToolsUI`, плюс `HorizonLogo.c` через gcc) проходят
-проверку без ошибок; раскладки клавиатуры дополнительно прикрыты
+`HorizonTheme`, `HorizonSound`, `HorizonBattery`, `HorizonView`, `HorizonUI`,
+`HorizonChatUI`, `HorizonSetupUI`, `HorizonToolsUI`, плюс `HorizonLogo.c`
+через gcc — 12 проверок на вкус) проходят проверку без ошибок; раскладки клавиатуры дополнительно прикрыты
 `static_assert` на 40 клавиш каждая (EN/RU + Shift-карты + 123). Создание драйвера панели
 вынесено в отдельный `HorizonDisplay.cpp`, который хост-проверка пропускает:
 LovyanGFX объявляет глобальный `namespace fonts`, конфликтующий с глобальным
@@ -355,6 +363,13 @@ LovyanGFX объявляет глобальный `namespace fonts`, конфл�
 стороны time-sync (сырой PRIVATE_APP: магия, epoch, нулевой паддинг;
 применение валидного, игнор чужого, съедание вне диапазона, мотание назад,
 перехват в `packetReceived`).
+
+Поведенческий хост-тест `test_battery` (29 проверок, PASS=29 FAIL=0) линкует
+настоящий `HorizonBattery` + `HorizonView` против стаба `analogReadMilliVolts`
+(управляемые милливольты и нули по пинам): автопоиск GPIO17/18, отброс нулей
+ADC2, окно валидности, таблица процентов со ступеньками, клампы калибровки,
+каденс 30 с, перекрытие телеметрии делителем, перепоиск при отвале с удержанием
+последнего значения, персист `vbatScale` в `/horizon.cfg`.
 
 Штатный MUI на той же плате (бывшее окружение `elecrow-adv-35-mui`,
 удалено из `platformio.ini`) шёл через фабрику и дополнительно требовал

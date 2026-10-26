@@ -11,6 +11,7 @@
 
 #include "graphics/common/MeshtasticView.h"
 #include "graphics/common/NodeStore.h"
+#include "horizon/HorizonBattery.h"
 #include "horizon/HorizonConfig.h"
 #include "horizon/HorizonStore.h"
 #include <string>
@@ -167,6 +168,10 @@ class HorizonView : public MeshtasticView
     // Без этого индикатор MESH врёт при мёртвой линии панель-радио.
     bool radioConnected(void) const { return connected && ownNode != 0; }
     int myBattery(void) const { return battery; } // -1 - неизвестно
+    void pollBattery(uint32_t nowMs);             // опрос делителя (из task_handler)
+    int batteryMv(void) const { return vbat.battMv; }
+    int batteryRawMv(void) const { return vbat.rawMv; }
+    int batteryPin(void) const { return vbat.pin; }
 
     bool bootReady(void) const; // можно уходить с заставки
 
@@ -244,6 +249,9 @@ class HorizonView : public MeshtasticView
     bool buzzerSilenced = false; // прошивочный зуммер уже гасили в этой загрузке
     bool ownerPushed = false;    // владельца уже толкали в радио в этой загрузке
     int battery = -1;
+    HzBatteryState vbat;
+    uint32_t lastBatteryMs = 0;
+    bool batteryProbed = false;
     time_t bootTime = 0;
 
     bool nodesDirty = false;

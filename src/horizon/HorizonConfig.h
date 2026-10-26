@@ -31,6 +31,9 @@ class HorizonConfig
     uint8_t soundSet = 0;  // набор звуков 0..2 (см. HorizonSound)
     uint32_t dmsClearedAt = 0; // метка чистки личек: рестор старше отсекает (0 - не чистили)
 
+    // --- Батарея (делитель 100к/100к на J15, замер в 1.7.0+) ---
+    uint16_t vbatScale = 1000; // калибровка, промилле (800..1200)
+
     // --- Время (персист между перезагрузками, отдельный файл /horizon.time) ---
     uint32_t savedEpoch = 0; // последний известный epoch (UTC)
     uint32_t savedMs = 0;    // millis() в момент записи savedEpoch
