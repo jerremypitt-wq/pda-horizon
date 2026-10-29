@@ -137,7 +137,7 @@ class FlashWorker(threading.Thread):
                 flasher.global_argv(m, port, baud) + ["erase-flash"]
             )
             if err or code != 0:
-                self.fail(f"Стирание не удалось: {err or f'esptool код {code}'}")
+                self.fail(flasher.fail_text("Стирание не удалось", code, err))
                 return
 
         self.q.put(("stage", "Запись прошивки..."))
@@ -146,11 +146,7 @@ class FlashWorker(threading.Thread):
             flasher.build_write_argv(m, port, baud, self.skip_fs)
         )
         if err or code != 0:
-            self.fail(
-                f"Запись не удалась: {err or f'esptool код {code}'}. "
-                "Подсказки: другой кабель/порт USB, скорость 460800, "
-                "зажать BOOT на время старта."
-            )
+            self.fail(flasher.fail_text("Запись не удалась", code, err))
             return
         self.q.put(("progress", 100))
         self.q.put(("done", True, "ГОТОВО: прошивка записана, устройство перезапущено."))

@@ -23,6 +23,25 @@ VID_ESP_JTAG = 0x303A  # штатный USB-Serial/JTAG самого ESP32-S3 (�
 VID_PREFERRED = (VID_ESP_JTAG, VID_CH340, VID_CP210X)
 HINT_J2 = ("подсказка: прошивка идёт через J2 (OTG, порт с [303A:1001]); "
            "порт с CH340 в имени — другой разъём, запись через него не пойдёт")
+CONNECT_PATTERNS = ("failed to connect", "no serial data received",
+                    "timed out waiting for packet")
+BUSY_PATTERNS = ("could not open port", "access is denied", "permission denied")
+HINT_DANCE = ("плата не в режиме прошивки: зажми BOOT, коротко нажми RST, "
+              "держи BOOT и снова жми ПРОШИТЬ (кабель — в верхнем USB-C, J2/OTG). ")
+HINT_BUSY = ("порт занят другой программой: закрой монитор порта "
+             "(ESP Decoder, PuTTY, монитор VSCode) и жми ПРОШИТЬ снова. ")
+
+
+def fail_text(lead, code, err):
+    """Текст отказа: диагноз esptool + точечная подсказка (танец/занят/общее)."""
+    msg = f"{lead}: {err or f'esptool код {code}'}. "
+    low = (err or "").lower()
+    if any(p in low for p in CONNECT_PATTERNS):
+        msg += HINT_DANCE
+    elif any(p in low for p in BUSY_PATTERNS):
+        msg += HINT_BUSY
+    msg += "Подсказки: другой кабель/порт USB, скорость 460800."
+    return msg
 
 
 def preferred_first(ports):
@@ -166,18 +185,51 @@ def pick_port(cli_port):
         return None, "порт не выбран"
 
 
+class _Tee:
+    """Прозрачный тройник: пишет дальше в поток и копит копию для диагноза."""
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.buf = []
+
+    def write(self, s):
+        self.buf.append(s)
+        return self.stream.write(s)
+
+    def flush(self):
+        return self.stream.flush()
+
+
+def _fatal_line(text):
+    """Вытащить причину из вывода esptool («A fatal error occurred: ...»)."""
+    for line in text.splitlines():
+        if "a fatal error occurred" in line.lower():
+            reason = line.split(":", 1)[-1].strip()
+            return reason or line.strip()
+    return None
+
+
 def run_esptool(argv):
     try:
         import esptool
     except ImportError:
         return None, "нет модуля esptool (дома: pip install -r requirements.txt)"
+    tee_out, tee_err = _Tee(sys.stdout), _Tee(sys.stderr)
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = tee_out, tee_err
     try:
         esptool.main(argv)
     except SystemExit as e:
         code = e.code
-        return (0 if code in (None, 0) else int(code)), None
+        code = 0 if code in (None, 0) else int(code)
+        if code == 0:
+            return 0, None
+        out = "".join(tee_out.buf) + "".join(tee_err.buf)
+        return code, _fatal_line(out) or f"esptool завершён с кодом {code}"
     except Exception as e:
         return None, f"esptool: {e}"
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
     return 0, None
 
 

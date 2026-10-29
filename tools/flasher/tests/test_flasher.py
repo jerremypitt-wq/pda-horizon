@@ -158,6 +158,54 @@ dones = [r for k, *r in out if k == "done"]
 check("worker-fail", dones and dones[0][0] is False and "код 2" in dones[0][1], str(dones))
 
 
+def fake_noconnect(argv):
+    return 2, "Failed to connect to ESP32-S3: No serial data received."
+
+
+out = run_worker(fake_noconnect, port_choice="COM9", baud_choice="", erase_all=False,
+                 skip_fs=True)
+dones = [r for k, *r in out if k == "done"]
+check("worker-fail-hint", dones and dones[0][0] is False
+      and "зажми BOOT" in dones[0][1] and "J2" in dones[0][1], str(dones))
+
+
+def fake_busy(argv):
+    return 2, "could not open port 'COM4': PermissionError access is denied"
+
+
+out = run_worker(fake_busy, port_choice="COM9", baud_choice="", erase_all=False,
+                 skip_fs=True)
+dones = [r for k, *r in out if k == "done"]
+check("worker-fail-busy", dones and dones[0][0] is False
+      and "закрой монитор порта" in dones[0][1]
+      and "не в режиме прошивки" not in dones[0][1], str(dones))
+
+check("failtext-plain", flasher.fail_text("Запись не удалась", 2, None).startswith(
+    "Запись не удалась: esptool код 2."))
+
+
+class Sink:
+    def __init__(self):
+        self.data = []
+
+    def write(self, s):
+        self.data.append(s)
+        return len(s)
+
+    def flush(self):
+        pass
+
+
+sink = Sink()
+tee_probe = flasher._Tee(sink)
+tee_probe.write("abc")
+check("tee-write", "".join(tee_probe.buf) == "abc" and "".join(sink.data) == "abc")
+
+check("fatal-extract", flasher._fatal_line(
+    "Connecting...\nA fatal error occurred: Failed to connect to ESP32-S3: nope")
+    == "Failed to connect to ESP32-S3: nope")
+
+
 def fake_ports():
     return [P("COM3", 0x1A86, "USB-SERIAL CH340")], None
 
