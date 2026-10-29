@@ -13,7 +13,7 @@
    ```
 2. Собери пакет прошивки:
    ```powershell
-   python tools\flasher\make_package.py --build .pio\build\elecrow-adv-35-tft --out horizon-1.6.1
+   python tools\flasher\make_package.py --build .pio\build\elecrow-adv-35-tft --out horizon-1.7.0
    ```
    Скрипт сам найдёт оффсет файловой системы в `partitions.bin` и сложит
    рядом `flash.json`. Имя папки = имя пакета (версия видна сразу).
@@ -21,7 +21,7 @@
    запусти `tools\flasher\build_exe.bat` → получится `dist\HorizonFlasher.exe`.
 4. Скачай драйвер CH340 (WCH CH341SER.EXE) — он понадобится полевому
    ноутбуку, а там интернета не будет.
-5. На флешку: `HorizonFlasher.exe` + папку пакета (`horizon-1.6.1`) +
+5. На флешку: `HorizonFlasher.exe` + папку пакета (`horizon-1.7.0`) +
    установщик драйвера CH340.
 
 ## В поле (на каждое устройство)
