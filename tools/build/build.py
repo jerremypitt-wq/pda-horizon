@@ -127,15 +127,16 @@ def ensure_overlay(root, fw, py):
     if code != 0:
         raise Fail("pio pkg install не удался (сеть? VPN?).\n"
                    "Что делать: выключи VPN и повтори команду.")
-    if overlay_ok(fw):
-        print("Оверлей Горизонта: на месте (HORIZON_PACKET_LINK).")
-        return
-    print("Оверлея нет - применяю fw/overlay.py...")
+    # Оверлей - ВСЕГДА заново: пропуск при «на месте» замораживал исходники
+    # Горизонта в firmware-hz на первой применённой версии (эпоха 1.7.0) -
+    # компилятор не видел правки 1.7.1+. overlay.py идемпотентен
+    # (перекопирование + бекап tftSetup только в первый раз), повтор безопасен.
+    print("Синхронизирую оверлей Горизонта (fw/overlay.py)...")
     ov = os.path.join(root, "fw", "overlay.py")
     code = run_stream([py, ov, "--fw", fw], root)
     if code != 0 or not overlay_ok(fw):
         raise Fail("Оверлей не применился. Пришли вывод целиком.")
-    print("Оверлей применён.")
+    print("Оверлей синхронен (HORIZON_PACKET_LINK).")
 
 
 def pio_build(fw, py):
@@ -203,15 +204,27 @@ def stamp_version(root, ver):
     print(f"Штамп версии сборки: {ver}.")
 
 
-def read_version(root):
-    """Версия Горизонта из исходников (для имени пакета). None если не нашли."""
-    h = os.path.join(root, "src", "horizon", "HorizonStrings.h")
+def _version_in(path):
     try:
-        with open(h, encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             m = re.search(r'kFirmwareVersion\s*=\s*"([^"]+)"', f.read())
     except OSError:
         return None
     return m.group(1) if m else None
+
+
+def read_overlay_version(fw):
+    """Версия Горизонта в ОВЕРЛЕЕ (то, что реально увидит компилятор).
+
+    Штамп сборки берётся отсюда, а не из корня репозитория: иначе рассинхрон
+    оверлея даст «честный» пакет со старьём внутри. None если не нашли.
+    """
+    return _version_in(os.path.join(fw, "src", "horizon", "HorizonStrings.h"))
+
+
+def read_version(root):
+    """Версия Горизонта из исходников (для имени пакета). None если не нашли."""
+    return _version_in(os.path.join(root, "src", "horizon", "HorizonStrings.h"))
 
 
 def main(argv=None, root=None):
@@ -227,7 +240,12 @@ def main(argv=None, root=None):
         ensure_overlay(root, fw, sys.executable)
         pio_build(fw, sys.executable)
         verify_outputs(root)
-        stamp_version(root, read_version(root))
+        over_ver = read_overlay_version(fw)
+        repo_ver = read_version(root)
+        if over_ver and repo_ver and over_ver != repo_ver:
+            print(f"ПРЕДУПРЕЖДЕНИЕ: оверлей v{over_ver}, а исходники v{repo_ver}?! "
+                  "Скомпилировалось не то. Пришли вывод целиком.")
+        stamp_version(root, over_ver or repo_ver)
     except Fail as e:
         print(f"\nОШИБКА: {e}")
         return 1

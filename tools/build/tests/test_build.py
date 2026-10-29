@@ -262,4 +262,40 @@ check("fatal-log", os.path.isfile(fixed)
       and "трагедия в конструкторе" in open(fixed, encoding="utf-8").read())
 check("fatal-dialog", shown and shown[0][0] == "HorizonFlasher", str(shown))
 
+print("== fw/overlay.py: идемпотентность и ресинк ==")
+ovmod = load_mod("hzoverlay", os.path.join(REPO, "fw", "overlay.py"))
+fwroot = os.path.join(TMP, "fwroot")
+os.makedirs(os.path.join(fwroot, "src", "graphics"), exist_ok=True)
+with open(os.path.join(fwroot, "src", "graphics", "tftSetup.cpp"), "w") as f:
+    f.write("// stock tft\n")
+with open(os.path.join(fwroot, "platformio.ini"), "w") as f:
+    f.write("lib_deps = protocol://x#" + ovmod.DEVICEUI_PIN + "\n")
+OVP = os.path.join(REPO, "fw", "overlay.py")
+r = subprocess.run([sys.executable, OVP, "--fw", fwroot],
+                   capture_output=True, text=True)
+check("ov-exit1", r.returncode == 0, r.stdout + r.stderr)
+hzdst = os.path.join(fwroot, "src", "horizon")
+check("ov-marker", build.overlay_ok(fwroot))
+check("ov-target", os.path.isfile(os.path.join(hzdst, "horizon_target.h")))
+with open(os.path.join(REPO, "src", "horizon", "HorizonStrings.h"), "rb") as f:
+    real_hz = f.read()
+with open(os.path.join(hzdst, "HorizonStrings.h"), "rb") as f:
+    check("ov-version", f.read() == real_hz)
+check("ov-readver", build.read_overlay_version(fwroot) == build.read_version(REPO))
+stock = os.path.join(fwroot, "src", "graphics", "tftSetup.cpp.stock")
+check("ov-stock", os.path.isfile(stock)
+      and open(stock, encoding="utf-8").read() == "// stock tft\n")
+r = subprocess.run([sys.executable, OVP, "--fw", fwroot],
+                   capture_output=True, text=True)
+check("ov-exit2", r.returncode == 0, r.stdout + r.stderr)
+check("ov-stock-once", open(stock, encoding="utf-8").read() == "// stock tft\n")
+# Регрессия «замороженный оверлей»: протухшая копия обязана затоптаться повтором.
+with open(os.path.join(hzdst, "HorizonStrings.h"), "w") as f:
+    f.write('constexpr const char *kFirmwareVersion = "0.0.0";\n')
+r = subprocess.run([sys.executable, OVP, "--fw", fwroot],
+                   capture_output=True, text=True)
+check("ov-exit3", r.returncode == 0, r.stdout + r.stderr)
+with open(os.path.join(hzdst, "HorizonStrings.h"), "rb") as f:
+    check("ov-resync", f.read() == real_hz)
+
 print(f"\nВСЕГО ПРОШЛО: {len(PASS)}")
