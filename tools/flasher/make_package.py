@@ -14,6 +14,7 @@ fallback - ключ --fs-offset. boot_app0.bin копируется из сбо�
 там нет - генерируется (8 КБ нулей, как у Espressif).
 """
 import argparse
+import glob
 import json
 import os
 import shutil
@@ -46,6 +47,30 @@ def parse_partitions_bin(path):
     return None, None, None
 
 
+def resolve_build_file(build, canonical, patterns):
+    """Найти файл сборки: точное имя, иначе единственный/самый свежий по паттернам.
+
+    Возвращает имя файла в каталоге сборки (для пакета он копируется
+    под каноническим именем) или None, если ничего нет.
+    """
+    if os.path.isfile(os.path.join(build, canonical)):
+        return canonical
+    found = []
+    for pat in patterns:
+        found += [f for f in glob.glob(os.path.join(build, pat))
+                  if os.path.isfile(f)
+                  and not os.path.basename(f).endswith(".factory.bin")]
+    if not found:
+        return None
+    if len(found) > 1:
+        found.sort(key=os.path.getmtime)
+        print(f"{canonical}: несколько кандидатов, беру самый свежий: "
+              f"{os.path.basename(found[-1])}.")
+        return os.path.basename(found[-1])
+    print(f"{canonical}: найден как {os.path.basename(found[0])}.")
+    return os.path.basename(found[0])
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Сборка полевого пакета прошивки Горизонта.")
     ap.add_argument("--build", required=True, help="каталог сборки PIO (.pio/build/elecrow-adv-35-tft)")
@@ -61,8 +86,22 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     build = os.path.abspath(args.build)
-    need = ["firmware.bin", "bootloader.bin", "partitions.bin"] + ([] if args.no_fs else ["littlefs.bin"])
-    missing = [f for f in need if not os.path.isfile(os.path.join(build, f))]
+    # Meshtastic подписывает выхлоп версией (firmware-<env>-<ver>.bin,
+    # littlefs-<env>-<ver>.bin) - принимаем и его. *.factory.bin - слитый
+    # образ, для пакета не подходит и всегда игнорируется.
+    need = [("firmware.bin", ["firmware-*.bin"]),
+            ("bootloader.bin", []),
+            ("partitions.bin", [])]
+    if not args.no_fs:
+        need.append(("littlefs.bin", ["littlefs-*.bin"]))
+    resolved = {}
+    missing = []
+    for canonical, patterns in need:
+        found = resolve_build_file(build, canonical, patterns)
+        if found is None:
+            missing.append(canonical)
+        else:
+            resolved[canonical] = found
     if missing:
         print(f"ОШИБКА: в сборке нет файлов: {', '.join(missing)}")
         if "littlefs.bin" in missing:
@@ -77,8 +116,8 @@ def main(argv=None):
     else:
         os.makedirs(out, exist_ok=True)
 
-    for f in need:
-        shutil.copy2(os.path.join(build, f), os.path.join(out, f))
+    for f in resolved:
+        shutil.copy2(os.path.join(build, resolved[f]), os.path.join(out, f))
 
     # boot_app0: из сборки, иначе сгенерировать нули.
     app0_src = os.path.join(build, "boot_app0.bin")
