@@ -43,15 +43,17 @@ def parse_progress(text):
 
 
 def auto_pick(ports):
-    """Выбрать порт как CLI, но без вопроса в консоль: приоритет CH340/CP210X."""
+    """Выбрать порт как CLI, но без вопроса в консоль: сначала J2 (303A), затем мосты."""
     devs = [p for p in (ports or []) if p.device]
     if not devs:
         return None, "COM-порты не найдены"
     pref = [p for p in devs if (p.vid or 0) in flasher.VID_PREFERRED]
-    cands = pref or devs
+    cands = flasher.preferred_first(pref) or devs
     note = "Порт определён автоматически: " + flasher.describe(cands[0])
     if len(cands) > 1:
         note += f" (ещё {len(cands) - 1} шт. - можно выбрать вручную)"
+    if (cands[0].vid or 0) != flasher.VID_ESP_JTAG:
+        note += ". " + flasher.HINT_J2
     return cands[0].device, note
 
 
@@ -106,9 +108,9 @@ class FlashWorker(threading.Thread):
             port, note = auto_pick(ports)
             if not port:
                 self.fail(
-                    "Не найдено COM-портов. Проверь: кабель воткнут в J1 "
-                    "(нижний USB-C), кабель с данными (не charge-only), "
-                    "драйвер CH340 установлен."
+                    "Не найдено COM-портов. Проверь: кабель воткнут в J2 "
+                    "(OTG, верхний USB-C — разъём прошивки), кабель с данными "
+                    "(не charge-only)."
                 )
                 return
             print(note)
@@ -301,7 +303,7 @@ class App(tk.Tk):
         self.port_combo.config(values=values)
         self.port_combo.set(cur if cur in values else AUTO_PORT)
         if not devs:
-            self.status_var.set("Порты: ничего не найдено (воткни плату в J1 и жми Обновить).")
+            self.status_var.set("Порты: ничего не найдено (воткни плату в J2 (OTG) и жми Обновить).")
         else:
             self.status_var.set(f"Порты: найдено {len(devs)} шт.")
 

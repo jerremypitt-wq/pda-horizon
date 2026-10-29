@@ -19,7 +19,7 @@
 
 ```bash
 pio run -e elecrow-adv-35-horizon             # сборка
-pio run -e elecrow-adv-35-horizon -t upload   # прошивка через USB-UART (J1)
+pio run -e elecrow-adv-35-horizon -t upload   # прошивка через J2 (OTG)
 ```
 
 ## Документация

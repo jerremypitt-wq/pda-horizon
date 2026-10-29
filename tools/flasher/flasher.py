@@ -3,7 +3,7 @@
 """HorizonFlasher - полевая прошивка ПДА «Горизонт» (ESP32-S3) без VSCode и интернета.
 
 В поле рядом с программой лежит папка пакета прошивки (flash.json + .bin,
-готовится дома через make_package.py), плата подключена к USB-UART (J1).
+готовится дома через make_package.py), плата подключена к J2 (OTG, верхний USB-C).
 Запуск - дальше всё само: порт определяется автоматически, прошивка льётся
 по манифесту. Сборка одного .exe для поля: build_exe.bat.
 """
@@ -15,10 +15,22 @@ import sys
 APP = "HorizonFlasher"
 MANIFEST = "flash.json"
 
-VID_CH340 = 0x1A86  # USB-UART мост - приоритет автоопределения
+VID_CH340 = 0x1A86  # USB-UART мост J1: консоль/логи, НЕ запись
 VID_CP210X = 0x10C4  # запасной вариант мостов
-VID_ESP_JTAG = 0x303A  # штатный USB-Serial/JTAG самого ESP32-S3 (без драйверов)
-VID_PREFERRED = (VID_CH340, VID_CP210X, VID_ESP_JTAG)
+VID_ESP_JTAG = 0x303A  # штатный USB-Serial/JTAG самого ESP32-S3 (разъём J2/OTG)
+# Порядок = приоритет автовыбора: сначала J2 (единственный проверенный путь
+# записи на CrowPanel), мосты — ниже. Встроенный USB драйверов не требует.
+VID_PREFERRED = (VID_ESP_JTAG, VID_CH340, VID_CP210X)
+HINT_J2 = ("подсказка: прошивка идёт через J2 (OTG, порт с [303A:1001]); "
+           "порт с CH340 в имени — другой разъём, запись через него не пойдёт")
+
+
+def preferred_first(ports):
+    """Приоритетные VID — первыми, в порядке VID_PREFERRED (остальные — как были)."""
+    def key(p):
+        vid = p.vid or 0
+        return VID_PREFERRED.index(vid) if vid in VID_PREFERRED else len(VID_PREFERRED)
+    return sorted(ports, key=key)
 
 
 def win_console_utf8():
@@ -133,13 +145,15 @@ def pick_port(cli_port):
     ports = [p for p in ports if p.device]
     if not ports:
         return None, (
-            "не найдено COM-портов. Проверь: кабель воткнут в J1 (нижний USB-C), "
-            "кабель с данными (не charge-only), драйвер CH340 установлен."
+            "не найдено COM-портов. Проверь: кабель воткнут в J2 (OTG, верхний "
+            "USB-C — разъём прошивки), кабель с данными (не charge-only)."
         )
     pref = [p for p in ports if (p.vid or 0) in VID_PREFERRED]
-    cands = pref or ports
+    cands = preferred_first(pref) or ports
     if len(cands) == 1:
         print(f"Порт определён автоматически: {describe(cands[0])}")
+        if (cands[0].vid or 0) != VID_ESP_JTAG:
+            print(HINT_J2)
         return cands[0].device, None
     print("Найдено несколько портов:")
     for i, p in enumerate(cands, 1):
@@ -205,7 +219,7 @@ def pause_if_needed(args):
 def main(argv=None):
     win_console_utf8()
     ap = argparse.ArgumentParser(
-        prog=APP, description="Полевая прошивка ПДА «Горизонт» по USB (J1), без VSCode и интернета."
+        prog=APP, description="Полевая прошивка ПДА «Горизонт» через J2 (OTG), без VSCode и интернета."
     )
     ap.add_argument("--package", help="папка пакета прошивки (по умолчанию - автопоиск рядом)")
     ap.add_argument("--port", help="COM-порт (по умолчанию - автоопределение)")

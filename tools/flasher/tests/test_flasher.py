@@ -72,6 +72,13 @@ check("auto-first-pref", dev == "COM5" and "ещё 1" in note, note)
 ports3 = [P("COM7", 0x1234), P("COM8", 0x303A, "USB JTAG/serial debug unit")]
 dev, note = gui.auto_pick(ports3)
 check("auto-esp-jtag", dev == "COM8", note)
+ports4 = [P("COM5", 0x1A86, "USB-SERIAL CH340"),
+          P("COM8", 0x303A, "USB JTAG/serial debug unit")]
+dev, note = gui.auto_pick(ports4)
+check("auto-native-beats-ch340", dev == "COM8", note)
+check("auto-no-hint-on-j2", "J2" not in note, note)
+dev, note = gui.auto_pick([P("COM3", 0x1A86, "USB-SERIAL CH340")])
+check("auto-bridge-hint", "J2" in note and "CH340" in note, note)
 
 print("== FlashWorker (мок esptool) ==")
 MANY = {
