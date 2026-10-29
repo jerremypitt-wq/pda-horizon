@@ -146,7 +146,8 @@ void HorizonView::init(IClientBase *client)
     // по собеседникам, а не в «чат с собой» (0 на первом запуске - не беда,
     // лог тогда пуст, а setMyNode позже всё равно переразложит).
     store.setMyNode(HorizonConfig::instance().meshNode);
-    store.loadMessages(); // история с прошлого запуска (своего в /messages нет)
+    store.loadMessages(); // история с прошлого запуска: свой лог + штатный /messages
+    // (в журнале есть и свои сообщения; кратные копии давит дедуп в addMessage)
     store.loadDossier();  // справочник досье (имена свои сразу, не «Meshtastic ****»)
     ui = new HorizonUI(this);
     ui->init();
