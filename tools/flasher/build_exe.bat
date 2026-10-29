@@ -1,5 +1,5 @@
 @echo off
-rem Сборка HorizonFlasher (консольный + GUI) в одиночные .exe на домашнем ПК.
+rem Сборка HorizonFlasher (окно + консоль) в одиночные .exe на домашнем ПК.
 chcp 65001 >nul
 cd /d "%~dp0"
 rem Выбор Питона: предпочитаем 3.13 (колёса под все зависимости есть),
@@ -11,12 +11,12 @@ if not defined PYCMD set "PYCMD=python"
 echo Python: %PYCMD%
 echo [1/4] Установка зависимостей...
 %PYCMD% -m pip install --upgrade -r requirements.txt || (echo PIP FAILED & pause & exit /b 1)
-echo [2/4] PyInstaller: консольный HorizonFlasher...
+echo [2/4] PyInstaller: оконный HorizonFlasher (продукт для покупателя)...
 rem --collect-data esptool обязателен: в .exe должны попасть stub-загрузчики
 rem (esptool/targets/stub_flasher/*.json), без них запись невозможна.
-%PYCMD% -m PyInstaller --onefile --console --name HorizonFlasher --collect-data esptool --clean flasher.py || (echo BUILD CLI FAILED & pause & exit /b 1)
-echo [3/4] PyInstaller: оконный HorizonFlasherGUI...
-%PYCMD% -m PyInstaller --onefile --windowed --name HorizonFlasherGUI --collect-data esptool --clean flasher_gui.py || (echo BUILD GUI FAILED & pause & exit /b 1)
+%PYCMD% -m PyInstaller --onefile --windowed --name HorizonFlasher --collect-data esptool --clean flasher_gui.py || (echo BUILD GUI FAILED & pause & exit /b 1)
+echo [3/4] PyInstaller: консольный HorizonFlasher-CLI...
+%PYCMD% -m PyInstaller --onefile --console --name HorizonFlasher-CLI --collect-data esptool --clean flasher.py || (echo BUILD CLI FAILED & pause & exit /b 1)
 echo [4/4] Готово:
-dir dist\HorizonFlasher.exe dist\HorizonFlasherGUI.exe
+dir dist\\HorizonFlasher.exe dist\\HorizonFlasher-CLI.exe
 pause

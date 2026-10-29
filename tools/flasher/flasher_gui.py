@@ -4,7 +4,7 @@
 
 Запуск из исходников (любой Python 3.10+ с tkinter + requirements.txt):
   python flasher_gui.py
-Полевая сборка: build_exe.bat -> dist/HorizonFlasherGUI.exe.
+Полевая сборка: build_exe.bat -> dist/HorizonFlasher.exe.
 
 Ядро прошивки переиспользуется из flasher.py (манифест, порты, esptool),
 ZIP-пакет - из package.py. Сама запись идёт в фоновом потоке, окно живое.
@@ -47,7 +47,7 @@ def auto_pick(ports):
     devs = [p for p in (ports or []) if p.device]
     if not devs:
         return None, "COM-порты не найдены"
-    pref = [p for p in devs if (p.vid or 0) in (flasher.VID_CH340, flasher.VID_CP210X)]
+    pref = [p for p in devs if (p.vid or 0) in flasher.VID_PREFERRED]
     cands = pref or devs
     note = "Порт определён автоматически: " + flasher.describe(cands[0])
     if len(cands) > 1:

@@ -15,8 +15,10 @@ import sys
 APP = "HorizonFlasher"
 MANIFEST = "flash.json"
 
-VID_CH340 = 0x1A86  # мост CrowPanel (J1) - приоритет автоопределения
+VID_CH340 = 0x1A86  # USB-UART мост - приоритет автоопределения
 VID_CP210X = 0x10C4  # запасной вариант мостов
+VID_ESP_JTAG = 0x303A  # штатный USB-Serial/JTAG самого ESP32-S3 (без драйверов)
+VID_PREFERRED = (VID_CH340, VID_CP210X, VID_ESP_JTAG)
 
 
 def win_console_utf8():
@@ -134,14 +136,14 @@ def pick_port(cli_port):
             "не найдено COM-портов. Проверь: кабель воткнут в J1 (нижний USB-C), "
             "кабель с данными (не charge-only), драйвер CH340 установлен."
         )
-    pref = [p for p in ports if (p.vid or 0) in (VID_CH340, VID_CP210X)]
+    pref = [p for p in ports if (p.vid or 0) in VID_PREFERRED]
     cands = pref or ports
     if len(cands) == 1:
         print(f"Порт определён автоматически: {describe(cands[0])}")
         return cands[0].device, None
     print("Найдено несколько портов:")
     for i, p in enumerate(cands, 1):
-        mark = "  <-- похож на программатор" if (p.vid or 0) == VID_CH340 else ""
+        mark = "  <-- похож на программатор" if (p.vid or 0) in VID_PREFERRED else ""
         print(f"  {i}. {describe(p)}{mark}")
     try:
         n = int(input("Номер порта платы: ").strip())

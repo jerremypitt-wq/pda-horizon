@@ -81,7 +81,7 @@ def main(argv=None, root=None):
     if code != 0:
         return code
     if not args.no_zip:
-        print("Дальше: HorizonFlasherGUI.exe (поле) или "
+        print("Дальше: HorizonFlasher.exe (поле) или "
               f"{sys.executable} tools\\flasher\\flasher_gui.py (исходники).")
     return 0
 
