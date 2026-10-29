@@ -516,30 +516,31 @@ void HorizonUI::cbModalBlock(lv_event_t *e)
 namespace {
 // Раскладки: ровно kKbdCols*kKbdRows ключей, пустых клеток нет.
 // Широкая клавиша пишется дубликатами подряд и склеивается (см. kbdSetLayout).
-// "Aa" - Shift разового действия (следующий символ - из Shift-карты),
-// "<<" - стереть символ (всегда над OK). Низ везде одинаковый: слева
-// переключатель раскладки, по центру пробел, справа OK. RU - ЙЦУКЕН;
-// "ю", "э", "х" - в нижнем ряду по бокам пробела.
+// Служебные клавиши - все в нижнем ряду: переключатель раскладки, "Aa",
+// "123"/"АБВ", пробел, знаки, справа "<<" (стереть). "Aa" - Shift разового
+// действия, двойной тап - CapsLock. Кнопки OK нет: клавиатура убирается
+// тапом мимо поля ввода. RU - ЙЦУКЕН; "х", "ю" - в третьем ряду, десяток
+// добирает ","; свободные клетки EN/NUM отданы знакам препинания.
 const char *const kKbdEn[] = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", //
                               "a", "s", "d", "f", "g", "h", "j", "k", "l", "m", //
-                              "Aa", "Aa", "z", "x", "c", "v", "b", "n", "<<", "<<", //
-                              "RU", "123", " ", " ", " ", " ", " ", ",", ".", "OK"};
+                              "'", "z", "x", "c", "v", "b", "n", "-", "?", "!", //
+                              "RU", "Aa", "123", " ", " ", " ", " ", ",", ".", "<<"};
 const char *const kKbdEnShift[] = {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", //
                                    "A", "S", "D", "F", "G", "H", "J", "K", "L", "M", //
-                                   "Aa", "Aa", "Z", "X", "C", "V", "B", "N", "<<", "<<", //
-                                   "RU", "123", " ", " ", " ", " ", " ", ",", ".", "OK"};
+                                   "'", "Z", "X", "C", "V", "B", "N", "-", "?", "!", //
+                                   "RU", "Aa", "123", " ", " ", " ", " ", ",", ".", "<<"};
 const char *const kKbdRu[] = {"й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", //
                               "ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", //
-                              "Aa", "я", "ч", "с", "м", "и", "т", "ь", "б", "<<", //
-                              "EN", "123", "ю", " ", " ", " ", " ", "э", "х", "OK"};
+                              "я", "ч", "с", "м", "и", "т", "б", "ю", "х", ",", //
+                              "EN", "Aa", "123", " ", " ", " ", " ", "ь", "э", "<<"};
 const char *const kKbdRuShift[] = {"Й", "Ц", "У", "К", "Е", "Н", "Г", "Ш", "Щ", "З", //
                                    "Ф", "Ы", "В", "А", "П", "Р", "О", "Л", "Д", "Ж", //
-                                   "Aa", "Я", "Ч", "С", "М", "И", "Т", "Ь", "Б", "<<", //
-                                   "EN", "123", "Ю", " ", " ", " ", " ", "Э", "Х", "OK"};
+                                   "Я", "Ч", "С", "М", "И", "Т", "Б", "Ю", "Х", ",", //
+                                   "EN", "Aa", "123", " ", " ", " ", " ", "Ь", "Э", "<<"};
 const char *const kKbdNum[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", //
                                "-", "/", ":", ";", "(", ")", "+", "=", "*", "_", //
-                               ",", "?", "!", ".", "@", "#", "%", "'", "\"", "<<", //
-                               "АБВ", "$", "&", " ", " ", " ", " ", "\\", "^", "OK"};
+                               ",", "?", "!", ".", "@", "#", "%", "'", "\"", "\\", //
+                               "АБВ", "$", "&", " ", " ", " ", " ", " ", "^", "<<"};
 constexpr int kKbdCols = 10;
 constexpr int kKbdRows = 4;
 static_assert(sizeof(kKbdEn) / sizeof(kKbdEn[0]) == (size_t)(kKbdCols * kKbdRows), "EN map size");
@@ -598,6 +599,7 @@ void HorizonUI::kbdHide(void)
     if (kbd && lv_obj_is_valid(kbd))
         lv_obj_add_flag(kbd, LV_OBJ_FLAG_HIDDEN);
     kbdTarget = nullptr;
+    kbdCaps = false; // скрыли - CapsLock забыт
     if (current == Screen::CHAT && chatList && lv_obj_is_valid(chatList)) {
         int16_t top = kStatusH + kHeaderH + 2;
         lv_obj_set_pos(chatList, 0, top);
@@ -653,16 +655,17 @@ void HorizonUI::kbdSetLayout(uint8_t layout)
         for (int j = i + 1; j < (row + 1) * kKbdCols && map[j] && !strcmp(map[j], key); j++)
             span++;
         lv_obj_t *b = lv_btn_create(kbd);
-        // OK всегда акцентная; "Aa" подсвечена, пока Shift взведён.
-        bool accent = !strcmp(key, "OK") || (!strcmp(key, "Aa") && kbdShift);
-        HorizonTheme::styleButton(b, accent);
+        // Служебные клавиши - акцентным цветом, как раньше OK. Взведённый
+        // Shift виден сам по себе: вся сетка показывает заглавные.
+        bool service = wide || !strcmp(key, "123") || !strcmp(key, "АБВ") || !strcmp(key, "EN") ||
+                       !strcmp(key, "RU") || !strcmp(key, "Aa") || !strcmp(key, "<<");
+        HorizonTheme::styleButton(b, service);
         // Клавиши не отбирают фокус у поля ввода (см. kbdShow).
         lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICK_FOCUSABLE);
         lv_obj_set_grid_cell(b, LV_GRID_ALIGN_STRETCH, col, span, LV_GRID_ALIGN_STRETCH, row, 1);
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, !strcmp(key, " ") ? "ПРОБЕЛ" : key);
-        if (wide || !strcmp(key, "123") || !strcmp(key, "АБВ") || !strcmp(key, "EN") || !strcmp(key, "RU") ||
-            !strcmp(key, "Aa") || !strcmp(key, "<<"))
+        if (service)
             lv_obj_set_style_text_font(l, HorizonTheme::fontSmall(), LV_PART_MAIN);
         lv_obj_center(l);
         lv_obj_set_user_data(b, (void *)key);
@@ -677,36 +680,46 @@ void HorizonUI::kbdPress(const char *txt)
         return;
     if (!strcmp(txt, "RU")) {
         kbdShift = false;
+        kbdCaps = false;
         kbdSetLayout(1);
         return;
     }
     if (!strcmp(txt, "EN")) {
         kbdShift = false;
+        kbdCaps = false;
         kbdSetLayout(0);
         return;
     }
     if (!strcmp(txt, "АБВ")) {
         kbdShift = false;
+        kbdCaps = false;
         kbdSetLayout(kbdPrevAlpha); // назад к буквам, где были
         return;
     }
     if (!strcmp(txt, "123")) {
         kbdShift = false;
+        kbdCaps = false;
         if (kbdLayout != 2)
             kbdPrevAlpha = kbdLayout; // запомнить, куда возвращаться
         kbdSetLayout(2);
         return;
     }
     if (!strcmp(txt, "Aa")) {
-        // Shift разового действия (в 123 не работает - там его нет).
+        // Одиночный тап - Shift разового действия (в 123 не работает -
+        // там его нет); двойной тап - CapsLock до следующего тапа.
         if (kbdLayout != 2) {
-            kbdShift = !kbdShift;
+            uint32_t now = nowMs();
+            if (kbdCaps) {
+                kbdCaps = false;
+                kbdShift = false;
+            } else if (kbdShift && (now - kbdAaLastMs) < kKbdDoubleTapMs) {
+                kbdCaps = true;
+            } else {
+                kbdShift = !kbdShift;
+            }
+            kbdAaLastMs = now;
             kbdSetLayout(kbdLayout);
         }
-        return;
-    }
-    if (!strcmp(txt, "OK")) {
-        kbdHide();
         return;
     }
     if (!kbdTarget || !lv_obj_is_valid(kbdTarget))
@@ -716,8 +729,9 @@ void HorizonUI::kbdPress(const char *txt)
         return;
     }
     lv_textarea_add_text(kbdTarget, txt);
-    if (kbdShift) {
+    if (kbdShift && !kbdCaps) {
         // Shift разовый: после вставленного символа - назад к строчным.
+        // CapsLock (двойной тап по Аа) держится до тапа по Аа.
         kbdShift = false;
         kbdSetLayout(kbdLayout);
     }

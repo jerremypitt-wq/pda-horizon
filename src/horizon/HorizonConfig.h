@@ -44,6 +44,9 @@ class HorizonConfig
     uint8_t rank = 0;  // 0..3
     uint8_t group = 0; // 0..9
 
+    // --- Свой номер узла (персист: история восстанавливается до линка с радио) ---
+    uint32_t meshNode = 0; // 0 - радио ещё не представлялось
+
     // --- Избранные контакты (номера узлов, персист в /horizon.cfg) ---
     static constexpr size_t kMaxFavorites = 16;
     std::vector<uint32_t> favorites;

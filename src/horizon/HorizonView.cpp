@@ -142,6 +142,10 @@ void HorizonView::init(IClientBase *client)
             ILOG_INFO("Horizon: time restored %u (+%us) STALE", (unsigned)tcfg.savedEpoch, (unsigned)dt);
         }
     }
+    // Свой номер - ещё до реставра истории: свои исходящие сразу лягут
+    // по собеседникам, а не в «чат с собой» (0 на первом запуске - не беда,
+    // лог тогда пуст, а setMyNode позже всё равно переразложит).
+    store.setMyNode(HorizonConfig::instance().meshNode);
     store.loadMessages(); // история с прошлого запуска (своего в /messages нет)
     store.loadDossier();  // справочник досье (имена свои сразу, не «Meshtastic ****»)
     ui = new HorizonUI(this);
@@ -204,6 +208,11 @@ void HorizonView::setMyInfo(uint32_t nodeNum, meshtastic_MyNodeInfo_device_id_t 
 #endif
     ownNode = nodeNum;
     store.setMyNode(nodeNum);
+    HorizonConfig &cfg = HorizonConfig::instance();
+    if (cfg.meshNode != nodeNum) {
+        cfg.meshNode = nodeNum;
+        cfg.save(); // персист: следующая загрузка разложит историю до линка
+    }
     ILOG_INFO("Horizon: my node 0x%08x", nodeNum);
     announceDossier(); // радио реально живо - представиться сети
 }

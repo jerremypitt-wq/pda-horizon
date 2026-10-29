@@ -260,6 +260,9 @@ class HorizonUI
     uint8_t kbdLayout = 1;         // 0=EN 1=RU 2=123 (по умолчанию RU)
     uint8_t kbdPrevAlpha = 1;      // куда возвращает АБВ (0=EN 1=RU)
     bool kbdShift = false;         // Shift разового действия (только EN/RU)
+    bool kbdCaps = false;          // CapsLock: двойной тап по Аа (сброс - тап по Аа)
+    uint32_t kbdAaLastMs = 0;      // время последнего тапа по Аа (детект двойного)
+    static constexpr uint32_t kKbdDoubleTapMs = 400; // окно двойного тапа, мс
     bool kbdSuppressClick = false; // долгое нажатие уже вставило символ
     void kbdShow(lv_obj_t *ta);
     void kbdHide(void);

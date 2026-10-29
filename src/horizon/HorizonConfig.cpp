@@ -80,6 +80,7 @@ void HorizonConfig::resetToDefaults(void)
     strcpy(callsign, "Новичок");
     rank = 0;
     group = 0;
+    meshNode = 0;
     favorites.clear();
 }
 
@@ -159,6 +160,12 @@ void HorizonConfig::load(void)
             rank = (uint8_t)parseInt(val, 0, 0, (int)HorizonStrings::kRankCount - 1);
         else if (!strcmp(key, "group"))
             group = (uint8_t)parseInt(val, 0, 0, (int)HorizonStrings::kGroupCount - 1);
+        else if (!strcmp(key, "meshNode")) {
+            // hex, как в favorites: FFFFFFFF в decimal-atoi не влезет
+            char *end = nullptr;
+            unsigned long v = strtoul(val, &end, 16);
+            meshNode = (end && end != val) ? (uint32_t)v : 0;
+        }
         else if (!strcmp(key, "favorites")) {
             favorites.clear();
             // список hex через запятую: FAV=8fc09f98,1234abcd
@@ -206,6 +213,7 @@ void HorizonConfig::save(void) const
     f.printf("callsign=%s\n", callsign);
     f.printf("rank=%u\n", rank);
     f.printf("group=%u\n", group);
+    f.printf("meshNode=%08x\n", (unsigned)meshNode);
     f.printf("favorites=");
     for (size_t i = 0; i < favorites.size(); i++)
         f.printf(i ? ",%08x" : "%08x", (unsigned)favorites[i]);

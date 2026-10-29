@@ -66,6 +66,7 @@ void writeRecord(File &f, const HorizonMessage &m)
 
 void HorizonStore::setMyNode(uint32_t n)
 {
+    uint32_t prev = myNode;
     myNode = n;
     // История грузится раньше, чем известен свой номер: переразметить.
     for (uint8_t i = 0; i < kMaxChannels; i++) {
@@ -76,6 +77,41 @@ void HorizonStore::setMyNode(uint32_t n)
         for (auto &m : c.messages)
             m.outgoing = (m.from == n);
     }
+    if (n == 0 || prev == n)
+        return;
+    // Свои исходящие, попавшие в «чат с собой», пока номер не был известен
+    // (восстановление истории при myNode==0 кладёт их с peer = from), -
+    // разложить по настоящим собеседникам. Непрочитанные у себя - всегда
+    // ложные (чужие входящие туда попасть не могли), счётчик сбрасываем.
+    size_t selfIdx = dms.size();
+    for (size_t i = 0; i < dms.size(); i++) {
+        if (!dms[i].isChannel && dms[i].peer == n) {
+            selfIdx = i;
+            break;
+        }
+    }
+    if (selfIdx >= dms.size())
+        return;
+    HorizonConvo self = dms[selfIdx];
+    dms.erase(dms.begin() + selfIdx);
+    for (auto &m : self.messages) {
+        uint32_t peer = (m.from == n) ? m.to : m.from;
+        if (peer == n || peer == 0 || peer == 0xFFFFFFFFu)
+            continue; // настоящий self→self: показывать негде и некому
+        HorizonConvo &c = dmConvo(peer);
+        // Вставка по времени: свои и чужие в файле идут вперемешку.
+        auto &v = c.messages;
+        size_t pos = v.size();
+        while (pos > 0 && v[pos - 1].time > m.time)
+            pos--;
+        v.insert(v.begin() + pos, m); // outgoing уже переразмечен выше
+        while (c.messages.size() > kMaxPerConvo)
+            c.messages.erase(c.messages.begin());
+        if (m.time > c.lastActivity)
+            c.lastActivity = m.time;
+        c.rev++;
+    }
+    dmRev++;
 }
 
 HorizonConvo &HorizonStore::channelConvo(uint8_t ch)
@@ -303,7 +339,9 @@ std::vector<const HorizonConvo *> HorizonStore::dmList(void) const
 {
     std::vector<const HorizonConvo *> out;
     for (auto &c : dms) {
-        if (!c.messages.empty())
+        // Чат с самим собой не показываем никогда (остаток восстановления
+        // истории до setMyNode; содержимое разбирает сам setMyNode).
+        if (!c.messages.empty() && c.peer != myNode)
             out.push_back(&c);
     }
     std::sort(out.begin(), out.end(),
@@ -457,8 +495,11 @@ uint32_t HorizonStore::unreadChannels(void) const
 uint32_t HorizonStore::unreadDms(void) const
 {
     uint32_t n = 0;
-    for (auto &c : dms)
+    for (auto &c : dms) {
+        if (c.peer == myNode)
+            continue; // чат с собой не считаем (см. dmList)
         n += c.unread;
+    }
     return n;
 }
 

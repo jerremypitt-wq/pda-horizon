@@ -506,17 +506,37 @@ void HorizonUI::saveDossier(void)
     }
     // Копирование с обрезкой по границе UTF-8 (30 символов кириллицы
     // не влезут в 40 байт); целые строки copyUtf8 не трогает.
-    copyUtf8(cfg.charName, sizeof(cfg.charName), nm);
-    copyUtf8(cfg.callsign, sizeof(cfg.callsign), cs);
-    if (editRank)
-        cfg.rank = (uint8_t)lv_dropdown_get_selected(editRank);
-    if (editGroup)
-        cfg.group = (uint8_t)lv_dropdown_get_selected(editGroup);
+    // Сравнение - после обрезки: иначе «изменение» из одних обрезанных
+    // хвостов дёрнет радио и перезапуск.
+    char newName[sizeof(cfg.charName)];
+    char newCall[sizeof(cfg.callsign)];
+    copyUtf8(newName, sizeof(newName), nm);
+    copyUtf8(newCall, sizeof(newCall), cs);
+    uint8_t newRank = editRank ? (uint8_t)lv_dropdown_get_selected(editRank) : cfg.rank;
+    uint8_t newGroup = editGroup ? (uint8_t)lv_dropdown_get_selected(editGroup) : cfg.group;
+    if (!strcmp(newName, cfg.charName) && !strcmp(newCall, cfg.callsign) && newRank == cfg.rank &&
+        newGroup == cfg.group) {
+        toast("Без изменений");
+        showDossier();
+        return;
+    }
+    strcpy(cfg.charName, newName);
+    strcpy(cfg.callsign, newCall);
+    cfg.rank = newRank;
+    cfg.group = newGroup;
     cfg.save();
     view->applyOwnerFromDossier();
     view->announceDossier(); // разослать новый позывной/ранг сети
-    toast("Досье сохранено");
-    showDossier();
+    // Смена владельца дёргает перезапуск узла (ядро, с задержкой) -
+    // предупреждаем и даём перезагрузиться сразу, не дожидаясь.
+    askConfirm("Досье сохранено. Требуется перезапуск. Перезагрузить сейчас?", "Да", [this]() {
+        view->rebootNode();
+#ifdef HORIZON_PACKET_LINK
+        toast("ПДА перезагружается...");
+#else
+        toast("Узел перезагружается...");
+#endif
+    }, [this]() { showDossier(); });
 }
 
 // ---------------- настройки: список ----------------
