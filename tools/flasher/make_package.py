@@ -22,7 +22,11 @@ import shutil
 import struct
 import sys
 
-FLASH_MODE = "qio"
+# Дефолт - DIO: на CrowPanel Advance 3.5 QIO-заголовок даёт ROM-петлю
+# (mode:QIO -> ets_loader.c 78 -> TG0WDT, вторая стадия не стартует;
+# проверено 29.10.2026: QIO циклится, DIO грузится с первого раза).
+# QIO остаётся доступен через --flash-mode для экспериментов.
+FLASH_MODE = "dio"
 FLASH_FREQ = "80m"
 FLASH_SIZE = "16MB"
 DEFAULT_BAUD = 921600

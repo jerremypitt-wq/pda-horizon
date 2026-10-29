@@ -399,8 +399,17 @@ r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
 check("prm-def-exit", r.returncode == 0, r.stdout + r.stderr)
 with open(os.path.join(OUTD, "flash.json"), encoding="utf-8") as f:
     md = json.load(f)
-check("prm-defaults", md["flash_mode"] == "qio" and md["flash_freq"] == "80m"
+check("prm-defaults", md["flash_mode"] == "dio" and md["flash_freq"] == "80m"
       and md["flash_size"] == "16MB", str(md))
+OUTQ = os.path.join(TMP, "horizon-qio")
+r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
+                    "--build", BUILD2, "--out", OUTQ, "--no-fs",
+                    "--flash-mode", "qio"],
+                   capture_output=True, text=True)
+check("prm-qio-exit", r.returncode == 0, r.stdout + r.stderr)
+with open(os.path.join(OUTQ, "flash.json"), encoding="utf-8") as f:
+    mq = json.load(f)
+check("prm-qio-manifest", mq["flash_mode"] == "qio", str(mq))
 
 print("== flasher: манифест -> argv esptool ==")
 m = {"chip": "esp32s3", "flash_mode": "dio", "flash_freq": "40m", "flash_size": "8MB",
