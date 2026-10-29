@@ -80,6 +80,12 @@ def main(argv=None):
                     help="оффсет ФС вручную (0x...), иначе берётся из partitions.bin")
     ap.add_argument("--no-fs", action="store_true", help="пакет без файловой системы")
     ap.add_argument("--baud", type=int, default=DEFAULT_BAUD, help="скорость прошивки по умолчанию")
+    ap.add_argument("--flash-mode", default="",
+                    help=f"режим SPI flash в заголовке образа (по умолчанию {FLASH_MODE})")
+    ap.add_argument("--flash-freq", default="",
+                    help=f"частота SPI flash в заголовке (по умолчанию {FLASH_FREQ})")
+    ap.add_argument("--flash-size", default="",
+                    help=f"размер flash в заголовке (по умолчанию {FLASH_SIZE})")
     ap.add_argument("--zip", action="store_true",
                     help="упаковать готовый пакет в ZIP рядом (<out>.zip, с папкой внутри)")
     ap.add_argument("--force", action="store_true", help="перезаписать каталог пакета")
@@ -154,12 +160,14 @@ def main(argv=None):
     manifest = {
         "name": args.name or os.path.basename(out),
         "chip": "esp32s3",
-        "flash_mode": FLASH_MODE,
-        "flash_freq": FLASH_FREQ,
-        "flash_size": FLASH_SIZE,
+        "flash_mode": args.flash_mode or FLASH_MODE,
+        "flash_freq": args.flash_freq or FLASH_FREQ,
+        "flash_size": args.flash_size or FLASH_SIZE,
         "baud": args.baud,
         "parts": parts,
     }
+    print(f"Параметры flash: {manifest['flash_mode']}/{manifest['flash_freq']}/"
+          f"{manifest['flash_size']} (чип {manifest['chip']}).")
     with open(os.path.join(out, "flash.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
         f.write("\n")
