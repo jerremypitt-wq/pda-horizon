@@ -250,7 +250,7 @@ make_zip(z1, "horizon-1.7.0", src)
 with zpkg.ZipPackage(z1) as p:
     check("zip-nested-ok", p.ok, p.error or "")
     check("zip-summary", "horizon-1.7.0-test" in p.summary() and "0x010000" in p.summary()
-          and "[FS]" in p.summary(), p.summary())
+          and "[FS]" in p.summary() and "Прошивка: v?" in p.summary(), p.summary())
     check("zip-manifest-parts", len(p.manifest["parts"]) == 3
           and p.manifest["parts"][1]["offset"] == 0x10000)
     tmpdir = p.tmp.name
@@ -410,6 +410,35 @@ check("prm-qio-exit", r.returncode == 0, r.stdout + r.stderr)
 with open(os.path.join(OUTQ, "flash.json"), encoding="utf-8") as f:
     mq = json.load(f)
 check("prm-qio-manifest", mq["flash_mode"] == "qio", str(mq))
+
+print("== make_package: штамп версии прошивки ==")
+BUILD_S = os.path.join(TMP, "build-stamp")
+shutil.rmtree(BUILD_S, ignore_errors=True)
+shutil.copytree(BUILD2, BUILD_S)
+with open(os.path.join(BUILD_S, "hz_fw_version.txt"), "w") as f:
+    f.write("9.9.9\n")
+OUTS = os.path.join(TMP, "horizon-stamp")
+r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
+                    "--build", BUILD_S, "--out", OUTS, "--no-fs", "--zip"],
+                   capture_output=True, text=True)
+check("stamp-exit", r.returncode == 0, r.stdout + r.stderr)
+check("stamp-print", "v9.9.9" in r.stdout, r.stdout)
+with open(os.path.join(OUTS, "flash.json"), encoding="utf-8") as f:
+    ms = json.load(f)
+check("stamp-manifest", ms["fw_version"] == "9.9.9", str(ms))
+with zpkg.ZipPackage(OUTS + ".zip") as p:
+    check("stamp-summary", p.ok and "v9.9.9" in p.summary(),
+          p.summary() if p.ok else p.error)
+os.remove(os.path.join(BUILD_S, "hz_fw_version.txt"))
+OUTU = os.path.join(TMP, "horizon-nostamp")
+r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
+                    "--build", BUILD_S, "--out", OUTU, "--no-fs"],
+                   capture_output=True, text=True)
+check("nostamp-exit", r.returncode == 0, r.stdout + r.stderr)
+with open(os.path.join(OUTU, "flash.json"), encoding="utf-8") as f:
+    mu = json.load(f)
+check("nostamp-manifest", mu["fw_version"] == "unknown" and "НЕИЗВЕСТНА" in r.stdout,
+      r.stdout + str(mu))
 
 print("== flasher: манифест -> argv esptool ==")
 m = {"chip": "esp32s3", "flash_mode": "dio", "flash_freq": "40m", "flash_size": "8MB",

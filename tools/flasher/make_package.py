@@ -194,9 +194,18 @@ def main(argv=None):
             print(f"Оффсет ФС: {fs_off:#x} (раздел '{fs_name}', размер {fs_size:#x}).")
         parts.append({"offset": hex(fs_off), "file": "littlefs.bin", "tag": "fs"})
 
+    # Штамп версии: его кладёт build.py после сборки. Имя продублировано
+    # литералом осознанно - make_package обязан оставаться автономным
+    # (без импорта build.py).
+    try:
+        with open(os.path.join(build, "hz_fw_version.txt"), encoding="utf-8") as f:
+            fw_ver = f.read().strip() or None
+    except OSError:
+        fw_ver = None
     manifest = {
         "name": args.name or os.path.basename(out),
         "chip": "esp32s3",
+        "fw_version": fw_ver or "unknown",
         "flash_mode": args.flash_mode or FLASH_MODE,
         "flash_freq": args.flash_freq or FLASH_FREQ,
         "flash_size": args.flash_size or FLASH_SIZE,
@@ -205,6 +214,11 @@ def main(argv=None):
     }
     print(f"Параметры flash: {manifest['flash_mode']}/{manifest['flash_freq']}/"
           f"{manifest['flash_size']} (чип {manifest['chip']}).")
+    if fw_ver:
+        print(f"Прошивка в бинаре: v{fw_ver}.")
+    else:
+        print("ПРЕДУПРЕЖДЕНИЕ: штампа версии в сборке нет "
+              "(бинарь собран не через build.bat?) - версия прошивки НЕИЗВЕСТНА.")
     with open(os.path.join(out, "flash.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
         f.write("\n")

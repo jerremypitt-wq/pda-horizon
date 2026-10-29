@@ -315,6 +315,7 @@ def main(argv=None):
         return 1
 
     print(f"Пакет: {m.get('name', os.path.basename(pkgdir))} ({pkgdir})")
+    print(f"Прошивка: v{m.get('fw_version', '?')}")
     print(f"Порт: {port}, скорость: {baud}")
     print("Состав:")
     for p in m["parts"]:

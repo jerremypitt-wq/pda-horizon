@@ -104,6 +104,10 @@ try:
     check("verify-missing", False, "no Fail raised")
 except build.Fail as e:
     check("verify-missing", "firmware.bin" in str(e), str(e))
+build.stamp_version(root2, "1.2.3")
+with open(os.path.join(root2, "firmware-hz", ".pio", "build", build.ENV,
+                       build.STAMP_FILE)) as f:
+    check("stamp-file", f.read().strip() == "1.2.3")
 
 print("== build.py --help ==")
 r = subprocess.run([sys.executable, os.path.join(BUILD_DIR, "build.py"), "--help"],
@@ -148,6 +152,33 @@ try:
 finally:
     os.chdir(cwd)
 check("pkg-noroot-clean", code == 1)
+
+print("== package.py: сверка версии бинаря ==")
+root4 = os.path.join(TMP, "root4")
+os.makedirs(os.path.join(root4, "src", "horizon"), exist_ok=True)
+with open(os.path.join(root4, "src", "horizon", "HorizonStrings.h"), "w") as f:
+    f.write('constexpr const char *kFirmwareVersion = "9.9.9";\n')
+b4 = craft_build(os.path.join(root4, "firmware-hz", ".pio", "build", build.ENV),
+                 versioned=True)
+with open(os.path.join(b4, "hz_fw_version.txt"), "w") as f:
+    f.write("1.0.0\n")
+try:
+    code = pkg.main([], root=root4)
+finally:
+    os.chdir(cwd)
+check("pkg-mismatch-exit", code == 1)
+check("pkg-mismatch-nozip",
+      not os.path.isfile(os.path.join(root4, "horizon-9.9.9.zip")))
+with open(os.path.join(b4, "hz_fw_version.txt"), "w") as f:
+    f.write("9.9.9\n")
+try:
+    code = pkg.main(["--out", "hz-match"], root=root4)
+finally:
+    os.chdir(cwd)
+check("pkg-match-exit", code == 0)
+with open(os.path.join(root4, "hz-match", "flash.json"), encoding="utf-8") as f:
+    mm = json.load(f)
+check("pkg-match-fw", mm["fw_version"] == "9.9.9", str(mm))
 
 print("== make_package: boot_app0 ==")
 MP = os.path.join(FLASHER_DIR, "make_package.py")

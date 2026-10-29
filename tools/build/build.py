@@ -181,6 +181,28 @@ def verify_outputs(root):
     return rows
 
 
+STAMP_FILE = "hz_fw_version.txt"
+
+
+def stamp_version(root, ver):
+    """Записать версию исходников в каталог сборки (package.py сверит со штампом).
+
+    Штамп - единственная связь «бинарь <-> исходники»: package.py называет ZIP
+    по версии ИСХОДНИКОВ, а бинарь может быть старше (забыли шаг 1).
+    """
+    if not ver:
+        print("ПРЕДУПРЕЖДЕНИЕ: версию из исходников не прочитать - штамп не записан.")
+        return
+    build = os.path.join(root, FW_DIR_NAME, ".pio", "build", ENV)
+    try:
+        with open(os.path.join(build, STAMP_FILE), "w", encoding="utf-8") as f:
+            f.write(ver + "\n")
+    except OSError as e:
+        print(f"ПРЕДУПРЕЖДЕНИЕ: штамп версии не записан: {e}")
+        return
+    print(f"Штамп версии сборки: {ver}.")
+
+
 def read_version(root):
     """Версия Горизонта из исходников (для имени пакета). None если не нашли."""
     h = os.path.join(root, "src", "horizon", "HorizonStrings.h")
@@ -205,6 +227,7 @@ def main(argv=None, root=None):
         ensure_overlay(root, fw, sys.executable)
         pio_build(fw, sys.executable)
         verify_outputs(root)
+        stamp_version(root, read_version(root))
     except Fail as e:
         print(f"\nОШИБКА: {e}")
         return 1

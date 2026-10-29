@@ -124,6 +124,7 @@ class FlashWorker(threading.Thread):
 
         print(f"{flasher.APP}: прошивка ПДА «Горизонт»")
         print(f"Пакет: {m.get('name', '?')}")
+        print(f"Прошивка: v{m.get('fw_version', '?')}")
         print(f"Порт: {port}, скорость: {baud}")
         print("Состав:")
         for p in m["parts"]:

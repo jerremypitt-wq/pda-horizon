@@ -12,6 +12,7 @@
 """
 import argparse
 import importlib.util
+import json
 import os
 import sys
 
@@ -80,6 +81,29 @@ def main(argv=None, root=None):
     code = mp.main(mk)
     if code != 0:
         return code
+    try:
+        with open(os.path.join(out, "flash.json"), encoding="utf-8") as f:
+            fw = json.load(f).get("fw_version") or "unknown"
+    except OSError:
+        fw = "unknown"
+    if fw == "unknown":
+        print("ПРЕДУПРЕЖДЕНИЕ: версия прошивки в пакете неизвестна "
+              "(бинарь собран не через build.bat?). Если исходники менялись "
+              "после сборки - сначала шаг 1, иначе упакуется и прошьётся старье.")
+    elif ver is None:
+        print(f"В пакете прошивка v{fw} (исходники не прочитать - сравнить не с чем).")
+    elif fw != ver:
+        print(f"ОШИБКА: исходники v{ver}, а бинарь собран из v{fw} - пакет врёт.")
+        print("Что делать: запусти шаг 1 (build.py), затем повтори упаковку.")
+        if not args.no_zip:
+            try:
+                os.remove(out + ".zip")
+                print("Врущий ZIP удалён, чтобы его случайно не прошили.")
+            except OSError:
+                pass
+        return 1
+    else:
+        print(f"Версии совпали: прошивка v{fw}. Пакет честный.")
     if not args.no_zip:
         print("Дальше: HorizonFlasher.exe (поле) или "
               f"{sys.executable} tools\\flasher\\flasher_gui.py (исходники).")

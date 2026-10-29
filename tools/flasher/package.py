@@ -94,6 +94,7 @@ class ZipPackage:
         m = self.manifest
         lines = [
             f"Пакет: {m.get('name', '?')}  (из {os.path.basename(self.zippath)})",
+            f"Прошивка: v{m.get('fw_version', '?')}",
             f"Чип: {m.get('chip', '?')}, "
             f"flash {m.get('flash_mode', '?')}/{m.get('flash_freq', '?')}/"
             f"{m.get('flash_size', '?')}, скорость {m.get('baud', '?')}",
