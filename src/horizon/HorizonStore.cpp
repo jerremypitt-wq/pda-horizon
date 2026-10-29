@@ -182,14 +182,20 @@ HorizonConvo &HorizonStore::addMessage(uint32_t from, uint32_t to, uint8_t ch, u
         uint32_t peer = (from == myNode) ? to : from;
         c = &dmConvo(peer);
     }
-    // Дедуп переигрываний: то же сообщение уже лежит последним (свой лог
-    // грузится первым, следом - восстановление штатного /messages).
+    // Дедуп переигрываний: точное совпадение уже есть в диалоге (свой лог
+    // грузится первым, следом - восстановление штатного /messages, плюс
+    // журнал может переиграться повторно на переподключении). Сверяем со
+    // ВСЕМ диалогом, а не с последним: иначе повторный реплей блока
+    // ложится второй/третьей копией целиком (первое сообщение блока
+    // никогда не равно последнему в диалоге).
     // Живые добавления (persist) не дедуплицируем: повторный текст
     // в ту же секунду - нормальное сообщение.
     if (!persist && !c->messages.empty()) {
-        const HorizonMessage &last = c->messages.back();
-        if (last.from == from && last.to == to && last.time == time && last.text == (text ? text : ""))
-            return *c;
+        for (auto &em : c->messages) {
+            if (em.from == from && em.to == to && em.ch == ch && em.time == time &&
+                em.text == (text ? text : ""))
+                return *c;
+        }
     }
     HorizonMessage m;
     m.from = from;
@@ -200,7 +206,17 @@ HorizonConvo &HorizonStore::addMessage(uint32_t from, uint32_t to, uint8_t ch, u
     m.outgoing = (from == myNode);
     m.sendStatus = sendStatus;
     m.reqId = reqId;
-    c->messages.push_back(m);
+    if (persist) {
+        c->messages.push_back(m); // живой путь: время всегда новее, порядок свой
+    } else {
+        // Реплей: вставка по времени (свой лог и журнал идут вперемешку,
+        // иначе вытесненные обрезкой старые сообщения встанут в конец).
+        auto &v = c->messages;
+        size_t pos = v.size();
+        while (pos > 0 && v[pos - 1].time > m.time)
+            pos--;
+        v.insert(v.begin() + pos, m);
+    }
     while (c->messages.size() > kMaxPerConvo)
         c->messages.erase(c->messages.begin());
     if (time > c->lastActivity)
