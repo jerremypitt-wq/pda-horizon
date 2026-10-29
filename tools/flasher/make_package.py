@@ -55,6 +55,8 @@ def main(argv=None):
                     help="оффсет ФС вручную (0x...), иначе берётся из partitions.bin")
     ap.add_argument("--no-fs", action="store_true", help="пакет без файловой системы")
     ap.add_argument("--baud", type=int, default=DEFAULT_BAUD, help="скорость прошивки по умолчанию")
+    ap.add_argument("--zip", action="store_true",
+                    help="упаковать готовый пакет в ZIP рядом (<out>.zip, с папкой внутри)")
     ap.add_argument("--force", action="store_true", help="перезаписать каталог пакета")
     args = ap.parse_args(argv)
 
@@ -127,6 +129,10 @@ def main(argv=None):
     for p in parts:
         sz = os.path.getsize(os.path.join(out, p["file"]))
         print(f"  {p['offset']:>10}  {p['file']} ({sz} Б)")
+
+    if args.zip:
+        archive = shutil.make_archive(out, "zip", os.path.dirname(out), os.path.basename(out))
+        print(f"ZIP: {archive} ({os.path.getsize(archive)} Б)")
     return 0
 
 
