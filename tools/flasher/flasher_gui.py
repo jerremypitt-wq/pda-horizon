@@ -420,8 +420,27 @@ class App(tk.Tk):
 
 
 def main():
-    app = App()
-    app.mainloop()
+    try:
+        app = App()
+        app.mainloop()
+    except Exception:
+        import tempfile
+        tb = traceback.format_exc()
+        print(tb, file=sys.stderr)
+        try:
+            fd, path = tempfile.mkstemp(prefix="hzflash-error-", suffix=".txt")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(tb)
+        except OSError:
+            path = "(лог записать не смог)"
+        try:
+            messagebox.showerror(
+                "HorizonFlasher",
+                f"Непредвиденная ошибка:\n{tb[-1500:]}\n\nПолный текст: {path}",
+            )
+        except Exception:
+            pass
+        return 1
     return 0
 
 

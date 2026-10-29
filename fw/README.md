@@ -20,6 +20,7 @@ PacketAPI (PacketServer + PacketClient) вместо UART-клиента.
 | device-ui в ней | `f77bb70` (апстрим, авто-установка через lib_deps) |
 | NodeStore (вендор) | из форка `jerremypitt-wq/device-ui@9ec70c8` (14.10.2026), файлы `fw/vendor/graphics/common/` |
 | LVGL в device-ui | v9.3.0 |
+| PlatformIO | 6.1.19+ (проверено на 6.2.0; ставится сам через build.bat) |
 
 Все `meshtastic_*`-символы, используемые Горизонтом, на месте в генерации
 v2.8.1; дрейф API форк→f77 закрыт `#ifdef HORIZON_PACKET_LINK` (плоские
@@ -27,6 +28,16 @@ v2.8.1; дрейф API форк→f77 закрыт `#ifdef HORIZON_PACKET_LINK` 
 имени заглушкой «Meshtastic XXXX»).
 
 ## Процедура (Windows, PowerShell)
+
+Короткий путь (2 команды из корня репозитория; нужен Python 3.10-3.14,
+лучше 3.13, остальное скрипты сделают сами):
+
+```powershell
+.\build.bat    # клон дерева, PlatformIO, оверлей, сборка, buildfs, контроль выхлопа
+.\package.bat  # ZIP-пакет horizon-<версия>.zip для флэшера
+```
+
+Вручную (то же самое по шагам):
 
 ```powershell
 git clone --branch v2.8.1.8e6a88d --depth 1 https://github.com/meshtastic/firmware firmware-hz

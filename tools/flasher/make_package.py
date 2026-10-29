@@ -10,8 +10,9 @@
   python make_package.py --build .pio/build/elecrow-adv-35-tft --out horizon-1.6.1
 
 Оффсет файловой системы берётся из partitions.bin сборки (авторитетно),
-fallback - ключ --fs-offset. boot_app0.bin копируется из сборки, а если его
-там нет - генерируется (8 КБ нулей, как у Espressif).
+fallback - ключ --fs-offset. boot_app0.bin берётся из сборки, иначе ищется
+штатный во фреймворке PIO (~/.platformio), иначе генерируется (8 КБ нулей).
+Явно задать можно ключом --boot-app0.
 """
 import argparse
 import glob
@@ -71,6 +72,22 @@ def resolve_build_file(build, canonical, patterns):
     return os.path.basename(found[0])
 
 
+def find_framework_boot_app0():
+    """Штатный boot_app0.bin из пакета фреймворка PIO (тот, что шьёт сам PIO)."""
+    roots = []
+    core = os.environ.get("PLATFORMIO_CORE_DIR", "")
+    if core:
+        roots.append(core)
+    roots.append(os.path.join(os.path.expanduser("~"), ".platformio"))
+    for r in roots:
+        pat = os.path.join(r, "packages", "framework-arduinoespressif32*",
+                            "tools", "partitions", "boot_app0.bin")
+        for f in sorted(glob.glob(pat)):
+            if os.path.isfile(f):
+                return f
+    return None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Сборка полевого пакета прошивки Горизонта.")
     ap.add_argument("--build", required=True, help="каталог сборки PIO (.pio/build/elecrow-adv-35-tft)")
@@ -86,6 +103,9 @@ def main(argv=None):
                     help=f"частота SPI flash в заголовке (по умолчанию {FLASH_FREQ})")
     ap.add_argument("--flash-size", default="",
                     help=f"размер flash в заголовке (по умолчанию {FLASH_SIZE})")
+    ap.add_argument("--boot-app0", default="",
+                    help="реальный boot_app0.bin из фреймворка "
+                         "(иначе авто-поиск, иначе 8 КБ нулей)")
     ap.add_argument("--zip", action="store_true",
                     help="упаковать готовый пакет в ZIP рядом (<out>.zip, с папкой внутри)")
     ap.add_argument("--force", action="store_true", help="перезаписать каталог пакета")
@@ -125,11 +145,24 @@ def main(argv=None):
     for f in resolved:
         shutil.copy2(os.path.join(build, resolved[f]), os.path.join(out, f))
 
-    # boot_app0: из сборки, иначе сгенерировать нули.
+    # boot_app0: из сборки -> --boot-app0 -> авто-поиск во фреймворке -> нули.
     app0_src = os.path.join(build, "boot_app0.bin")
+    app0_note = "взят из сборки."
+    if not os.path.isfile(app0_src):
+        if args.boot_app0:
+            if not os.path.isfile(args.boot_app0):
+                print(f"ОШИБКА: --boot-app0 не найден: {args.boot_app0}")
+                return 1
+            app0_src = args.boot_app0
+            app0_note = "взят по --boot-app0."
+        else:
+            found = find_framework_boot_app0()
+            if found is not None:
+                app0_src = found
+                app0_note = f"взят из фреймворка: {found}."
     if os.path.isfile(app0_src):
         shutil.copy2(app0_src, os.path.join(out, "boot_app0.bin"))
-        print("boot_app0.bin: взят из сборки.")
+        print(f"boot_app0.bin: {app0_note}")
     else:
         with open(os.path.join(out, "boot_app0.bin"), "wb") as f:
             f.write(b"\0" * BOOT_APP0_SIZE)

@@ -11,7 +11,8 @@
 
 Основной путь — single-MCU: сборка в дереве `meshtastic/firmware`
 стоковым env `elecrow-adv-35-tft` через `fw/overlay.py`
-(процедура — в [fw/README.md](fw/README.md)).
+(процедура — в [fw/README.md](fw/README.md);
+коротко: `build.bat`, затем `package.bat`).
 
 Запасной путь — standalone (панель + внешнее радио по UART0/J10,
 сейчас не используется — J10 свободен):
