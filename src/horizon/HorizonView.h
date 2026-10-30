@@ -13,6 +13,7 @@
 #include "graphics/common/NodeStore.h"
 #include "horizon/HorizonBattery.h"
 #include "horizon/HorizonConfig.h"
+#include "horizon/HorizonMap.h"
 #include "horizon/HorizonStore.h"
 #include <string>
 #include <vector>
@@ -208,6 +209,12 @@ class HorizonView : public MeshtasticView
     void sendChannelMessage(uint8_t ch, const char *text);
     void sendChannelRaw(uint8_t ch, const char *text); // без записи в локальную историю (маяки)
     void announceDossier(void);                        // маяк «HZ:DOSSIER:» в общий канал
+    // --- Карта: точки (см. docs/MAP.md) ---
+    HzMapStore &getMapStore(void) { return mapStore; }
+    bool mapAllocId(char *out, size_t cap); // новый ID <node>-<seq> (false = нет своего номера)
+    bool mapSendPoint(const HzPoi &p);      // разослать точку (false = нет связи)
+    bool mapSendDelete(const char *id, uint8_t ch); // разослать удаление
+    void mapDeletePoint(const char *id);    // стереть локально + разослать (shared)
     void sendDirectMessage(uint32_t peer, const char *text);
     void broadcastTimeSync(void); // Мастер: разослать время сети (PRIVATE_APP)
     void applyOwnerFromDossier(void);
@@ -279,6 +286,23 @@ class HorizonView : public MeshtasticView
                         bool viaMqtt);
     // Разобрать маяк досье (canReply=false для восстановленных из истории)
     void handleDossierBeacon(uint32_t from, const char *msg, bool canReply);
+    // --- Карта: точки (см. docs/MAP.md) ---
+    HzMapStore mapStore;
+    // Сборка многочастевых точек из эфира (шапка - из первой пришедшей части).
+    struct HzPoiRx {
+        char id[28] = "";
+        uint8_t total = 0;
+        uint8_t got = 0;
+        uint32_t t0 = 0;
+        uint8_t ch = 0;
+        HzPoi head;
+        bool have[8] = {false};
+        std::string chunks[8];
+    };
+    std::vector<HzPoiRx> poiRx_;
+    void handlePoiBeacon(uint32_t from, uint8_t ch, const char *msg, bool canNotify);
+    void handlePoiDelete(uint32_t from, const char *msg, bool canNotify);
+    void purgePoiRx(uint32_t now); // выкинуть несобранные старше таймаута
     bool handleTimeSync(const meshtastic_MeshPacket &p); // PRIVATE_APP HZT1, true = съеден
     HzController *hzController(void); // controller - всегда HzController (см. ctor)
     uint32_t lastMsgRewriteMs = 0; // троттлинг перезаписи лога после ACK

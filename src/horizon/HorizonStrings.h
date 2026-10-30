@@ -16,7 +16,7 @@ constexpr const char *kAppSub = "MESH-СВЯЗЬ // STALKER NET";
 // Версия прошивки ПДА: MAJOR.MINOR.PATCH. Бампить КАЖДЫМ функциональным
 // изменением (MINOR - фича/партия, PATCH - хотфикс), чтобы по экрану «О ПДА»,
 // сплэшу и логу было видно, что зашито в устройство. Всё до ввода правила = 1.0.0.
-constexpr const char *kFirmwareVersion = "1.7.5";
+constexpr const char *kFirmwareVersion = "1.8.0.ZI";
 
 // Ранги персонажа
 constexpr uint8_t kRankCount = 4;
@@ -28,6 +28,10 @@ constexpr uint8_t kGroupCount = 10;
 extern const char *const kGroups[kGroupCount];
 // Короткие теги группировок для отображения в сети (видны другим игрокам)
 extern const char *const kGroupTags[kGroupCount];
+
+// Типы точек карты (порядок = HzPoiType, docs/MAP.md §1.3)
+constexpr uint8_t kPoiTypeCount = 5;
+extern const char *const kPoiTypes[kPoiTypeCount];
 
 // Цветовые темы оформления
 constexpr uint8_t kThemeCount = 5;
@@ -84,7 +88,7 @@ constexpr const char *kGlyphDossier = "📋";  // досье
 constexpr const char *kGlyphSettings = "🔧"; // настройки (ключ)
 constexpr const char *kGlyphLock = "🔒";
 constexpr const char *kGlyphUnlock = "🔓";
-constexpr const char *kGlyphMaps = "🗺";  // карта (плитка заблокирована, «Позже»)
+constexpr const char *kGlyphMaps = "🗺";  // карта
 constexpr const char *kGlyphMail = "📩";  // непрочитанные/тосты
 constexpr const char *kGlyphClock = "🕐"; // часы в статусбаре
 constexpr const char *kGlyphWarn = "!";   // ASCII: misc-символов нет в шрифтах

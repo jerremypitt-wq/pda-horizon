@@ -15,6 +15,8 @@
 
 class HorizonView;
 
+struct HzMapUi; // состояние экрана карты (определено в HorizonMapUI.cpp)
+
 class HorizonUI
 {
   public:
@@ -37,6 +39,8 @@ class HorizonUI
     void showDossier(void);
     void showSettings(void);
     void showMaster(void); // раздел мастера (вход по PIN из настроек)
+    void showMap(void);
+    void mapOnNetUpdate(void); // точка прилетела/удалилась: обновить маркеры
 
   private:
     enum class Screen : uint8_t {
@@ -67,6 +71,8 @@ class HorizonUI
         TOOL_ROUTE,
         TOOL_STATS,
         TOOL_LOG,
+        MAP,
+        MAP_FORM,
     };
 
     HorizonView *view = nullptr;
@@ -228,6 +234,17 @@ class HorizonUI
     lv_obj_t *statsList = nullptr;
     lv_obj_t *statsSub = nullptr;
     lv_obj_t *logList = nullptr;
+    // --- Карта ---
+    HzMapUi *mapUi = nullptr; // состояние (буферы живут между MAP и MAP_FORM)
+    void buildMap(void);
+    void buildMapForm(void);
+    void mapDropWidgets(void); // занулить указатели виджетов (экрана больше нет)
+    void mapCleanup(void);     // освободить буферы и состояние
+    void mapRefreshMarkers(void);
+    void mapTap(int lx, int ly); // тап по виду (координаты вида, px)
+    void mapOpenPopup(const char *id);
+    void mapClosePopup(void);
+    void mapSaveForm(void);
 
     // --- Тост ---
     lv_obj_t *toastBtn = nullptr;
@@ -335,6 +352,11 @@ class HorizonUI
     static void cbTraceStop(lv_event_t *e);
     static void cbStatsClear(lv_event_t *e);
     static void cbLogClear(lv_event_t *e);
+    static void cbMapTouch(lv_event_t *e);
+    static void cbMapZoom(lv_event_t *e);
+    static void cbMapPopup(lv_event_t *e);
+    static void cbMapVis(lv_event_t *e);
+    static void cbMapFormSave(lv_event_t *e);
 
     HorizonUI(const HorizonUI &) = delete;
     HorizonUI &operator=(const HorizonUI &) = delete;

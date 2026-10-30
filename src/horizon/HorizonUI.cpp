@@ -100,6 +100,10 @@ void HorizonUI::clearScreen(Screen s)
     // Охранник сна живёт на lv_layer_top и смену экрана не переживает.
     hideSleepGuard();
     kbdSuppressClick = false;
+    // Карта: виджеты умерли со старым экраном всегда, а буферы живут между MAP и MAP_FORM.
+    mapDropWidgets();
+    if (s != Screen::MAP && s != Screen::MAP_FORM)
+        mapCleanup();
 
     current = s;
     lv_obj_t *old = scr;
@@ -920,12 +924,9 @@ void HorizonUI::buildMenu(void)
     for (int i = 0; i < 8; i++) {
         int col = i % cols;
         int row = i / cols;
-        bool locked = (i == 7); // карта - заглушка «Позже»
         lv_obj_t *t = lv_btn_create(grid);
         HorizonTheme::styleTile(t);
         lv_obj_set_grid_cell(t, LV_GRID_ALIGN_STRETCH, col, 1, LV_GRID_ALIGN_STRETCH, row, 1);
-        if (locked)
-            lv_obj_set_style_opa(t, LV_OPA_60, LV_PART_MAIN); // приглушить заблокированную
         // акцентная верхняя кромка
         lv_obj_set_style_border_color(t, hzColor(p.accent), LV_PART_MAIN);
         lv_obj_set_style_border_width(t, 3, LV_PART_MAIN);
@@ -942,13 +943,6 @@ void HorizonUI::buildMenu(void)
         lv_label_set_text(l, tiles[i].label);
         lv_obj_set_style_text_font(l, HorizonTheme::fontNormal(), LV_PART_MAIN);
         lv_obj_align(l, LV_ALIGN_CENTER, 0, isPortrait() ? 18 : 14);
-        if (locked) {
-            lv_obj_t *later = lv_label_create(t);
-            lv_label_set_text(later, "Позже");
-            lv_obj_set_style_text_font(later, HorizonTheme::fontSmall(), LV_PART_MAIN);
-            lv_obj_set_style_text_color(later, hzColor(p.textDim), LV_PART_MAIN);
-            lv_obj_align(later, LV_ALIGN_CENTER, 0, isPortrait() ? 38 : 34);
-        }
 
         // бейдж непрочитанных (только у чатов)
         if (i <= 4) {
@@ -1032,7 +1026,7 @@ void HorizonUI::cbTile(lv_event_t *e)
         self->showSettings(); // вход свободный, под PIN только раздел «Мастер»
         break;
     case 7:
-        self->toast("Карта появится позже");
+        self->showMap();
         break;
     default:
         break;
@@ -1109,6 +1103,9 @@ void HorizonUI::cbBack(lv_event_t *e)
         break;
     case Screen::DOSSIER_EDIT:
         self->showDossier();
+        break;
+    case Screen::MAP_FORM:
+        self->showMap();
         break;
     default:
         self->showMenu();

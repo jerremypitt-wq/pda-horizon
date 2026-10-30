@@ -15,6 +15,9 @@ const char *const kGroups[kGroupCount] = {"Одиночки",  "Долг",    "�
 const char *const kGroupTags[kGroupCount] = {"ОДН", "ДОЛГ", "СВБ", "НАЁМ", "УЧН",
                                              "БНД", "МНЛ",  "ГРЕХ", "ВС",   "ЧН"};
 
+const char *const kPoiTypes[kPoiTypeCount] = {"Точка интереса", "База", "Опасность", "Аномалия",
+                                              "Схрон"};
+
 const char *const kThemes[kThemeCount] = {"Тёмная (Сталкер)", "Светлая", "Долг", "Свобода", "Одиночки"};
 
 // Коды должны совпадать с meshtastic_Config_LoRaConfig_RegionCode

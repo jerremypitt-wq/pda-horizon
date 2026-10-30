@@ -81,6 +81,7 @@ void HorizonConfig::resetToDefaults(void)
     rank = 0;
     group = 0;
     meshNode = 0;
+    poiSeq = 0;
     favorites.clear();
 }
 
@@ -166,6 +167,8 @@ void HorizonConfig::load(void)
             unsigned long v = strtoul(val, &end, 16);
             meshNode = (end && end != val) ? (uint32_t)v : 0;
         }
+        else if (!strcmp(key, "poiSeq"))
+            poiSeq = (uint16_t)parseInt(val, 0, 0, 65535);
         else if (!strcmp(key, "favorites")) {
             favorites.clear();
             // список hex через запятую: FAV=8fc09f98,1234abcd
@@ -214,6 +217,7 @@ void HorizonConfig::save(void) const
     f.printf("rank=%u\n", rank);
     f.printf("group=%u\n", group);
     f.printf("meshNode=%08x\n", (unsigned)meshNode);
+    f.printf("poiSeq=%u\n", poiSeq);
     f.printf("favorites=");
     for (size_t i = 0; i < favorites.size(); i++)
         f.printf(i ? ",%08x" : "%08x", (unsigned)favorites[i]);

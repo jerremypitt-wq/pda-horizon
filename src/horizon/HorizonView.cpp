@@ -44,6 +44,18 @@ constexpr size_t kTimeSyncMagicLen = 4;
 constexpr size_t kTimeSyncPayloadLen = 8;
 constexpr uint32_t kTimeSyncMinEpoch = 1704067200; // 2024-01-01 UTC
 constexpr uint32_t kTimeSyncMaxEpoch = 2082758400; // 2036-01-01 UTC
+// Точки карты (см. docs/MAP.md раздел 2): широковещательный текст в канале,
+// который Горизонты перехватывают и не показывают.
+// HZ:POI:<id>|<total>|<idx>|<type>|<name>|<x>|<y>|<sender>|<chunk>
+// HZ:POID:<id>|<node>|<rank>
+constexpr const char *kPoiPrefix = "HZ:POI:";
+constexpr size_t kPoiPrefixLen = sizeof("HZ:POI:") - 1;
+constexpr const char *kPoiDelPrefix = "HZ:POID:";
+constexpr size_t kPoiDelPrefixLen = sizeof("HZ:POID:") - 1;
+constexpr size_t kPoiChunkMax = 96; // байт комментария в части (бюджет части - 220)
+constexpr uint8_t kPoiTotalMax = 8; // частей максимум
+constexpr size_t kPoiRxMax = 4;     // параллельных сборок
+constexpr uint32_t kPoiRxTimeoutMs = 120000; // несобранное выкинуть
 } // namespace
 
 // Ориентация для конструктора панели (variants/elecrow-adv-35/config.h).
@@ -149,6 +161,7 @@ void HorizonView::init(IClientBase *client)
     store.loadMessages(); // история с прошлого запуска: свой лог + штатный /messages
     // (в журнале есть и свои сообщения; кратные копии давит дедуп в addMessage)
     store.loadDossier();  // справочник досье (имена свои сразу, не «Meshtastic ****»)
+    mapStore.loadAll();     // точки карты /hzmap
     ui = new HorizonUI(this);
     ui->init();
 #ifdef HORIZON_PACKET_LINK
@@ -370,6 +383,17 @@ void HorizonView::newMessage(uint32_t from, uint32_t to, uint8_t ch, const char 
         // Восстановленные маяки из /messages тоже разбираем (перестроить
         // справочник после перезагрузки), но не отвечаем на них.
         handleDossierBeacon(from, msg, !restore);
+        return;
+    }
+    // ВАЖНО: POID проверять раньше POI («HZ:POI:» - префикс «HZ:POID:»).
+    if (!strncmp(msg, kPoiDelPrefix, kPoiDelPrefixLen)) {
+        // Удаление точки: в историю/тосты не идёт (тост - только по факту).
+        handlePoiDelete(from, msg, !restore);
+        return;
+    }
+    if (!strncmp(msg, kPoiPrefix, kPoiPrefixLen)) {
+        // Точка карты: собрать, в историю/тосты не идёт (тост - только по факту).
+        handlePoiBeacon(from, ch, msg, !restore);
         return;
     }
     if (msgtime < 1000000)
@@ -835,6 +859,284 @@ void HorizonView::handleDossierBeacon(uint32_t from, const char *msg, bool canRe
             peerNeedsTime = true; // часы гостя отстали больше чем на 5 минут
         if (!known || (iHaveTime && peerNeedsTime))
             announceDossier(); // представиться в ответ (с rate-limit внутри)
+    }
+}
+
+// ---------------- карта: точки ----------------
+
+bool HorizonView::mapAllocId(char *out, size_t cap)
+{
+    // Свой номер - из радио, запасной - персист из конфига (до линка).
+    uint32_t node = ownNode ? ownNode : HorizonConfig::instance().meshNode;
+    if (!node || !out || cap < 16)
+        return false;
+    HorizonConfig &cfg = HorizonConfig::instance();
+    for (int i = 0; i < 100; i++) {
+        cfg.poiSeq++;
+        if (cfg.poiSeq == 0)
+            cfg.poiSeq = 1; // 0 не выдаём (оборот u16)
+        snprintf(out, cap, "%u-%u", (unsigned)node, (unsigned)cfg.poiSeq);
+        // Счётчик мог сброситься (вайп конфига) - занятые ID пропускаем.
+        if (!mapStore.find(out)) {
+            cfg.save();
+            return true;
+        }
+    }
+    return false; // всё занято (не должно случиться: пулы маленькие)
+}
+
+bool HorizonView::mapSendPoint(const HzPoi &p)
+{
+    if (!radioConnected())
+        return false;
+    // Бюджет части - 220 байт: чанк подгоняем под шапку (имена - до 80 байт
+    // каждое при эмодзи, поэтому фиксированные 96 годятся не всегда).
+    // total/idx всегда одна цифра (≤8) - длина шапки точная заранее.
+    char head[256];
+    int headLen = snprintf(head, sizeof(head), "%s%s|1|1|%u|%s|%u|%u|%s|", kPoiPrefix, p.id, p.type,
+                           p.name.c_str(), p.x, p.y, p.sender.c_str());
+    if (headLen < 0)
+        headLen = 0;
+    size_t chunkMax = headLen < 204 ? (size_t)(220 - headLen) : 16;
+    if (chunkMax > kPoiChunkMax)
+        chunkMax = kPoiChunkMax;
+    // Нарезать комментарий (хвост за 8 частями - отбросить, залогировать).
+    const char *cm = p.comment.c_str();
+    size_t off[8] = {0};
+    uint8_t total = 0;
+    size_t pos = 0, len = strlen(cm);
+    while (pos < len && total < kPoiTotalMax) {
+        size_t l = hzChunkLen(cm + pos, chunkMax);
+        if (l == 0)
+            l = 1;
+        off[total++] = pos;
+        pos += l;
+    }
+    if (total == 0)
+        total = 1; // пустой комментарий - одна часть без чанка
+    if (pos < len)
+        ILOG_INFO("Horizon: POI '%s' comment tail dropped (%u parts cap)", p.id, (unsigned)total);
+    uint8_t ch = p.ch > 7 ? HorizonConfig::instance().generalCh : p.ch;
+    for (uint8_t i = 0; i < total; i++) {
+        size_t start = off[i];
+        size_t end = (i + 1 < total) ? off[i + 1] : pos;
+        char chunk[kPoiChunkMax + 1];
+        size_t cl = end - start;
+        if (cl > kPoiChunkMax)
+            cl = kPoiChunkMax;
+        memcpy(chunk, cm + start, cl);
+        chunk[cl] = '\0';
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%s%s|%u|%u|%u|%s|%u|%u|%s|%s", kPoiPrefix, p.id, total, i + 1,
+                 p.type, p.name.c_str(), p.x, p.y, p.sender.c_str(), chunk);
+        sendChannelRaw(ch, buf);
+    }
+    ILOG_INFO("Horizon: POI '%s' sent (%u part(s))", p.id, (unsigned)total);
+    return true;
+}
+
+bool HorizonView::mapSendDelete(const char *id, uint8_t ch)
+{
+    if (!radioConnected() || !id || !*id)
+        return false;
+    HorizonConfig &cfg = HorizonConfig::instance();
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%s%s|%u|%u", kPoiDelPrefix, id, (unsigned)ownNode, (unsigned)cfg.rank);
+    sendChannelRaw(ch > 7 ? cfg.generalCh : ch, buf);
+    ILOG_INFO("Horizon: POID '%s' sent", id);
+    return true;
+}
+
+void HorizonView::mapDeletePoint(const char *id)
+{
+    if (!id || !*id)
+        return;
+    const HzPoi *p = mapStore.find(id);
+    if (!p)
+        return;
+    // Запечённые канала не имеют (0xFF) - удаление в общий.
+    uint8_t ch = p->ch > 7 ? HorizonConfig::instance().generalCh : p->ch;
+    bool shared = p->shared;
+    mapStore.removeEverywhere(id);
+    if (shared)
+        mapSendDelete(id, ch); // best-effort: офлайн - только локально
+}
+
+void HorizonView::handlePoiBeacon(uint32_t from, uint8_t ch, const char *msg, bool canNotify)
+{
+    if (from == 0 || from == ownNode || !msg)
+        return;
+    // HZ:POI:<id>|<total>|<idx>|<type>|<name>|<x>|<y>|<sender>|<chunk>
+    const char *p = msg + kPoiPrefixLen;
+    const char *sep = strchr(p, '|');
+    if (!sep || sep == p || (size_t)(sep - p) > 27)
+        return;
+    char id[28];
+    memcpy(id, p, (size_t)(sep - p));
+    id[sep - p] = '\0';
+    if (!hzPoiIdOk(id))
+        return;
+    // Своё эхо через релей - мимо. ownNode==0 до my_info, а 0 - «автор»
+    // запечённых: без гейта ownNode выкинем вообще всё.
+    if (ownNode != 0 && hzPoiAuthorNode(id) == ownNode)
+        return;
+    // Обновлять точку может только её автор (запечённые Bxxx по эфиру
+    // не обновляются вообще: их автор 0, никогда != from).
+    if (hzPoiAuthorNode(id) != from)
+        return;
+    char *e1 = nullptr, *e2 = nullptr, *e3 = nullptr;
+    unsigned long total = strtoul(sep + 1, &e1, 10);
+    if (!e1 || *e1 != '|')
+        return;
+    unsigned long idx = strtoul(e1 + 1, &e2, 10);
+    if (!e2 || *e2 != '|')
+        return;
+    unsigned long type = strtoul(e2 + 1, &e3, 10);
+    if (!e3 || *e3 != '|')
+        return;
+    const char *name = e3 + 1;
+    const char *s4 = strchr(name, '|');
+    if (!s4 || s4 == name || (size_t)(s4 - name) > 128)
+        return;
+    char *e4 = nullptr, *e5 = nullptr;
+    unsigned long x = strtoul(s4 + 1, &e4, 10);
+    if (!e4 || *e4 != '|')
+        return;
+    unsigned long y = strtoul(e4 + 1, &e5, 10);
+    if (!e5 || *e5 != '|')
+        return;
+    const char *sender = e5 + 1;
+    const char *s6 = strchr(sender, '|');
+    if (!s6 || s6 == sender || (size_t)(s6 - sender) > 128)
+        return;
+    const char *chunk = s6 + 1;
+    if (total < 1 || total > kPoiTotalMax || idx < 1 || idx > total || type > 4 || x > 1000 || y > 1000)
+        return;
+    if (strchr(chunk, '\n') || strchr(chunk, '\r'))
+        return; // многострочный мусор - мимо
+    purgePoiRx(millis());
+    HzPoiRx *rx = nullptr;
+    for (HzPoiRx &r : poiRx_) {
+        if (!strcmp(r.id, id)) {
+            rx = &r;
+            break;
+        }
+    }
+    if (!rx) {
+        // Сборки лежат по порядку добавления - первая самая старая.
+        if (poiRx_.size() >= kPoiRxMax)
+            poiRx_.erase(poiRx_.begin());
+        HzPoiRx nr;
+        strcpy(nr.id, id);
+        strcpy(nr.head.id, id);
+        nr.total = (uint8_t)total;
+        nr.t0 = millis();
+        nr.ch = ch > 7 ? 0 : ch;
+        nr.head.type = (uint8_t)type;
+        nr.head.name.assign(name, (size_t)(s4 - name));
+        nr.head.x = (uint16_t)x;
+        nr.head.y = (uint16_t)y;
+        nr.head.sender.assign(sender, (size_t)(s6 - sender));
+        nr.head.shared = true;
+        nr.head.ch = nr.ch;
+        poiRx_.push_back(nr);
+        rx = &poiRx_.back();
+    } else if (rx->total != (uint8_t)total) {
+        return; // часть от другой версии точки - мимо
+    }
+    size_t ci = (size_t)(idx - 1);
+    if (!rx->have[ci]) {
+        rx->have[ci] = true;
+        rx->got++;
+    }
+    rx->chunks[ci] = chunk;
+    if (rx->got < rx->total)
+        return; // ждём остальные части
+    // Собралось: склеить, проверить длины в символах, положить.
+    HzPoi poi = rx->head;
+    for (uint8_t i = 0; i < rx->total; i++)
+        poi.comment += rx->chunks[i];
+    hzSanitizeField(&poi.name[0]);
+    hzSanitizeField(&poi.sender[0]);
+    hzSanitizeField(&poi.comment[0]);
+    bool ok = !poi.name.empty() && hzUtf8Len(poi.name.c_str()) <= HzMapStore::kMaxNameChars &&
+              hzUtf8Len(poi.sender.c_str()) <= 20 &&
+              hzUtf8Len(poi.comment.c_str()) <= HzMapStore::kMaxCommentChars &&
+              poi.comment.size() <= 768;
+    // Сборщик - долой что на успехе, что на провале (битую версию не копим).
+    for (auto it = poiRx_.begin(); it != poiRx_.end(); ++it) {
+        if (!strcmp(it->id, id)) {
+            poiRx_.erase(it);
+            break;
+        }
+    }
+    if (!ok) {
+        ILOG_INFO("Horizon: POI '%s' dropped (bad lengths)", id);
+        return;
+    }
+    if (!mapStore.find(id) && mapStore.sharedCount() >= HzMapStore::kMaxShared) {
+        ILOG_INFO("Horizon: POI '%s' dropped (pool full)", id);
+        return; // молча: тост на каждый чужой маяк - спам
+    }
+    mapStore.upsertNet(poi);
+    mapStore.saveNet();
+    ILOG_INFO("Horizon: POI '%s' stored (%u part(s))", id, (unsigned)total);
+    if (canNotify && ui) {
+        ui->toast("Точка: %s", poi.name.c_str());
+        ui->mapOnNetUpdate();
+    }
+}
+
+void HorizonView::handlePoiDelete(uint32_t from, const char *msg, bool canNotify)
+{
+    if (from == 0 || from == ownNode || !msg)
+        return;
+    // HZ:POID:<id>|<node>|<rank>
+    const char *p = msg + kPoiDelPrefixLen;
+    const char *s1 = strchr(p, '|');
+    if (!s1 || s1 == p || (size_t)(s1 - p) > 27)
+        return;
+    char id[28];
+    memcpy(id, p, (size_t)(s1 - p));
+    id[s1 - p] = '\0';
+    if (!hzPoiIdOk(id))
+        return;
+    char *e1 = nullptr, *e2 = nullptr;
+    unsigned long node = strtoul(s1 + 1, &e1, 10);
+    if (!e1 || *e1 != '|')
+        return;
+    unsigned long rank = strtoul(e1 + 1, &e2, 10);
+    if (!e2 || (*e2 != '\0' && *e2 != '\r' && *e2 != '\n') || rank > 3)
+        return;
+    if ((uint32_t)node != from)
+        return; // заявленный удаляющий - не отправитель: мимо
+    // Права: автор точки или мастер (ранг 3). Нет в кэше досье - верим
+    // заявленному рангу 3 (игра, задокументировано в docs/MAP.md §2.2).
+    bool author = hzPoiAuthorNode(id) == from;
+    bool master = false;
+    if (rank == 3) {
+        const HorizonDossierInfo *d = store.findDossier(from);
+        master = !d || d->rank == 3;
+    }
+    if (!author && !master)
+        return;
+    if (!mapStore.find(id))
+        return; // уже нет (или могила)
+    mapStore.removeEverywhere(id);
+    ILOG_INFO("Horizon: POID '%s' applied from %08x", id, (unsigned)from);
+    if (canNotify && ui) {
+        ui->toast("Точка удалена");
+        ui->mapOnNetUpdate();
+    }
+}
+
+void HorizonView::purgePoiRx(uint32_t now)
+{
+    for (auto it = poiRx_.begin(); it != poiRx_.end();) {
+        if (now - it->t0 > kPoiRxTimeoutMs)
+            it = poiRx_.erase(it);
+        else
+            ++it;
     }
 }
 
