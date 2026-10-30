@@ -23,7 +23,10 @@ FW_DIR_NAME = "firmware-hz"
 ENV = "elecrow-adv-35-tft"
 FW_TAG = "v2.8.1.8e6a88d"
 FW_URL = "https://github.com/meshtastic/firmware"
-PIO_SPEC = "platformio>=6.1.19,<7"
+# Точный пин: этим ядром собрана рабочая 1.7.4 (build+buildfs+прошивка+загрузка).
+# ensure_platformio ставит только если PIO нет вообще - существующие машины
+# не трогаем, пин работает только для свежих установок.
+PIO_SPEC = "platformio==6.1.19"
 MIN_PY = (3, 10)
 MAX_PY = (3, 14)  # 3.15+: зависимости PIO под него не проверены
 
