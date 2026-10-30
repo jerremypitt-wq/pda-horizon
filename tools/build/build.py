@@ -142,6 +142,35 @@ def ensure_overlay(root, fw, py):
     print("Оверлей синхронен (HORIZON_PACKET_LINK).")
 
 
+# Игровой пакет по умолчанию (каталог games/<имя>: map.jpg + pois.txt).
+# Пока игра одна - константа; вторую игру добавим флагом --game.
+GAME_PACK = "zabytye-istorii"
+
+
+def ensure_pillow(py):
+    """Pillow для конвертера карты (перекод JPG->RGB565). Ставит, если нет."""
+    code, _ = run_capture([py, "-c", "import PIL"])
+    if code == 0:
+        return
+    print("Pillow не найден - ставлю (pip install pillow)...")
+    code = run_stream([py, "-m", "pip", "install", "pillow"], None)
+    if code != 0:
+        raise Fail("pip не смог поставить Pillow (нет интернета? VPN мешает?).\n"
+                   "Что делать: выключи VPN и повтори команду.")
+
+
+def ensure_gamepack(root, fw):
+    """Сконвертировать игровой пакет в data/hzmap (до buildfs)."""
+    game = os.path.join(root, "games", GAME_PACK)
+    if not os.path.isfile(os.path.join(game, "map.jpg")):
+        raise Fail(f"Нет игрового пакета: {game} (нужны map.jpg + pois.txt).")
+    out = os.path.join(fw, "data", "hzmap")
+    tool = os.path.join(HERE, "poi_pack.py")
+    code = run_stream([sys.executable, tool, "--game", game, "--out", out], root)
+    if code != 0:
+        raise Fail("Конвертер игрового пакета упал (красное выше - причина).")
+
+
 def pio_build(fw, py):
     code = run_stream([py, "-m", "platformio", "run", "-e", ENV], fw)
     if code != 0:
@@ -241,6 +270,8 @@ def main(argv=None, root=None):
         ensure_platformio(sys.executable)
         fw = ensure_tree(root)
         ensure_overlay(root, fw, sys.executable)
+        ensure_pillow(sys.executable)
+        ensure_gamepack(root, fw)
         pio_build(fw, sys.executable)
         verify_outputs(root)
         over_ver = read_overlay_version(fw)

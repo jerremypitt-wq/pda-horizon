@@ -298,4 +298,30 @@ check("ov-exit3", r.returncode == 0, r.stdout + r.stderr)
 with open(os.path.join(hzdst, "HorizonStrings.h"), "rb") as f:
     check("ov-resync", f.read() == real_hz)
 
+print("== build.py: игровой пакет в data/hzmap ==")
+try:
+    from PIL import Image as _Im
+    _has_pil = True
+except ImportError:
+    _has_pil = False
+check("gp-pillow", _has_pil, "нужен Pillow: pip install pillow")
+groot = os.path.join(TMP, "gameroot")
+gdir = os.path.join(groot, "games", build.GAME_PACK)
+os.makedirs(gdir, exist_ok=True)
+_Im.new("RGB", (480, 320), (1, 2, 3)).save(os.path.join(gdir, "map.jpg"))
+with open(os.path.join(gdir, "pois.txt"), "w", encoding="utf-8") as f:
+    f.write("1. База, Тест, x10, y20, Мастер, Проверка.\n")
+fwdir = os.path.join(groot, "firmware-hz")
+os.makedirs(fwdir, exist_ok=True)
+build.ensure_gamepack(groot, fwdir)
+hz = os.path.join(fwdir, "data", "hzmap")
+check("gp-map", os.path.getsize(os.path.join(hz, "map.rgb565")) == 480 * 320 * 2)
+with open(os.path.join(hz, "pois.csv"), encoding="utf-8") as f:
+    check("gp-csv", f.read() == "B001|1|Тест|21|63|Мастер|Проверка.\n", f.read()[:60])
+try:
+    build.ensure_gamepack(os.path.join(TMP, "gameroot-nogame"), fwdir)
+    check("gp-missing", False, "no Fail raised")
+except build.Fail as e:
+    check("gp-missing", "игрового пакета" in str(e), str(e)[:60])
+
 print(f"\nВСЕГО ПРОШЛО: {len(PASS)}")
