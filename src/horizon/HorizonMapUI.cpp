@@ -83,7 +83,8 @@ struct HzMapUi {
     lv_obj_t *zin = nullptr;
     lv_obj_t *zout = nullptr;
     lv_obj_t *tag = nullptr;         // бирка с именем выбранной точки
-    lv_obj_t *filterPanel = nullptr; // панель фильтров слева
+    lv_obj_t *filterPanel = nullptr; // панель фильтров справа
+    lv_obj_t *filterRows[7] = {nullptr}; // только галочки, без заголовков разделов
     bool filterOpen = false;
     bool fType[5] = {true, true, true, true, true};
     bool fShared = true;
@@ -293,6 +294,8 @@ void HorizonUI::mapDropWidgets(void)
     mapUi->formPeerLabel = nullptr;
     mapUi->tag = nullptr;
     mapUi->filterPanel = nullptr;
+    for (lv_obj_t *&row : mapUi->filterRows)
+        row = nullptr;
     mapUi->filterOpen = false;
 }
 
@@ -342,10 +345,10 @@ void HorizonUI::buildMap(void)
         }
         m->mapBuf = buf;
     }
-    // Геометрия вида: весь экран под статусбаром.
-    m->viewY = kStatusH;
+    // Карта занимает и область статусбара: прозрачный бар лежит поверх картинки.
+    m->viewY = 0;
     m->viewW = W();
-    m->viewH = H() - m->viewY;
+    m->viewH = H();
     if (!m->viewBuf) {
         // Cover, не fit: карта всегда заливает вид целиком, фона не видно
         // вообще (лишнее обрезается и доступно двигом).
@@ -375,9 +378,9 @@ void HorizonUI::buildMap(void)
     }
 
     clearScreen(Screen::MAP); // сносит виджеты (mapDropWidgets), буферы целы
-    addStatusBar(scr);
 
-    // Окно вида под статусбаром. Нулевые отступы обязательны: тапы и маркеры
+    // Картинка рисуется первой; прозрачный статусбар добавим последним поверх.
+    // Нулевые отступы обязательны: тапы и маркеры
     // считаются от начала картинки, любой pad темы даст сдвиг.
     lv_obj_t *box = lv_obj_create(scr);
     lv_obj_set_pos(box, 0, m->viewY);
@@ -418,21 +421,21 @@ void HorizonUI::buildMap(void)
     lv_obj_remove_flag(m->tag, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(m->tag, LV_OBJ_FLAG_HIDDEN);
 
-    // Кнопки: «Назад» слева сверху, «Фильтры» справа сверху, лупа слева посередине.
+    // Управление ниже прозрачного бара, чтобы не закрыть показатели.
     lv_obj_t *back = lv_btn_create(box);
     HorizonTheme::styleButton(back, true);
-    lv_obj_set_size(back, 64, 32);
-    lv_obj_set_pos(back, 4, 4);
+    lv_obj_set_size(back, 44, 32);
+    lv_obj_set_pos(back, 4, kStatusH + 4);
     lv_obj_t *bl = lv_label_create(back);
-    lv_label_set_text(bl, "Назад");
-    lv_obj_set_style_text_font(bl, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    lv_label_set_text(bl, "<");
+    lv_obj_set_style_text_font(bl, HorizonTheme::fontBig(), LV_PART_MAIN);
     lv_obj_center(bl);
     lv_obj_add_event_cb(back, cbBack, LV_EVENT_CLICKED, this);
 
     lv_obj_t *flt = lv_btn_create(box);
     HorizonTheme::styleButton(flt, true);
     lv_obj_set_size(flt, 72, 32);
-    lv_obj_set_pos(flt, W() - 76, 4);
+    lv_obj_set_pos(flt, W() - 76, kStatusH + 4);
     lv_obj_t *fl = lv_label_create(flt);
     lv_label_set_text(fl, "Фильтры");
     lv_obj_set_style_text_font(fl, HorizonTheme::fontSmall(), LV_PART_MAIN);
@@ -463,6 +466,14 @@ void HorizonUI::buildMap(void)
     lv_obj_center(zl1);
     lv_obj_set_user_data(m->zout, (void *)(intptr_t)(-1));
     lv_obj_add_event_cb(m->zout, cbMapZoom, LV_EVENT_CLICKED, this);
+
+    // Создать после картинки: иначе непрозрачная шапка либо перекроет карту,
+    // либо сама спрячется под ней. Текст виден, подложки и рамки нет.
+    lv_obj_t *bar = addStatusBar(scr);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
+    lv_obj_set_style_text_color(bar, hzColor(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE); // тап по карте проходит сквозь бар
 
     renderView(m);
     mapRefreshMarkers();
@@ -1117,6 +1128,8 @@ void HorizonUI::mapBuildFilterPanel(void)
     if (m->filterPanel && lv_obj_is_valid(m->filterPanel))
         lv_obj_delete(m->filterPanel);
     m->filterPanel = nullptr;
+    for (lv_obj_t *&row : m->filterRows)
+        row = nullptr;
     HzMapStore &st = view->getMapStore();
     // Счётчики: по типам + общие/личные (могилы не считаем).
     int cntType[5] = {0, 0, 0, 0, 0};
@@ -1137,8 +1150,8 @@ void HorizonUI::mapBuildFilterPanel(void)
 
     lv_obj_t *panel = lv_obj_create(scr);
     HorizonTheme::stylePanel(panel);
-    lv_obj_set_pos(panel, W() - 204, m->viewY + 38);
-    lv_obj_set_size(panel, 200, m->viewH - 42);
+    lv_obj_set_pos(panel, W() - 204, kStatusH + 38);
+    lv_obj_set_size(panel, 200, m->viewH - kStatusH - 42);
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(panel, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_row(panel, 4, LV_PART_MAIN);
@@ -1150,8 +1163,11 @@ void HorizonUI::mapBuildFilterPanel(void)
     lv_label_set_text(t, "Фильтры");
     lv_obj_set_style_text_font(t, HorizonTheme::fontMedium(), LV_PART_MAIN);
     lv_obj_set_width(t, lv_pct(100));
+    sectionLabel(panel, "По типу");
 
     for (int i = 0; i < 7; i++) {
+        if (i == 5)
+            sectionLabel(panel, "По доступу");
         bool on = i < 5 ? m->fType[i] : (i == 5 ? m->fShared : m->fPriv);
         int cnt = i < 5 ? cntType[i] : (i == 5 ? cntShared : cntPriv);
         const char *nm = i < 5 ? kPoiTypes[i] : (i == 5 ? "Общие" : "Личные");
@@ -1167,6 +1183,7 @@ void HorizonUI::mapBuildFilterPanel(void)
         lv_obj_align(l, LV_ALIGN_LEFT_MID, 6, 0);
         lv_obj_set_user_data(b, (void *)(intptr_t)i);
         lv_obj_add_event_cb(b, cbMapFilterRow, LV_EVENT_CLICKED, this);
+        m->filterRows[i] = b;
     }
 
     lv_obj_t *rst = lv_btn_create(panel);
@@ -1301,8 +1318,8 @@ void HorizonUI::cbMapFilterReset(lv_event_t *e)
     // Не удалять панель во время обработки нажатия на кнопку сброса.
     if (m->filterPanel && lv_obj_is_valid(m->filterPanel)) {
         for (int i = 0; i < 7; i++) {
-            lv_obj_t *btn = lv_obj_get_child(m->filterPanel, i + 1); // 0 = заголовок
-            if (!btn)
+            lv_obj_t *btn = m->filterRows[i]; // заголовки разделов не являются строками
+            if (!btn || !lv_obj_is_valid(btn))
                 continue;
             lv_obj_t *label = lv_obj_get_child(btn, 0);
             if (!label)

@@ -58,6 +58,26 @@ class MapUiContracts(unittest.TestCase):
         self.assertIn("lv_obj_set_style_pad_all(m->markers, 0, LV_PART_MAIN)", UI)
         self.assertIn("addStatusBar(scr);", UI)
 
+    def test_fullscreen_map_transparent_status_and_filter_groups(self):
+        build = UI.split("void HorizonUI::buildMap(void)", 1)[1].split("void HorizonUI::mapRefreshMarkers(void)", 1)[0]
+        self.assertIn("m->viewY = 0;", build)
+        self.assertIn("m->viewH = H();", build)
+        self.assertLess(build.index("lv_obj_t *box = lv_obj_create(scr);"), build.index("addStatusBar(scr);"))
+        self.assertIn("lv_obj_set_style_bg_opa(bar, LV_OPA_TRANSP, LV_PART_MAIN);", build)
+        self.assertIn("lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);", build)
+        self.assertIn('lv_label_set_text(bl, "<");', build)
+        self.assertIn("lv_obj_set_pos(back, 4, kStatusH + 4);", build)
+        self.assertIn("lv_obj_set_pos(flt, W() - 76, kStatusH + 4);", build)
+        panel = UI.split("void HorizonUI::mapBuildFilterPanel(void)", 1)[1].split("void HorizonUI::cbMapFilter(lv_event_t *e)", 1)[0]
+        self.assertIn('sectionLabel(panel, "По типу");', panel)
+        self.assertIn('sectionLabel(panel, "По доступу");', panel)
+        self.assertLess(panel.index('sectionLabel(panel, "По типу");'), panel.index("for (int i = 0; i < 7; i++)"))
+        self.assertIn("if (i == 5)\n            sectionLabel(panel, \"По доступу\");", panel)
+        self.assertIn("m->filterRows[i] = b;", panel)
+        reset = UI.split("void HorizonUI::cbMapFilterReset(lv_event_t *e)", 1)[1]
+        self.assertIn("m->filterRows[i]", reset)
+        self.assertNotIn("self->mapBuildFilterPanel()", reset)  # не удалять кнопку во время тапа
+
     def test_form_draft_survives_contact_picker(self):
         self.assertIn("s == Screen::CONTACTS && mapPickMode", CORE)
         self.assertIn("m->formDraft = true", UI)
