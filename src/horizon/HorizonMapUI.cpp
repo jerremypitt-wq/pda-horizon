@@ -81,6 +81,16 @@ struct HzMapUi {
     lv_obj_t *popup = nullptr;
     lv_obj_t *zin = nullptr;
     lv_obj_t *zout = nullptr;
+    lv_obj_t *tag = nullptr;         // бирка с именем выбранной точки
+    lv_obj_t *filterPanel = nullptr; // панель фильтров слева
+    bool filterOpen = false;
+    bool fType[5] = {true, true, true, true, true};
+    bool fShared = true;
+    bool fPriv = true;
+    char selId[28] = ""; // выбранная точка (первый тап показал имя)
+    uint32_t lastEmptyMs = 0; // последний тап по пустому (двойной тап)
+    int lastEmptyX = 0;
+    int lastEmptyY = 0;
     lv_obj_t *formName = nullptr;
     lv_obj_t *formComment = nullptr;
     lv_obj_t *formType = nullptr;
@@ -136,6 +146,16 @@ void screenToPm(const HzMapUi *m, int lx, int ly, int *xPm, int *yPm)
     *yPm = (int)(py * 1000.0f / (kMapH - 1) + 0.5f);
 }
 
+// Видна ли точка с учётом фильтров (запечённые - общие).
+bool mapShown(const HzMapUi *m, const HzPoi &p)
+{
+    if (p.type >= HZ_POI_COUNT || !m->fType[p.type])
+        return false;
+    if (p.shared)
+        return m->fShared;
+    return m->fPriv;
+}
+
 void clampView(HzMapUi *m)
 {
     float maxOx = kMapW - m->viewW / m->scale;
@@ -187,10 +207,13 @@ void addMarkersFor(HzMapUi *m, const std::vector<HzPoi> &v, HzMapStore &st, bool
     for (const HzPoi &p : v) {
         if (baked && st.isTombstoned(p.id))
             continue;
+        if (!mapShown(m, p))
+            continue; // скрыта фильтром
         int sx = 0, sy = 0;
         poiToScreen(m, &p, &sx, &sy);
-        if (sx < -60 || sy < -24 || sx > m->viewW + 60 || sy > m->viewH + 24)
+        if (sx < -20 || sy < -20 || sx > m->viewW + 20 || sy > m->viewH + 20)
             continue; // за кадром
+        // Только цветная точка без подписи (имя - биркой по первому тапу).
         lv_obj_t *dot = lv_obj_create(m->markers);
         lv_obj_set_size(dot, 14, 14);
         lv_obj_set_pos(dot, sx - 7, sy - 7);
@@ -202,16 +225,6 @@ void addMarkersFor(HzMapUi *m, const std::vector<HzPoi> &v, HzMapStore &st, bool
         lv_obj_set_style_radius(dot, 7, LV_PART_MAIN);
         lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE); // тапы - виду под маркерами
-        lv_obj_t *nm = lv_label_create(m->markers);
-        lv_label_set_text(nm, p.name.c_str());
-        lv_obj_set_style_text_font(nm, HorizonTheme::fontSmall(), LV_PART_MAIN);
-        lv_obj_set_style_text_color(nm, hzColor(0xFFFFFF), LV_PART_MAIN);
-        lv_obj_set_style_bg_color(nm, hzColor(0x000000), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(nm, LV_OPA_70, LV_PART_MAIN);
-        lv_obj_set_width(nm, 110);
-        lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
-        lv_obj_set_pos(nm, sx + 10, sy - 8);
-        lv_obj_remove_flag(nm, LV_OBJ_FLAG_CLICKABLE);
     }
 }
 
@@ -225,6 +238,8 @@ const HzPoi *pickAt(HzMapUi *m, HzMapStore &st, int lx, int ly)
     for (int i = 0; i < 3; i++) {
         for (const HzPoi &p : *pools[i]) {
             if (i == 0 && st.isTombstoned(p.id))
+                continue;
+            if (!mapShown(m, p))
                 continue;
             int sx = 0, sy = 0;
             poiToScreen(m, &p, &sx, &sy);
@@ -255,6 +270,9 @@ void HorizonUI::mapDropWidgets(void)
     mapUi->formShared = nullptr;
     mapUi->formCh = nullptr;
     mapUi->formChRow = nullptr;
+    mapUi->tag = nullptr;
+    mapUi->filterPanel = nullptr;
+    mapUi->filterOpen = false;
 }
 
 void HorizonUI::mapCleanup(void)
@@ -299,10 +317,10 @@ void HorizonUI::buildMap(void)
         }
         m->mapBuf = buf;
     }
-    // Геометрия вида (не меняется без перезагрузки, но пересчёт дёшев).
-    m->viewY = kStatusH + kHeaderH + 2;
+    // Геометрия вида: карта - на весь экран (без статусбара и шапки).
+    m->viewY = 0;
     m->viewW = W();
-    m->viewH = H() - m->viewY;
+    m->viewH = H();
     if (!m->viewBuf) {
         float fit = m->viewW / (float)kMapW;
         float fitH = m->viewH / (float)kMapH;
@@ -330,14 +348,9 @@ void HorizonUI::buildMap(void)
     }
 
     clearScreen(Screen::MAP); // сносит виджеты (mapDropWidgets), буферы целы
-    addStatusBar(scr);
-    char sub[64];
-    snprintf(sub, sizeof(sub), "Общих %u/50 · своих %u/10", (unsigned)st.sharedCount(),
-             (unsigned)st.privCount());
-    addNavHeader(scr, "Карта", sub);
 
     lv_obj_t *box = lv_obj_create(scr);
-    lv_obj_set_pos(box, 0, m->viewY);
+    lv_obj_set_pos(box, 0, 0);
     lv_obj_set_size(box, m->viewW, m->viewH);
     lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(box, 0, LV_PART_MAIN);
@@ -346,6 +359,9 @@ void HorizonUI::buildMap(void)
     m->img = lv_image_create(box);
     lv_image_set_src(m->img, &m->dsc);
     lv_obj_set_pos(m->img, 0, 0);
+    lv_obj_set_size(m->img, m->viewW, m->viewH); // хит-зона - весь вид
+    // lv_image по умолчанию не кликабельна: без флага тапы/драг мёртвые.
+    lv_obj_add_flag(m->img, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(m->img, cbMapTouch, LV_EVENT_PRESSED, this);
     lv_obj_add_event_cb(m->img, cbMapTouch, LV_EVENT_PRESSING, this);
     lv_obj_add_event_cb(m->img, cbMapTouch, LV_EVENT_RELEASED, this);
@@ -358,22 +374,43 @@ void HorizonUI::buildMap(void)
     lv_obj_remove_flag(m->markers, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(m->markers, LV_OBJ_FLAG_CLICKABLE); // тапы проваливаются к виду
 
-    // Лупа «−»/«+» (минус - ASCII: U+2212 нет в шрифтах).
-    m->zout = lv_btn_create(box);
-    HorizonTheme::styleButton(m->zout, true);
-    lv_obj_set_size(m->zout, 56, 44);
-    lv_obj_align(m->zout, LV_ALIGN_BOTTOM_RIGHT, -72, -8);
-    lv_obj_t *zl1 = lv_label_create(m->zout);
-    lv_label_set_text(zl1, "-");
-    lv_obj_set_style_text_font(zl1, HorizonTheme::fontBig(), LV_PART_MAIN);
-    lv_obj_center(zl1);
-    lv_obj_set_user_data(m->zout, (void *)(intptr_t)(-1));
-    lv_obj_add_event_cb(m->zout, cbMapZoom, LV_EVENT_CLICKED, this);
+    // Бирка с именем выбранной точки (фон - по ширине имени).
+    m->tag = lv_label_create(box);
+    lv_label_set_text(m->tag, "");
+    lv_obj_set_style_text_font(m->tag, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(m->tag, hzColor(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(m->tag, hzColor(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(m->tag, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_set_style_pad_hor(m->tag, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_ver(m->tag, 2, LV_PART_MAIN);
+    lv_obj_remove_flag(m->tag, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(m->tag, LV_OBJ_FLAG_HIDDEN);
+
+    // Ряд кнопок у левой стенки: назад, фильтры, лупа «+»/«−».
+    lv_obj_t *back = lv_btn_create(box);
+    HorizonTheme::styleButton(back, true);
+    lv_obj_set_size(back, 44, 32);
+    lv_obj_set_pos(back, 4, 4);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "<");
+    lv_obj_set_style_text_font(bl, HorizonTheme::fontBig(), LV_PART_MAIN);
+    lv_obj_center(bl);
+    lv_obj_add_event_cb(back, cbBack, LV_EVENT_CLICKED, this);
+
+    lv_obj_t *flt = lv_btn_create(box);
+    HorizonTheme::styleButton(flt, true);
+    lv_obj_set_size(flt, 72, 32);
+    lv_obj_set_pos(flt, 4, 40);
+    lv_obj_t *fl = lv_label_create(flt);
+    lv_label_set_text(fl, "Фильтры");
+    lv_obj_set_style_text_font(fl, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    lv_obj_center(fl);
+    lv_obj_add_event_cb(flt, cbMapFilter, LV_EVENT_CLICKED, this);
 
     m->zin = lv_btn_create(box);
     HorizonTheme::styleButton(m->zin, true);
-    lv_obj_set_size(m->zin, 56, 44);
-    lv_obj_align(m->zin, LV_ALIGN_BOTTOM_RIGHT, -8, -8);
+    lv_obj_set_size(m->zin, 44, 40);
+    lv_obj_set_pos(m->zin, 4, 76);
     lv_obj_t *zl2 = lv_label_create(m->zin);
     lv_label_set_text(zl2, "+");
     lv_obj_set_style_text_font(zl2, HorizonTheme::fontBig(), LV_PART_MAIN);
@@ -381,8 +418,21 @@ void HorizonUI::buildMap(void)
     lv_obj_set_user_data(m->zin, (void *)(intptr_t)1);
     lv_obj_add_event_cb(m->zin, cbMapZoom, LV_EVENT_CLICKED, this);
 
+    // Минус - ASCII (U+2212 нет в шрифтах).
+    m->zout = lv_btn_create(box);
+    HorizonTheme::styleButton(m->zout, true);
+    lv_obj_set_size(m->zout, 44, 40);
+    lv_obj_set_pos(m->zout, 4, 120);
+    lv_obj_t *zl1 = lv_label_create(m->zout);
+    lv_label_set_text(zl1, "-");
+    lv_obj_set_style_text_font(zl1, HorizonTheme::fontBig(), LV_PART_MAIN);
+    lv_obj_center(zl1);
+    lv_obj_set_user_data(m->zout, (void *)(intptr_t)(-1));
+    lv_obj_add_event_cb(m->zout, cbMapZoom, LV_EVENT_CLICKED, this);
+
     renderView(m);
     mapRefreshMarkers();
+    mapPlaceTag();
 }
 
 void HorizonUI::mapRefreshMarkers(void)
@@ -406,12 +456,7 @@ void HorizonUI::mapOnNetUpdate(void)
     if (mapUi->popupId[0] && !st.find(mapUi->popupId))
         mapClosePopup(); // попап удалённой точки - закрыть
     mapRefreshMarkers();
-    if (chatSub && lv_obj_is_valid(chatSub)) {
-        char sub[64];
-        snprintf(sub, sizeof(sub), "Общих %u/50 · своих %u/10", (unsigned)st.sharedCount(),
-                 (unsigned)st.privCount());
-        lv_label_set_text(chatSub, sub);
-    }
+    mapPlaceTag();
 }
 
 void HorizonUI::mapTap(int lx, int ly)
@@ -424,12 +469,34 @@ void HorizonUI::mapTap(int lx, int ly)
     HzMapStore &st = view->getMapStore();
     const HzPoi *hit = pickAt(m, st, lx, ly);
     if (hit) {
-        mapOpenPopup(hit->id);
+        m->lastEmptyMs = 0; // сбить двойной тап
+        if (m->selId[0] && !strcmp(m->selId, hit->id))
+            mapOpenPopup(hit->id); // второй тап - карточка
+        else {
+            strncpy(m->selId, hit->id, sizeof(m->selId) - 1);
+            m->selId[sizeof(m->selId) - 1] = '\0';
+            mapPlaceTag(); // первый тап - имя
+        }
         return;
     }
-    screenToPm(m, lx, ly, &m->formX, &m->formY);
-    m->formEditId[0] = '\0';
-    buildMapForm();
+    // Пустое: второй тап рядом и быстро - новая точка.
+    uint32_t now = nowMs();
+    int dx = lx - m->lastEmptyX, dy = ly - m->lastEmptyY;
+    if (m->lastEmptyMs && now - m->lastEmptyMs < 400 && dx * dx + dy * dy < 24 * 24) {
+        m->lastEmptyMs = 0;
+        m->selId[0] = '\0';
+        screenToPm(m, lx, ly, &m->formX, &m->formY);
+        m->formEditId[0] = '\0';
+        buildMapForm();
+        return;
+    }
+    m->lastEmptyMs = now;
+    m->lastEmptyX = lx;
+    m->lastEmptyY = ly;
+    if (m->selId[0]) {
+        m->selId[0] = '\0'; // тап по пустому снимает выбор
+        mapPlaceTag();
+    }
 }
 
 void HorizonUI::mapClosePopup(void)
@@ -448,6 +515,9 @@ void HorizonUI::mapOpenPopup(const char *id)
     HzMapUi *m = mapUi;
     if (!m || !id || !*id)
         return;
+    m->selId[0] = '\0';
+    if (m->tag && lv_obj_is_valid(m->tag))
+        lv_obj_add_flag(m->tag, LV_OBJ_FLAG_HIDDEN); // карточка вместо бирки
     HzMapStore &st = view->getMapStore();
     const HzPoi *p = st.find(id);
     if (!p)
@@ -469,6 +539,7 @@ void HorizonUI::mapOpenPopup(const char *id)
     lv_obj_set_style_pad_row(card, 4, LV_PART_MAIN);
     lv_obj_set_style_border_color(card, hzColor(pal.accent), LV_PART_MAIN);
     lv_obj_set_style_border_width(card, 2, LV_PART_MAIN);
+    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE); // тапы гаснут в карточке
     lv_obj_align(card, LV_ALIGN_CENTER, 0, 8);
 
     // Шапка: цветная точка + «тип · имя».
@@ -813,11 +884,13 @@ void HorizonUI::cbMapTouch(lv_event_t *e)
             renderView(m);
             if (nowMs() - m->lastMarkersMs > kMarkersMs)
                 self->mapRefreshMarkers();
+            self->mapPlaceTag(); // бирка едет за маркером
         }
     } else if (code == LV_EVENT_RELEASED) {
         bool tap = m->down && m->moved < kTapSlopPx;
         m->down = false;
         self->mapRefreshMarkers(); // маркеры точно на места после драга
+        self->mapPlaceTag();
         if (tap)
             self->mapTap(lx, ly);
     }
@@ -847,6 +920,7 @@ void HorizonUI::cbMapZoom(lv_event_t *e)
     clampView(m);
     renderView(m);
     self->mapRefreshMarkers();
+    self->mapPlaceTag();
 }
 
 void HorizonUI::cbMapPopup(lv_event_t *e)
@@ -893,6 +967,174 @@ void HorizonUI::cbMapFormSave(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     self->mapSaveForm();
+}
+
+// Бирка с именем выбранной точки (над маркером, фон - по ширине имени).
+void HorizonUI::mapPlaceTag(void)
+{
+    HzMapUi *m = mapUi;
+    if (!m || !m->tag || !lv_obj_is_valid(m->tag))
+        return;
+    const HzPoi *p = nullptr;
+    if (m->selId[0]) {
+        p = view->getMapStore().find(m->selId);
+        if (p && !mapShown(m, *p))
+            p = nullptr; // точку скрыл фильтр
+    }
+    if (!p) {
+        m->selId[0] = '\0';
+        lv_obj_add_flag(m->tag, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    int sx = 0, sy = 0;
+    poiToScreen(m, p, &sx, &sy);
+    // Ширина бирки - оценка 7 px/символ (fontSmall), clamp в вид.
+    int est = (int)hzUtf8Len(p->name.c_str()) * 7 + 12;
+    int tx = sx - est / 2;
+    if (tx < 2)
+        tx = 2;
+    if (tx + est > m->viewW - 2)
+        tx = m->viewW - 2 - est;
+    if (tx < 2)
+        tx = 2;
+    int ty = sy - 30;
+    if (ty < 2)
+        ty = sy + 14;
+    lv_label_set_text(m->tag, p->name.c_str());
+    lv_obj_set_pos(m->tag, tx, ty);
+    lv_obj_remove_flag(m->tag, LV_OBJ_FLAG_HIDDEN);
+}
+
+void HorizonUI::mapToggleFilter(void)
+{
+    HzMapUi *m = mapUi;
+    if (!m)
+        return;
+    if (!m->filterPanel || !lv_obj_is_valid(m->filterPanel))
+        m->filterOpen = false;
+    if (!m->filterOpen) {
+        mapBuildFilterPanel(); // заново: свежие счётчики
+        return;
+    }
+    m->filterOpen = false;
+    if (m->filterPanel && lv_obj_is_valid(m->filterPanel))
+        lv_obj_add_flag(m->filterPanel, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Панель фильтров слева (перестраивается заново при каждом открытии/тыке).
+void HorizonUI::mapBuildFilterPanel(void)
+{
+    HzMapUi *m = mapUi;
+    if (!m)
+        return;
+    if (m->filterPanel && lv_obj_is_valid(m->filterPanel))
+        lv_obj_delete(m->filterPanel);
+    m->filterPanel = nullptr;
+    HzMapStore &st = view->getMapStore();
+    // Счётчики: по типам + общие/личные (могилы не считаем).
+    int cntType[5] = {0, 0, 0, 0, 0};
+    int cntShared = 0, cntPriv = 0;
+    const std::vector<HzPoi> *pools[3] = {&st.baked(), &st.net(), &st.my()};
+    for (int i = 0; i < 3; i++) {
+        for (const HzPoi &p : *pools[i]) {
+            if (i == 0 && st.isTombstoned(p.id))
+                continue;
+            if (p.type < HZ_POI_COUNT)
+                cntType[p.type]++;
+            if (p.shared)
+                cntShared++;
+            else
+                cntPriv++;
+        }
+    }
+
+    lv_obj_t *panel = lv_obj_create(scr);
+    HorizonTheme::stylePanel(panel);
+    lv_obj_set_pos(panel, 76, 0);
+    lv_obj_set_size(panel, 200, H());
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(panel, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(panel, 4, LV_PART_MAIN);
+    lv_obj_set_style_border_color(panel, hzColor(HorizonTheme::current().accent), LV_PART_MAIN);
+    lv_obj_set_style_border_width(panel, 1, LV_PART_MAIN);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE); // тапы гаснут в панели
+
+    lv_obj_t *t = lv_label_create(panel);
+    lv_label_set_text(t, "Фильтры");
+    lv_obj_set_style_text_font(t, HorizonTheme::fontMedium(), LV_PART_MAIN);
+    lv_obj_set_width(t, lv_pct(100));
+
+    for (int i = 0; i < 7; i++) {
+        bool on = i < 5 ? m->fType[i] : (i == 5 ? m->fShared : m->fPriv);
+        int cnt = i < 5 ? cntType[i] : (i == 5 ? cntShared : cntPriv);
+        const char *nm = i < 5 ? kPoiTypes[i] : (i == 5 ? "Общие" : "Личные");
+        char cap[64];
+        snprintf(cap, sizeof(cap), "%s %s (%d)", on ? "[x]" : "[ ]", nm, cnt);
+        lv_obj_t *b = lv_btn_create(panel);
+        HorizonTheme::styleButton(b, false);
+        lv_obj_set_width(b, lv_pct(100));
+        lv_obj_set_height(b, 34);
+        lv_obj_t *l = lv_label_create(b);
+        lv_label_set_text(l, cap);
+        lv_obj_set_style_text_font(l, HorizonTheme::fontNormal(), LV_PART_MAIN);
+        lv_obj_align(l, LV_ALIGN_LEFT_MID, 6, 0);
+        lv_obj_set_user_data(b, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(b, cbMapFilterRow, LV_EVENT_CLICKED, this);
+    }
+
+    lv_obj_t *rst = lv_btn_create(panel);
+    HorizonTheme::styleButton(rst, true);
+    lv_obj_set_width(rst, lv_pct(100));
+    lv_obj_set_height(rst, 40);
+    lv_obj_t *rl = lv_label_create(rst);
+    lv_label_set_text(rl, "Сбросить все");
+    lv_obj_set_style_text_font(rl, HorizonTheme::fontNormal(), LV_PART_MAIN);
+    lv_obj_center(rl);
+    lv_obj_add_event_cb(rst, cbMapFilterReset, LV_EVENT_CLICKED, this);
+
+    m->filterPanel = panel;
+    m->filterOpen = true;
+}
+
+void HorizonUI::cbMapFilter(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    self->mapToggleFilter();
+}
+
+void HorizonUI::cbMapFilterRow(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    if (!self->mapUi)
+        return;
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
+    HzMapUi *m = self->mapUi;
+    if (id >= 0 && id < 5)
+        m->fType[id] = !m->fType[id];
+    else if (id == 5)
+        m->fShared = !m->fShared;
+    else if (id == 6)
+        m->fPriv = !m->fPriv;
+    else
+        return;
+    self->mapBuildFilterPanel(); // галочки сразу + свежие счётчики
+    self->mapRefreshMarkers();
+    self->mapPlaceTag();
+}
+
+void HorizonUI::cbMapFilterReset(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    if (!self->mapUi)
+        return;
+    HzMapUi *m = self->mapUi;
+    for (int i = 0; i < 5; i++)
+        m->fType[i] = true;
+    m->fShared = true;
+    m->fPriv = true;
+    self->mapBuildFilterPanel();
+    self->mapRefreshMarkers();
+    self->mapPlaceTag();
 }
 
 #endif // HORIZON_UI

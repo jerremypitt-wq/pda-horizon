@@ -245,6 +245,9 @@ class HorizonUI
     void mapOpenPopup(const char *id);
     void mapClosePopup(void);
     void mapSaveForm(void);
+    void mapPlaceTag(void); // бирка с именем выбранной точки
+    void mapToggleFilter(void);
+    void mapBuildFilterPanel(void);
 
     // --- Тост ---
     lv_obj_t *toastBtn = nullptr;
@@ -357,6 +360,9 @@ class HorizonUI
     static void cbMapPopup(lv_event_t *e);
     static void cbMapVis(lv_event_t *e);
     static void cbMapFormSave(lv_event_t *e);
+    static void cbMapFilter(lv_event_t *e);
+    static void cbMapFilterRow(lv_event_t *e);
+    static void cbMapFilterReset(lv_event_t *e);
 
     HorizonUI(const HorizonUI &) = delete;
     HorizonUI &operator=(const HorizonUI &) = delete;
