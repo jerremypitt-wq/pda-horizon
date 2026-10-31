@@ -885,7 +885,7 @@ bool HorizonView::mapAllocId(char *out, size_t cap)
     return false; // всё занято (не должно случиться: пулы маленькие)
 }
 
-bool HorizonView::mapSendPoint(const HzPoi &p)
+bool HorizonView::mapSendPoint(const HzPoi &p, uint32_t to)
 {
     if (!radioConnected())
         return false;
@@ -929,7 +929,10 @@ bool HorizonView::mapSendPoint(const HzPoi &p)
         char buf[256];
         snprintf(buf, sizeof(buf), "%s%s|%u|%u|%u|%s|%u|%u|%s|%s", kPoiPrefix, p.id, total, i + 1,
                  p.type, p.name.c_str(), p.x, p.y, p.sender.c_str(), chunk);
-        sendChannelRaw(ch, buf);
+        if (to == 0xFFFFFFFFu)
+            sendChannelRaw(ch, buf);
+        else
+            mapSendDmRaw(to, ch, buf);
     }
     ILOG_INFO("Horizon: POI '%s' sent (%u part(s))", p.id, (unsigned)total);
     return true;
@@ -947,6 +950,38 @@ bool HorizonView::mapSendDelete(const char *id, uint8_t ch)
     return true;
 }
 
+bool HorizonView::mapSendPointDm(const HzPoi &p, uint32_t peer)
+{
+    if (!peer || peer == 0xFFFFFFFFu)
+        return false;
+    HzPoi out = p;
+    out.ch = nodeChannel(peer); // как у чата с узлом; оригинал не изменяем
+    return mapSendPoint(out, peer);
+}
+
+bool HorizonView::mapSendDmRaw(uint32_t peer, uint8_t ch, const char *text)
+{
+    if (!text || !*text || !radioConnected())
+        return false;
+    std::string s = text;
+    truncate230(s);
+    uint32_t reqId = requests.addRequest(peer, ResponseHandler::TextMessageRequest, nullptr, nullptr);
+    controller->sendTextMessage(peer, ch, nodeHopLimit(peer), getActTime(), reqId, nodeHasKey(peer),
+                                s.c_str());
+    // ACK от пира сам снимет заявку (handleTextDelivery терпит чужие reqId).
+    return true;
+}
+
+bool HorizonView::mapSendDeleteDm(const char *id, uint32_t peer)
+{
+    if (!radioConnected() || !id || !*id || !peer || peer == 0xFFFFFFFFu)
+        return false;
+    HorizonConfig &cfg = HorizonConfig::instance();
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%s%s|%u|%u", kPoiDelPrefix, id, (unsigned)ownNode, (unsigned)cfg.rank);
+    return mapSendDmRaw(peer, nodeChannel(peer), buf);
+}
+
 void HorizonView::mapDeletePoint(const char *id)
 {
     if (!id || !*id)
@@ -957,8 +992,13 @@ void HorizonView::mapDeletePoint(const char *id)
     // Запечённые канала не имеют (0xFF) - удаление в общий.
     uint8_t ch = p->ch > 7 ? HorizonConfig::instance().generalCh : p->ch;
     bool shared = p->shared;
+    uint32_t peer = p->dmPeer;
     mapStore.removeEverywhere(id);
-    if (shared)
+    if (!shared)
+        return;
+    if (peer)
+        mapSendDeleteDm(id, peer); // best-effort: офлайн - только локально
+    else
         mapSendDelete(id, ch); // best-effort: офлайн - только локально
 }
 

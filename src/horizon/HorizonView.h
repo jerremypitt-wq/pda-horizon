@@ -212,8 +212,12 @@ class HorizonView : public MeshtasticView
     // --- Карта: точки (см. docs/MAP.md) ---
     HzMapStore &getMapStore(void) { return mapStore; }
     bool mapAllocId(char *out, size_t cap); // новый ID <node>-<seq> (false = нет своего номера)
-    bool mapSendPoint(const HzPoi &p);      // разослать точку (false = нет связи)
+    bool mapSendPoint(const HzPoi &p, uint32_t to = 0xFFFFFFFFu); // точка (to = узел для лички)
+    bool mapSendPointDm(const HzPoi &p, uint32_t peer); // точка в личку (канал подставит сам)
+    uint8_t mapDmChannel(uint32_t peer) const { return nodeChannel(peer); }
+    bool mapSendDmRaw(uint32_t peer, uint8_t ch, const char *text); // сырой текст в личку (без истории)
     bool mapSendDelete(const char *id, uint8_t ch); // разослать удаление
+    bool mapSendDeleteDm(const char *id, uint32_t peer); // удаление в личку
     void mapDeletePoint(const char *id);    // стереть локально + разослать (shared)
     void sendDirectMessage(uint32_t peer, const char *text);
     void broadcastTimeSync(void); // Мастер: разослать время сети (PRIVATE_APP)

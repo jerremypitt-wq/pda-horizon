@@ -3,6 +3,7 @@
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonConfig.h"
+#include "horizon/HorizonDisplay.h"
 #include "horizon/HorizonMap.h"
 #include "horizon/HorizonStrings.h"
 #include "horizon/HorizonTheme.h"
@@ -36,7 +37,7 @@ constexpr int16_t kStatusH = 22;
 constexpr int16_t kHeaderH = 40;
 constexpr int kMapW = 480;
 constexpr int kMapH = 320;
-// Уровни лупы (множитель к вписанному масштабу).
+// Уровни лупы (множитель к базовому масштабу cover).
 constexpr float kZoomSteps[] = {1.0f, 1.5f, 2.0f, 3.0f};
 constexpr int kZoomCount = 4;
 // Цвета маркеров по типам (порядок = HzPoiType, docs/MAP.md §3).
@@ -94,16 +95,28 @@ struct HzMapUi {
     lv_obj_t *formName = nullptr;
     lv_obj_t *formComment = nullptr;
     lv_obj_t *formType = nullptr;
-    lv_obj_t *formShared = nullptr;
-    lv_obj_t *formCh = nullptr;
-    lv_obj_t *formChRow = nullptr;
+    lv_obj_t *formVis = nullptr;      // Публичная/Частная
+    lv_obj_t *formDestRow = nullptr;  // строка списка назначения
+    lv_obj_t *formDest = nullptr;     // Общая/Группировка/Отправить контакту
+    lv_obj_t *formPeerRow = nullptr;  // строка выбора контакта
+    lv_obj_t *formPeerLabel = nullptr;
+    bool destRowShown = true;
+    bool peerRowShown = false;
+    uint32_t formPeerShown = 0xFFFFFFFFu; // подпись контакта уже отрисована для
+    // Черновик формы (пережить выбор контакта на соседнем экране).
+    bool formDraft = false;
+    char draftName[96] = "";
+    char draftComment[640] = "";
+    uint8_t draftType = 0;
+    uint8_t draftVis = 0;
+    uint8_t draftDest = 0;
     uint8_t *mapBuf = nullptr;  // исходник 480x320x2
     uint8_t *viewBuf = nullptr; // кадр под текущий вид
     lv_image_dsc_t dsc;
     int viewY = 0;
     int viewW = 0;
     int viewH = 0;
-    float baseScale = 1.0f; // вписанный масштаб
+    float baseScale = 1.0f; // базовый масштаб cover (без полей)
     float scale = 1.0f;     // px экрана на px карты
     uint8_t zoomIdx = 0;
     float ox = 0.0f; // какой px карты в левом верхнем углу вида
@@ -120,13 +133,19 @@ struct HzMapUi {
 };
 
 namespace {
+// Округление, честное и для отрицательных (кромка вида): (int) режет к нулю.
+int rndPx(float v)
+{
+    return (int)(v + (v >= 0 ? 0.5f : -0.5f));
+}
+
 // Точка (тысячные доли) -> px вида.
 void poiToScreen(const HzMapUi *m, const HzPoi *p, int *sx, int *sy)
 {
     float px = (p->x * (kMapW - 1)) / 1000.0f;
     float py = (p->y * (kMapH - 1)) / 1000.0f;
-    *sx = (int)((px - m->ox) * m->scale + 0.5f);
-    *sy = (int)((py - m->oy) * m->scale + 0.5f);
+    *sx = rndPx((px - m->ox) * m->scale);
+    *sy = rndPx((py - m->oy) * m->scale);
 }
 
 // Px вида -> тысячные доли (для новой точки; за краем - clamp).
@@ -267,9 +286,11 @@ void HorizonUI::mapDropWidgets(void)
     mapUi->formName = nullptr;
     mapUi->formComment = nullptr;
     mapUi->formType = nullptr;
-    mapUi->formShared = nullptr;
-    mapUi->formCh = nullptr;
-    mapUi->formChRow = nullptr;
+    mapUi->formVis = nullptr;
+    mapUi->formDestRow = nullptr;
+    mapUi->formDest = nullptr;
+    mapUi->formPeerRow = nullptr;
+    mapUi->formPeerLabel = nullptr;
     mapUi->tag = nullptr;
     mapUi->filterPanel = nullptr;
     mapUi->filterOpen = false;
@@ -304,6 +325,10 @@ void HorizonUI::buildMap(void)
     if (!mapUi)
         mapUi = new HzMapUi();
     HzMapUi *m = mapUi;
+    m->formDraft = false; // черновик жил только для выбора контакта
+    // В отличие от остальных экранов, карта всегда альбомная. При выходе
+    // clearScreen возвращает ориентацию, выбранную в настройках.
+    horizonSetMapLandscape(view->getDisplayDriver(), true);
     if (!m->mapBuf) {
         uint8_t *buf = (uint8_t *)HZMAP_ALLOC((size_t)kMapW * kMapH * 2);
         if (!buf || !readMapFile("/hzmap/map.rgb565", buf, (size_t)kMapW * kMapH * 2)) {
@@ -317,14 +342,16 @@ void HorizonUI::buildMap(void)
         }
         m->mapBuf = buf;
     }
-    // Геометрия вида: карта - на весь экран (без статусбара и шапки).
-    m->viewY = 0;
+    // Геометрия вида: весь экран под статусбаром.
+    m->viewY = kStatusH;
     m->viewW = W();
-    m->viewH = H();
+    m->viewH = H() - m->viewY;
     if (!m->viewBuf) {
+        // Cover, не fit: карта всегда заливает вид целиком, фона не видно
+        // вообще (лишнее обрезается и доступно двигом).
         float fit = m->viewW / (float)kMapW;
         float fitH = m->viewH / (float)kMapH;
-        if (fitH < fit)
+        if (fitH > fit)
             fit = fitH;
         m->baseScale = fit;
         m->scale = fit * kZoomSteps[m->zoomIdx];
@@ -348,12 +375,16 @@ void HorizonUI::buildMap(void)
     }
 
     clearScreen(Screen::MAP); // сносит виджеты (mapDropWidgets), буферы целы
+    addStatusBar(scr);
 
+    // Окно вида под статусбаром. Нулевые отступы обязательны: тапы и маркеры
+    // считаются от начала картинки, любой pad темы даст сдвиг.
     lv_obj_t *box = lv_obj_create(scr);
-    lv_obj_set_pos(box, 0, 0);
+    lv_obj_set_pos(box, 0, m->viewY);
     lv_obj_set_size(box, m->viewW, m->viewH);
     lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(box, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(box, 0, LV_PART_MAIN);
     lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
 
     m->img = lv_image_create(box);
@@ -371,6 +402,7 @@ void HorizonUI::buildMap(void)
     lv_obj_set_size(m->markers, m->viewW, m->viewH);
     lv_obj_set_style_bg_opa(m->markers, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(m->markers, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(m->markers, 0, LV_PART_MAIN); // точки ровно на местах
     lv_obj_remove_flag(m->markers, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(m->markers, LV_OBJ_FLAG_CLICKABLE); // тапы проваливаются к виду
 
@@ -386,31 +418,33 @@ void HorizonUI::buildMap(void)
     lv_obj_remove_flag(m->tag, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(m->tag, LV_OBJ_FLAG_HIDDEN);
 
-    // Ряд кнопок у левой стенки: назад, фильтры, лупа «+»/«−».
+    // Кнопки: «Назад» слева сверху, «Фильтры» справа сверху, лупа слева посередине.
     lv_obj_t *back = lv_btn_create(box);
     HorizonTheme::styleButton(back, true);
-    lv_obj_set_size(back, 44, 32);
+    lv_obj_set_size(back, 64, 32);
     lv_obj_set_pos(back, 4, 4);
     lv_obj_t *bl = lv_label_create(back);
-    lv_label_set_text(bl, "<");
-    lv_obj_set_style_text_font(bl, HorizonTheme::fontBig(), LV_PART_MAIN);
+    lv_label_set_text(bl, "Назад");
+    lv_obj_set_style_text_font(bl, HorizonTheme::fontSmall(), LV_PART_MAIN);
     lv_obj_center(bl);
     lv_obj_add_event_cb(back, cbBack, LV_EVENT_CLICKED, this);
 
     lv_obj_t *flt = lv_btn_create(box);
     HorizonTheme::styleButton(flt, true);
     lv_obj_set_size(flt, 72, 32);
-    lv_obj_set_pos(flt, 4, 40);
+    lv_obj_set_pos(flt, W() - 76, 4);
     lv_obj_t *fl = lv_label_create(flt);
     lv_label_set_text(fl, "Фильтры");
     lv_obj_set_style_text_font(fl, HorizonTheme::fontSmall(), LV_PART_MAIN);
     lv_obj_center(fl);
     lv_obj_add_event_cb(flt, cbMapFilter, LV_EVENT_CLICKED, this);
 
+    // Лупа - слева посередине вида.
+    int midY = m->viewH / 2;
     m->zin = lv_btn_create(box);
     HorizonTheme::styleButton(m->zin, true);
     lv_obj_set_size(m->zin, 44, 40);
-    lv_obj_set_pos(m->zin, 4, 76);
+    lv_obj_set_pos(m->zin, 4, midY - 42);
     lv_obj_t *zl2 = lv_label_create(m->zin);
     lv_label_set_text(zl2, "+");
     lv_obj_set_style_text_font(zl2, HorizonTheme::fontBig(), LV_PART_MAIN);
@@ -422,7 +456,7 @@ void HorizonUI::buildMap(void)
     m->zout = lv_btn_create(box);
     HorizonTheme::styleButton(m->zout, true);
     lv_obj_set_size(m->zout, 44, 40);
-    lv_obj_set_pos(m->zout, 4, 120);
+    lv_obj_set_pos(m->zout, 4, midY + 2);
     lv_obj_t *zl1 = lv_label_create(m->zout);
     lv_label_set_text(zl1, "-");
     lv_obj_set_style_text_font(zl1, HorizonTheme::fontBig(), LV_PART_MAIN);
@@ -534,6 +568,7 @@ void HorizonUI::mapOpenPopup(const char *id)
     lv_obj_set_width(card, W() - 60);
     lv_obj_set_height(card, LV_SIZE_CONTENT);
     lv_obj_set_style_min_height(card, 120, LV_PART_MAIN);
+    lv_obj_set_style_max_height(card, m->viewH - 16, LV_PART_MAIN); // длинный комментарий прокручивается
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(card, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_row(card, 4, LV_PART_MAIN);
@@ -542,28 +577,11 @@ void HorizonUI::mapOpenPopup(const char *id)
     lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE); // тапы гаснут в карточке
     lv_obj_align(card, LV_ALIGN_CENTER, 0, 8);
 
-    // Шапка: цветная точка + «тип · имя».
-    lv_obj_t *head = lv_obj_create(card);
-    lv_obj_set_width(head, lv_pct(100));
-    lv_obj_set_height(head, 24);
-    lv_obj_set_style_bg_opa(head, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(head, 0, LV_PART_MAIN);
-    lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(head, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(head, 6, LV_PART_MAIN);
-    lv_obj_remove_flag(head, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *dot = lv_obj_create(head);
-    lv_obj_set_size(dot, 14, 14);
-    uint32_t col = kPoiColors[p->type < HZ_POI_COUNT ? p->type : 0];
-    lv_obj_set_style_bg_color(dot, hzColor(col), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(dot, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(dot, 7, LV_PART_MAIN);
-    lv_obj_t *nm = lv_label_create(head);
-    lv_label_set_text_fmt(nm, "%s · %s", kPoiTypes[p->type < kPoiTypeCount ? p->type : 0],
-                          p->name.c_str());
+    // Только название точки (тип и точку-маркер не пишем).
+    lv_obj_t *nm = lv_label_create(card);
+    lv_label_set_text(nm, p->name.c_str());
     lv_obj_set_style_text_font(nm, HorizonTheme::fontMedium(), LV_PART_MAIN);
-    lv_obj_set_flex_grow(nm, 1);
+    lv_obj_set_width(nm, lv_pct(100));
     lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
 
     lv_obj_t *snd = lv_label_create(card);
@@ -582,11 +600,12 @@ void HorizonUI::mapOpenPopup(const char *id)
 
     lv_obj_t *row = lv_obj_create(card);
     lv_obj_set_width(row, lv_pct(100));
-    lv_obj_set_height(row, 44);
+    lv_obj_set_height(row, 40);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(row, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_column(row, 4, LV_PART_MAIN);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     // Кнопки: закрыть всегда; править - свои; удалить - свои или мастер.
     int order[3];
@@ -604,9 +623,10 @@ void HorizonUI::mapOpenPopup(const char *id)
         else
             HorizonTheme::styleButton(b, bid == 1);
         lv_obj_set_flex_grow(b, 1);
-        lv_obj_set_height(b, 40);
+        lv_obj_set_height(b, 36);
         lv_obj_t *bl = lv_label_create(b);
         lv_label_set_text(bl, bid == 0 ? "Закрыть" : (bid == 1 ? "Править" : "Удалить"));
+        lv_obj_set_style_text_font(bl, HorizonTheme::fontSmall(), LV_PART_MAIN);
         lv_obj_center(bl);
         lv_obj_set_user_data(b, (void *)(intptr_t)bid);
         lv_obj_add_event_cb(b, cbMapPopup, LV_EVENT_CLICKED, this);
@@ -634,6 +654,38 @@ void HorizonUI::buildMapForm(void)
     addStatusBar(scr);
     addNavHeader(scr, editing ? "Точка: правка" : "Новая точка", nullptr);
 
+    // Значения: черновик (возврат с выбора контакта) > точка (правка) > дефолты.
+    const char *vName = "";
+    const char *vComment = "";
+    uint8_t vType = 0, vVis = 0, vDest = 0;
+    if (m->formDraft) {
+        vName = m->draftName;
+        vComment = m->draftComment;
+        vType = m->draftType;
+        vVis = m->draftVis;
+        vDest = m->draftDest;
+    } else if (cur) {
+        mapPickPeer = 0;
+        vName = cur->name.c_str();
+        vComment = cur->comment.c_str();
+        vType = cur->type;
+        vVis = cur->shared ? 0 : 1;
+        if (cur->dmPeer) {
+            vDest = 2;
+            mapPickPeer = cur->dmPeer;
+        } else {
+            vDest = (cur->ch == cfg.groupCh && cfg.groupCh != cfg.generalCh) ? 1 : 0;
+        }
+    } else {
+        mapPickPeer = 0;
+    }
+    if (vType >= HZ_POI_COUNT)
+        vType = 0;
+    if (vVis > 1)
+        vVis = 0;
+    if (vDest > 2)
+        vDest = 0;
+
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
     lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 56);
@@ -648,8 +700,8 @@ void HorizonUI::buildMapForm(void)
     HorizonTheme::styleField(m->formName);
     lv_textarea_set_one_line(m->formName, true);
     lv_textarea_set_max_length(m->formName, 20);
-    if (cur)
-        lv_textarea_set_text(m->formName, cur->name.c_str());
+    if (*vName)
+        lv_textarea_set_text(m->formName, vName);
     else
         lv_textarea_set_placeholder_text(m->formName, "Например: Бар");
     lv_obj_set_width(m->formName, lv_pct(100));
@@ -669,7 +721,7 @@ void HorizonUI::buildMapForm(void)
         }
         lv_dropdown_set_options(m->formType, opts);
     }
-    lv_dropdown_set_selected(m->formType, cur ? cur->type : 0);
+    lv_dropdown_set_selected(m->formType, vType);
     lv_obj_set_width(m->formType, lv_pct(100));
     styleDropdownListLocal(m->formType);
 
@@ -678,8 +730,8 @@ void HorizonUI::buildMapForm(void)
     HorizonTheme::styleField(m->formComment);
     lv_textarea_set_one_line(m->formComment, false);
     lv_textarea_set_max_length(m->formComment, 150);
-    if (cur)
-        lv_textarea_set_text(m->formComment, cur->comment.c_str());
+    if (*vComment)
+        lv_textarea_set_text(m->formComment, vComment);
     else
         lv_textarea_set_placeholder_text(m->formComment, "Что здесь?");
     lv_obj_set_width(m->formComment, lv_pct(100));
@@ -688,35 +740,45 @@ void HorizonUI::buildMapForm(void)
     lv_obj_add_event_cb(m->formComment, cbInputFocus, LV_EVENT_DEFOCUSED, this);
 
     sectionLabel(body, "Видимость");
-    lv_obj_t *shrow = lv_obj_create(body);
-    HorizonTheme::stylePanel(shrow);
-    lv_obj_set_width(shrow, lv_pct(100));
-    lv_obj_set_height(shrow, 52);
-    lv_obj_set_flex_flow(shrow, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(shrow, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_all(shrow, 8, LV_PART_MAIN);
-    lv_obj_remove_flag(shrow, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *sht = lv_label_create(shrow);
-    lv_label_set_text(sht, "Общая (видно всем)");
-    m->formShared = lv_switch_create(shrow);
-    bool shared = cur ? cur->shared : true;
-    if (shared)
-        lv_obj_add_state(m->formShared, LV_STATE_CHECKED);
-    lv_obj_add_event_cb(m->formShared, cbMapVis, LV_EVENT_VALUE_CHANGED, this);
+    m->formVis = lv_dropdown_create(body);
+    HorizonTheme::styleField(m->formVis);
+    lv_dropdown_set_options(m->formVis, "Публичная\nЧастная");
+    lv_dropdown_set_selected(m->formVis, vVis);
+    lv_obj_set_width(m->formVis, lv_pct(100));
+    styleDropdownListLocal(m->formVis);
 
-    m->formChRow = lv_obj_create(body);
-    lv_obj_set_width(m->formChRow, lv_pct(100));
-    lv_obj_set_height(m->formChRow, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(m->formChRow, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(m->formChRow, 0, LV_PART_MAIN);
-    lv_obj_set_flex_flow(m->formChRow, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(m->formChRow, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(m->formChRow, 4, LV_PART_MAIN);
-    sectionLabel(m->formChRow, "Канал для общей точки");
-    m->formCh = channelDropdown(m->formChRow, cur ? cur->ch : cfg.generalCh);
-    if (!shared)
-        lv_obj_add_flag(m->formChRow, LV_OBJ_FLAG_HIDDEN);
+    // Строка назначения (видна только для публичной).
+    m->formDestRow = lv_obj_create(body);
+    lv_obj_set_width(m->formDestRow, lv_pct(100));
+    lv_obj_set_height(m->formDestRow, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(m->formDestRow, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(m->formDestRow, 0, LV_PART_MAIN);
+    lv_obj_set_flex_flow(m->formDestRow, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(m->formDestRow, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(m->formDestRow, 4, LV_PART_MAIN);
+    sectionLabel(m->formDestRow, "Кому видна точка");
+    m->formDest = lv_dropdown_create(m->formDestRow);
+    HorizonTheme::styleField(m->formDest);
+    lv_dropdown_set_options(m->formDest, "Общая\nГруппировка\nОтправить контакту");
+    lv_dropdown_set_selected(m->formDest, vDest);
+    lv_obj_set_width(m->formDest, lv_pct(100));
+    styleDropdownListLocal(m->formDest);
+
+    // Строка выбора контакта (видна только для «Отправить контакту»).
+    m->formPeerRow = lv_btn_create(body);
+    HorizonTheme::styleButton(m->formPeerRow, false);
+    lv_obj_set_width(m->formPeerRow, lv_pct(100));
+    lv_obj_set_height(m->formPeerRow, 44);
+    m->formPeerLabel = lv_label_create(m->formPeerRow);
+    lv_obj_set_style_text_font(m->formPeerLabel, HorizonTheme::fontNormal(), LV_PART_MAIN);
+    lv_obj_align(m->formPeerLabel, LV_ALIGN_LEFT_MID, 8, 0);
+    lv_obj_add_event_cb(m->formPeerRow, cbMapPeerPick, LV_EVENT_CLICKED, this);
+
+    // Начальное состояние строк - против значений, чтобы синхронизация применила.
+    m->destRowShown = (vVis != 0);
+    m->peerRowShown = (vVis != 0 || vDest != 2);
+    m->formPeerShown = 0xFFFFFFFFu;
+    mapSyncFormRows();
 
     lv_obj_t *row = lv_obj_create(scr);
     lv_obj_set_size(row, lv_pct(100), 52);
@@ -769,11 +831,30 @@ void HorizonUI::mapSaveForm(void)
     uint8_t type = m->formType ? (uint8_t)lv_dropdown_get_selected(m->formType) : 0;
     if (type >= HZ_POI_COUNT)
         type = 0;
-    bool shared = m->formShared ? lv_obj_has_state(m->formShared, LV_STATE_CHECKED) : true;
+    uint8_t vis = m->formVis ? (uint8_t)lv_dropdown_get_selected(m->formVis) : 0;
+    if (vis > 1)
+        vis = 0;
+    bool shared = (vis == 0);
     HorizonConfig &cfg = HorizonConfig::instance();
-    uint8_t ch = m->formCh ? (uint8_t)lv_dropdown_get_selected(m->formCh) : cfg.generalCh;
-    if (ch > 7)
-        ch = cfg.generalCh;
+    uint8_t dest = m->formDest ? (uint8_t)lv_dropdown_get_selected(m->formDest) : 0;
+    if (dest > 2)
+        dest = 0;
+    uint32_t peer = (shared && dest == 2) ? mapPickPeer : 0;
+    if (shared && dest == 2 && (!peer || peer == 0xFFFFFFFFu)) {
+        toast("Выбери контакт");
+        return;
+    }
+    uint8_t ch = cfg.generalCh;
+    if (shared && dest == 1)
+        ch = cfg.groupCh;
+    else if (peer)
+        ch = view->mapDmChannel(peer);
+    // Отправка общей точки: в канал или в личку.
+    auto sendShared = [&](HzPoi &e) -> bool {
+        if (e.dmPeer)
+            return view->mapSendPointDm(e, e.dmPeer);
+        return view->mapSendPoint(e);
+    };
     char name[96], comment[640], sender[96];
     hzUtf8Trunc(name, sizeof(name), nm, HzMapStore::kMaxNameChars);
     hzUtf8Trunc(comment, sizeof(comment), cm, HzMapStore::kMaxCommentChars);
@@ -792,6 +873,7 @@ void HorizonUI::mapSaveForm(void)
         }
         bool wasShared = e->shared;
         uint8_t oldCh = e->ch;
+        uint32_t oldPeer = e->dmPeer;
         // Смена пула: места считаем без себя (точка пока в другом пуле).
         if (shared != wasShared) {
             if (shared && st.sharedCount() >= HzMapStore::kMaxShared) {
@@ -809,17 +891,25 @@ void HorizonUI::mapSaveForm(void)
         e->sender = sender;
         e->shared = shared;
         e->ch = ch;
+        e->dmPeer = peer;
         st.saveMy();
+        bool destChanged = (peer != oldPeer) || (!peer && ch != oldCh);
+        if (wasShared && (!shared || destChanged)) {
+            if (oldPeer)
+                view->mapSendDeleteDm(e->id, oldPeer); // убрать DM-копию у пира
+            else
+                view->mapSendDelete(e->id, oldCh); // убрать копии из эфира
+        }
         if (shared) {
-            if (!view->mapSendPoint(*e))
+            if (!sendShared(*e))
                 toast("Нет связи");
             else
                 toast("Сохранено");
         } else {
-            if (wasShared)
-                view->mapSendDelete(e->id, oldCh); // убрать копии из эфира
             toast("Сохранено");
         }
+        m->formDraft = false;
+        mapPickPeer = 0;
         showMap();
         return;
     }
@@ -837,15 +927,18 @@ void HorizonUI::mapSaveForm(void)
     p.comment = comment;
     p.shared = shared;
     p.ch = ch;
+    p.dmPeer = peer;
     if (!st.addMy(p)) {
         toast("Нет места для точек");
         return;
     }
     st.saveMy();
-    if (shared && !view->mapSendPoint(p))
+    if (shared && !sendShared(p))
         toast("Нет связи"); // точка сохранена локально, в эфир не ушла
     else
         toast("Точка создана");
+    m->formDraft = false;
+    mapPickPeer = 0;
     showMap();
 }
 
@@ -863,8 +956,13 @@ void HorizonUI::cbMapTouch(lv_event_t *e)
         return;
     lv_point_t pt;
     lv_indev_get_point(indev, &pt);
-    int lx = pt.x; // вид - на всю ширину с x=0
-    int ly = pt.y - m->viewY;
+    if (!m->img || !lv_obj_is_valid(m->img))
+        return;
+    // Начало вида - от самой картинки (переживёт любые отступы темы).
+    lv_area_t crd;
+    lv_obj_get_coords(m->img, &crd);
+    int lx = pt.x - crd.x1;
+    int ly = pt.y - crd.y1;
     if (code == LV_EVENT_PRESSED) {
         m->down = true;
         m->lastX = lx;
@@ -951,18 +1049,6 @@ void HorizonUI::cbMapPopup(lv_event_t *e)
     }
 }
 
-void HorizonUI::cbMapVis(lv_event_t *e)
-{
-    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    if (!self->mapUi || !self->mapUi->formChRow || !lv_obj_is_valid(self->mapUi->formChRow))
-        return;
-    lv_obj_t *sw = (lv_obj_t *)lv_event_get_current_target(e);
-    if (lv_obj_has_state(sw, LV_STATE_CHECKED))
-        lv_obj_remove_flag(self->mapUi->formChRow, LV_OBJ_FLAG_HIDDEN);
-    else
-        lv_obj_add_flag(self->mapUi->formChRow, LV_OBJ_FLAG_HIDDEN);
-}
-
 void HorizonUI::cbMapFormSave(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
@@ -1021,7 +1107,8 @@ void HorizonUI::mapToggleFilter(void)
         lv_obj_add_flag(m->filterPanel, LV_OBJ_FLAG_HIDDEN);
 }
 
-// Панель фильтров слева (перестраивается заново при каждом открытии/тыке).
+// Панель фильтров справа под кнопкой. Прокрутка нужна, чтобы все 7 строк
+// и «Сбросить все» помещались даже на невысоком экране.
 void HorizonUI::mapBuildFilterPanel(void)
 {
     HzMapUi *m = mapUi;
@@ -1050,8 +1137,8 @@ void HorizonUI::mapBuildFilterPanel(void)
 
     lv_obj_t *panel = lv_obj_create(scr);
     HorizonTheme::stylePanel(panel);
-    lv_obj_set_pos(panel, 76, 0);
-    lv_obj_set_size(panel, 200, H());
+    lv_obj_set_pos(panel, W() - 204, m->viewY + 38);
+    lv_obj_set_size(panel, 200, m->viewH - 42);
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(panel, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_row(panel, 4, LV_PART_MAIN);
@@ -1117,9 +1204,88 @@ void HorizonUI::cbMapFilterRow(lv_event_t *e)
         m->fPriv = !m->fPriv;
     else
         return;
-    self->mapBuildFilterPanel(); // галочки сразу + свежие счётчики
+    // Не удалять панель вместе с нажатой кнопкой внутри её callback:
+    // LVGL всё ещё обрабатывает событие на этом объекте.
+    lv_obj_t *btn = (lv_obj_t *)lv_event_get_current_target(e);
+    lv_obj_t *label = lv_obj_get_child(btn, 0);
+    if (label) {
+        bool on = id < 5 ? m->fType[id] : (id == 5 ? m->fShared : m->fPriv);
+        int count = 0;
+        HzMapStore &st = self->view->getMapStore();
+        const std::vector<HzPoi> *pools[3] = {&st.baked(), &st.net(), &st.my()};
+        for (int i = 0; i < 3; i++)
+            for (const HzPoi &p : *pools[i])
+                if (!(i == 0 && st.isTombstoned(p.id)) && (id < 5 ? p.type == id : p.shared == (id == 5)))
+                    count++;
+        lv_label_set_text_fmt(label, "%s %s (%d)", on ? "[x]" : "[ ]",
+                              id < 5 ? kPoiTypes[id] : (id == 5 ? "Общие" : "Личные"), count);
+    }
     self->mapRefreshMarkers();
     self->mapPlaceTag();
+}
+
+// Строки формы следуют за списками (дёргается из tick раз в 200 мс).
+void HorizonUI::mapSyncFormRows(void)
+{
+    HzMapUi *m = mapUi;
+    if (!m || current != Screen::MAP_FORM)
+        return;
+    if (!m->formVis || !lv_obj_is_valid(m->formVis))
+        return;
+    uint8_t vis = (uint8_t)lv_dropdown_get_selected(m->formVis);
+    uint8_t dest = m->formDest && lv_obj_is_valid(m->formDest)
+                       ? (uint8_t)lv_dropdown_get_selected(m->formDest)
+                       : 0;
+    bool wantDest = (vis == 0);
+    bool wantPeer = (vis == 0 && dest == 2);
+    if (wantDest != m->destRowShown && m->formDestRow && lv_obj_is_valid(m->formDestRow)) {
+        m->destRowShown = wantDest;
+        if (wantDest)
+            lv_obj_remove_flag(m->formDestRow, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(m->formDestRow, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (wantPeer != m->peerRowShown && m->formPeerRow && lv_obj_is_valid(m->formPeerRow)) {
+        m->peerRowShown = wantPeer;
+        if (wantPeer)
+            lv_obj_remove_flag(m->formPeerRow, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(m->formPeerRow, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (mapPickPeer != m->formPeerShown && m->formPeerLabel && lv_obj_is_valid(m->formPeerLabel)) {
+        m->formPeerShown = mapPickPeer;
+        char cap[80];
+        if (mapPickPeer)
+            snprintf(cap, sizeof(cap), "Контакт: %s", view->displayName(mapPickPeer));
+        else
+            snprintf(cap, sizeof(cap), "Выбрать контакт...");
+        lv_label_set_text(m->formPeerLabel, cap);
+    }
+}
+
+// Строка контакта: сохранить черновик и открыть выбор.
+void HorizonUI::cbMapPeerPick(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    HzMapUi *m = self->mapUi;
+    if (!m)
+        return;
+    const char *nm = m->formName ? lv_textarea_get_text(m->formName) : "";
+    const char *cm = m->formComment ? lv_textarea_get_text(m->formComment) : "";
+    hzUtf8Trunc(m->draftName, sizeof(m->draftName), nm ? nm : "", HzMapStore::kMaxNameChars);
+    hzUtf8Trunc(m->draftComment, sizeof(m->draftComment), cm ? cm : "", HzMapStore::kMaxCommentChars);
+    m->draftType = m->formType ? (uint8_t)lv_dropdown_get_selected(m->formType) : 0;
+    m->draftVis = m->formVis ? (uint8_t)lv_dropdown_get_selected(m->formVis) : 0;
+    m->draftDest = m->formDest ? (uint8_t)lv_dropdown_get_selected(m->formDest) : 0;
+    if (m->draftType >= HZ_POI_COUNT)
+        m->draftType = 0;
+    if (m->draftVis > 1)
+        m->draftVis = 0;
+    if (m->draftDest > 2)
+        m->draftDest = 0;
+    m->formDraft = true;
+    self->mapPickMode = true;
+    self->buildContacts();
 }
 
 void HorizonUI::cbMapFilterReset(lv_event_t *e)
@@ -1132,7 +1298,23 @@ void HorizonUI::cbMapFilterReset(lv_event_t *e)
         m->fType[i] = true;
     m->fShared = true;
     m->fPriv = true;
-    self->mapBuildFilterPanel();
+    // Не удалять панель во время обработки нажатия на кнопку сброса.
+    if (m->filterPanel && lv_obj_is_valid(m->filterPanel)) {
+        for (int i = 0; i < 7; i++) {
+            lv_obj_t *btn = lv_obj_get_child(m->filterPanel, i + 1); // 0 = заголовок
+            if (!btn)
+                continue;
+            lv_obj_t *label = lv_obj_get_child(btn, 0);
+            if (!label)
+                continue;
+            const char *old = lv_label_get_text(label);
+            const char *count = old ? strrchr(old, '(') : nullptr;
+            char cap[96];
+            snprintf(cap, sizeof(cap), "[x] %s %s", i < 5 ? kPoiTypes[i] : (i == 5 ? "Общие" : "Личные"),
+                     count ? count : "(0)");
+            lv_label_set_text(label, cap);
+        }
+    }
     self->mapRefreshMarkers();
     self->mapPlaceTag();
 }

@@ -126,6 +126,8 @@ class HorizonUI
     // Фильтр списка: 0 - все, 1 - в сети, 2 - избранное.
     uint8_t contactsFilter = 0;
     uint32_t cardNode = 0; // узел, открытый в карточке контакта
+    bool mapPickMode = false;  // контакты открыты выбором получателя точки
+    uint32_t mapPickPeer = 0;  // выбранный получатель (форма точки)
     void buildContacts(void);
     void rebuildContactsList(void);
     void showContactCard(uint32_t node);
@@ -245,6 +247,7 @@ class HorizonUI
     void mapOpenPopup(const char *id);
     void mapClosePopup(void);
     void mapSaveForm(void);
+    void mapSyncFormRows(void); // строки формы следуют за списками (из tick)
     void mapPlaceTag(void); // бирка с именем выбранной точки
     void mapToggleFilter(void);
     void mapBuildFilterPanel(void);
@@ -358,8 +361,8 @@ class HorizonUI
     static void cbMapTouch(lv_event_t *e);
     static void cbMapZoom(lv_event_t *e);
     static void cbMapPopup(lv_event_t *e);
-    static void cbMapVis(lv_event_t *e);
     static void cbMapFormSave(lv_event_t *e);
+    static void cbMapPeerPick(lv_event_t *e); // строка контакта: выбор получателя
     static void cbMapFilter(lv_event_t *e);
     static void cbMapFilterRow(lv_event_t *e);
     static void cbMapFilterReset(lv_event_t *e);

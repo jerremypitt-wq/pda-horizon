@@ -16,5 +16,8 @@
 class DisplayDriver;
 
 DisplayDriver *horizonCreateDisplayDriver(uint16_t width, uint16_t height);
+// Только для Elecrow: на экране карты временно альбомная ориентация,
+// остальные экраны возвращаются к ориентации из настроек.
+void horizonSetMapLandscape(DisplayDriver *driver, bool enabled);
 
 #endif // HORIZON_UI

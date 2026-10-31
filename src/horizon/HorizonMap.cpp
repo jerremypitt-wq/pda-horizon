@@ -52,14 +52,15 @@ bool parseU(const char *s, uint32_t &out)
     return true;
 }
 
-// mode: 0 - запечённые (7 полей), 1 - свои (9: +shared|ch), 2 - принятые (8: +ch).
+// mode: 0 - запечённые (7 полей), 1 - свои (10: +shared|ch|peer;
+// старые 9 полей читаются), 2 - принятые (8: +ch).
 bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
 {
     File f = mapFs.open(path, "r");
     if (!f)
         return false;
     char line[1024]; // своя строка: коммент 600 + имя/позывной + поля
-    size_t want = mode == 1 ? 9 : (mode == 2 ? 8 : 7);
+    size_t want = mode == 1 ? 10 : (mode == 2 ? 8 : 7);
     size_t bad = 0;
     while (f.available()) {
         size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
@@ -68,19 +69,22 @@ bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
             line[--n] = '\0';
         if (!line[0])
             continue;
-        char *fld[9] = {nullptr};
-        if (splitFields(line, fld, want) != want) {
+        char *fld[10] = {nullptr};
+        size_t nf = splitFields(line, fld, want);
+        // Свои: 9 полей (прошивки ≤1.8.1) или 10 (+peer); остальные - строго.
+        if (mode == 1 ? (nf != 9 && nf != 10) : nf != want) {
             bad++;
             continue;
         }
-        uint32_t type = 0, x = 0, y = 0, shared = 1, ch = 0;
+        uint32_t type = 0, x = 0, y = 0, shared = 1, ch = 0, peer = 0;
         if (!hzPoiIdOk(fld[0]) || !parseU(fld[1], type) || type > 4 || !parseU(fld[3], x) || x > 1000 ||
             !parseU(fld[4], y) || y > 1000 || strlen(fld[2]) == 0 || strlen(fld[2]) > 128 ||
             strlen(fld[5]) > 96 || strlen(fld[6]) > 768) {
             bad++;
             continue;
         }
-        if (mode == 1 && (!parseU(fld[7], shared) || shared > 1 || !parseU(fld[8], ch) || ch > 7)) {
+        if (mode == 1 && (!parseU(fld[7], shared) || shared > 1 || !parseU(fld[8], ch) || ch > 7 ||
+                          (nf == 10 && !parseU(fld[9], peer)))) {
             bad++;
             continue;
         }
@@ -98,6 +102,7 @@ bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
         p.comment = fld[6];
         p.shared = mode == 1 ? (shared != 0) : true;
         p.ch = mode == 0 ? 0xFF : (uint8_t)ch; // у запечённых канала нет (удаление - в общий)
+        p.dmPeer = mode == 1 ? peer : 0;
         out.push_back(p);
     }
     f.close();
@@ -118,7 +123,7 @@ void saveCsv(const char *path, const std::vector<HzPoi> &v, int mode)
         f.printf("%s|%u|%s|%u|%u|%s|%s", p.id, p.type, p.name.c_str(), p.x, p.y, p.sender.c_str(),
                  p.comment.c_str());
         if (mode == 1)
-            f.printf("|%u|%u", p.shared ? 1 : 0, p.ch);
+            f.printf("|%u|%u|%u", p.shared ? 1 : 0, p.ch, (unsigned)p.dmPeer);
         else if (mode == 2)
             f.printf("|%u", p.ch);
         f.printf("\n");

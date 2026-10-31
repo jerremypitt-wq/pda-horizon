@@ -303,7 +303,7 @@ void HorizonUI::buildContacts(void)
 {
     clearScreen(Screen::CONTACTS);
     addStatusBar(scr);
-    addNavHeader(scr, "Контакты", "На связи (10 мин) · ★ всегда");
+    addNavHeader(scr, "Контакты", mapPickMode ? "Кому отправить точку" : "На связи (10 мин) · ★ всегда");
 
     // Фильтр
     lv_obj_t *frow = lv_obj_create(scr);
@@ -513,6 +513,12 @@ void HorizonUI::cbContact(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     uint32_t id = (uint32_t)(uintptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
+    if (self->mapPickMode) {
+        self->mapPickPeer = id;
+        self->mapPickMode = false;
+        self->buildMapForm(); // черновик + выбранный контакт
+        return;
+    }
     self->showContactCard(id);
 }
 
@@ -521,6 +527,12 @@ void HorizonUI::cbContactGo(lv_event_t *e)
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     lv_event_stop_bubbling(e); // строка тоже кликабельна - не открывать карточку дважды
     uint32_t id = (uint32_t)(uintptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
+    if (self->mapPickMode) {
+        self->mapPickPeer = id;
+        self->mapPickMode = false;
+        self->buildMapForm(); // черновик + выбранный контакт
+        return;
+    }
     self->showContactCard(id);
 }
 

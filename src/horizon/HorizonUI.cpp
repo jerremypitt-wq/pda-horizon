@@ -4,6 +4,7 @@
 
 #include "horizon/HorizonUI.h"
 #include "horizon/HorizonConfig.h"
+#include "horizon/HorizonDisplay.h"
 #include "horizon/HorizonLogo.h"
 #include "horizon/HorizonStrings.h"
 #include "horizon/HorizonTheme.h"
@@ -102,8 +103,14 @@ void HorizonUI::clearScreen(Screen s)
     kbdSuppressClick = false;
     // Карта: виджеты умерли со старым экраном всегда, а буферы живут между MAP и MAP_FORM.
     mapDropWidgets();
-    if (s != Screen::MAP && s != Screen::MAP_FORM)
+    // При выборе получателя открываем экран контактов, но черновик формы
+    // и буферы карты должны пережить переход туда и обратно.
+    if (s != Screen::MAP && s != Screen::MAP_FORM && !(s == Screen::CONTACTS && mapPickMode))
         mapCleanup();
+    // После карты экран формы/контактов/меню возвращается к настройке ПДА.
+    // Это же срабатывает при ошибке чтения файла карты до создания экрана MAP.
+    if (s != Screen::MAP)
+        horizonSetMapLandscape(view->getDisplayDriver(), false);
 
     current = s;
     lv_obj_t *old = scr;
@@ -522,10 +529,10 @@ namespace {
 // Широкая клавиша пишется дубликатами подряд и склеивается (см. kbdSetLayout).
 // Служебные клавиши - все в нижнем ряду: переключатель раскладки, "Aa",
 // "123"/"АБВ", пробел, знаки, справа "<<" (стереть). "Aa" - Shift разового
-// действия, двойной тап - CapsLock. Кнопки OK нет: клавиатура убирается
-// тапом мимо поля ввода. RU - ЙЦУКЕН; "х", "ю" - в третьем ряду, десяток
-// добирает "э"; запятая - в нижнем ряду рядом с "<<". Свободные клетки
-// EN/NUM отданы знакам препинания.
+// действия, двойной тап - CapsLock. В обычных экранах клавиатура убирается
+// тапом мимо поля ввода. В форме карты RU/EN/NUM получают кнопку OK.
+// RU - ЙЦУКЕН; "х", "ю" - в третьем ряду, десяток добирает "э";
+// в обычных экранах запятая - в нижнем ряду рядом с "<<".
 const char *const kKbdEn[] = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", //
                               "a", "s", "d", "f", "g", "h", "j", "k", "l", "m", //
                               "'", "z", "x", "c", "v", "b", "n", "-", "?", "!", //
@@ -546,6 +553,15 @@ const char *const kKbdNum[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
                                "-", "/", ":", ";", "(", ")", "+", "=", "*", "_", //
                                ",", "?", "!", ".", "@", "#", "%", "'", "\"", "\\", //
                                "АБВ", "$", "&", " ", " ", " ", " ", " ", "^", "<<"};
+// Карта (MAP_FORM): запятой нет, вместо неё OK (прячет клавиатуру).
+const char *const kKbdRuMap[] = {"й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", //
+                                 "ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", //
+                                 "я", "ч", "с", "м", "и", "т", "б", "ю", "х", "э", //
+                                 "EN", "Aa", "123", " ", " ", " ", " ", "ь", "OK", "<<"};
+const char *const kKbdRuShiftMap[] = {"Й", "Ц", "У", "К", "Е", "Н", "Г", "Ш", "Щ", "З", //
+                                      "Ф", "Ы", "В", "А", "П", "Р", "О", "Л", "Д", "Ж", //
+                                      "Я", "Ч", "С", "М", "И", "Т", "Б", "Ю", "Х", "Э", //
+                                      "EN", "Aa", "123", " ", " ", " ", " ", "Ь", "OK", "<<"};
 constexpr int kKbdCols = 10;
 constexpr int kKbdRows = 4;
 static_assert(sizeof(kKbdEn) / sizeof(kKbdEn[0]) == (size_t)(kKbdCols * kKbdRows), "EN map size");
@@ -555,6 +571,10 @@ static_assert(sizeof(kKbdRu) / sizeof(kKbdRu[0]) == (size_t)(kKbdCols * kKbdRows
 static_assert(sizeof(kKbdRuShift) / sizeof(kKbdRuShift[0]) == (size_t)(kKbdCols * kKbdRows),
               "RU-shift map size");
 static_assert(sizeof(kKbdNum) / sizeof(kKbdNum[0]) == (size_t)(kKbdCols * kKbdRows), "NUM map size");
+static_assert(sizeof(kKbdRuMap) / sizeof(kKbdRuMap[0]) == (size_t)(kKbdCols * kKbdRows),
+              "RU map size");
+static_assert(sizeof(kKbdRuShiftMap) / sizeof(kKbdRuShiftMap[0]) == (size_t)(kKbdCols * kKbdRows),
+              "RU shift map size");
 // Долгое нажатие: альтернативная буква (ё/ъ не влезли в сетку 10x4).
 const char *kbdLongAlt(const char *key)
 {
@@ -623,9 +643,11 @@ void HorizonUI::kbdSetLayout(uint8_t layout)
     if (!kbd || !lv_obj_is_valid(kbd))
         return;
     lv_obj_clean(kbd);
+    // В форме точки - своя кириллица: без запятой, с кнопкой OK.
+    bool mapMode = (current == Screen::MAP_FORM);
     const char *const *map = kKbdEn;
     if (kbdLayout == 1)
-        map = kbdShift ? kKbdRuShift : kKbdRu;
+        map = mapMode ? (kbdShift ? kKbdRuShiftMap : kKbdRuMap) : (kbdShift ? kKbdRuShift : kKbdRu);
     else if (kbdLayout == 2)
         map = kKbdNum; // у цифр Shift нет
     else if (kbdShift)
@@ -649,6 +671,9 @@ void HorizonUI::kbdSetLayout(uint8_t layout)
     int cells = kKbdCols * kKbdRows;
     for (int i = 0; i < cells; i++) {
         const char *key = map[i];
+        // В форме точки OK остаётся на месте и при смене раскладки на EN/123.
+        if (mapMode && ((kbdLayout == 0 && i == 37) || (kbdLayout == 2 && i == 38)))
+            key = "OK";
         if (!key || !*key)
             continue;
         bool wide = !strcmp(key, " ");
@@ -663,7 +688,8 @@ void HorizonUI::kbdSetLayout(uint8_t layout)
         // Служебные клавиши - акцентным цветом, как раньше OK. Взведённый
         // Shift виден сам по себе: вся сетка показывает заглавные.
         bool service = wide || !strcmp(key, "123") || !strcmp(key, "АБВ") || !strcmp(key, "EN") ||
-                       !strcmp(key, "RU") || !strcmp(key, "Aa") || !strcmp(key, "<<");
+                       !strcmp(key, "RU") || !strcmp(key, "Aa") || !strcmp(key, "<<") ||
+                       !strcmp(key, "OK");
         HorizonTheme::styleButton(b, service);
         // Клавиши не отбирают фокус у поля ввода (см. kbdShow).
         lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICK_FOCUSABLE);
@@ -725,6 +751,10 @@ void HorizonUI::kbdPress(const char *txt)
             kbdAaLastMs = now;
             kbdSetLayout(kbdLayout);
         }
+        return;
+    }
+    if (!strcmp(txt, "OK")) {
+        kbdHide(); // кнопка есть только в раскладках формы карты
         return;
     }
     if (!kbdTarget || !lv_obj_is_valid(kbdTarget))
@@ -1048,6 +1078,14 @@ void HorizonUI::cbBack(lv_event_t *e)
     case Screen::CONTACT_CARD:
         self->buildContacts();
         break;
+    case Screen::CONTACTS:
+        if (self->mapPickMode) {
+            self->mapPickMode = false; // выбор отменён - назад в форму
+            self->buildMapForm();
+        } else {
+            self->showMenu();
+        }
+        break;
     case Screen::SET_CHANNELS:
         // Выход из «Каналы чатов»: перезагрузку спрашивать только если были
         // реальные изменения имени/ключа на радио. Один раз - дальше молча.
@@ -1198,6 +1236,10 @@ void HorizonUI::tick(void)
         if ((int32_t)(now - toastUntil) >= 0)
             lv_obj_add_flag(toastBtn, LV_OBJ_FLAG_HIDDEN);
     }
+
+    // Форма точки: строки назначения/контакта следуют за списками (без событий LVGL).
+    if (current == Screen::MAP_FORM)
+        mapSyncFormRows();
 
     if (current == Screen::BOOT) {
         if (bootBar && lv_obj_is_valid(bootBar)) {
