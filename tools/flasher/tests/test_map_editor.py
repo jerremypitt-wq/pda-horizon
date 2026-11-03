@@ -51,7 +51,8 @@ class MapEditorTests(unittest.TestCase):
             self.assertEqual(len(legacy.points), 3)
             self.assertEqual((legacy.points[0]["x"], legacy.points[0]["y"]), (370, 110))
         for wrong in ({**sample_point(), "x": 960}, {**sample_point(), "name": "X" * 21},
-                      {**sample_point(), "comment": "a|b"}, {**sample_point(), "y": True}):
+                      {**sample_point(), "comment": "a|b"}, {**sample_point(), "y": True},
+                      {**sample_point(), "sender": "🚀" * 30}):
             with self.assertRaises(ValueError):
                 p.add(wrong)
         with self.assertRaises(ValueError):

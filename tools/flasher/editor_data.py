@@ -62,6 +62,8 @@ def validate_point(point):
                              f"поле «{key}»: максимум {limit} символов")
         if any(ch in text for ch in "|\r\n"):
             raise ValueError(f"поле «{key}»: нельзя использовать | и переносы строк")
+        if key == "sender" and len(text.encode("utf-8")) > 96:
+            raise ValueError("автор не должен превышать 96 байт UTF-8 для ПДА")
     return point
 
 
