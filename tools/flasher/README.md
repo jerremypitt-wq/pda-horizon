@@ -22,9 +22,10 @@ ZIP-файл прошивки. В поле нужен только USB-кабе�
    запусти `tools\\flasher\\build_exe.bat` → получатся `dist\\HorizonFlasher.exe`
    (окно, продукт) и `dist\\HorizonFlasher-CLI.exe` (консоль). Скрипт сам
    выберет Python (предпочитает 3.13) и доустановит зависимости.
-   На GitHub также есть сборка Windows EXE в Actions (артефакт
-   `HorizonFlasher-Windows-with-MapEditor` в проверках PR); покупателю нужен
-   **только готовый `.exe`**, не Python.
+   Есть также сценарий `.github/workflows/horizon-flasher-windows.yml` для
+   сборки в GitHub Actions, **если Actions включены и доступен Windows runner**.
+   Пока сборка не завершилась успешно, готового `.exe` нет. Покупателю
+   впоследствии нужен **только готовый `.exe`**, не Python.
 3. На флешку: `HorizonFlasher.exe` + `horizon-1.7.0.zip` (+ `README-BUYER.txt`
    покупателю, см. ниже).
 
