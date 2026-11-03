@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ZIP-пакет прошивки: распаковка во временный каталог и проверка.
+"""ZIP-пакет прошивки или данных: распаковка во временный каталог и проверка.
 
 Общее для GUI (flasher_gui.py) и скриптов. Манифест лежит либо в корне ZIP,
 либо в одной вложенной папке (так делает make_package.py --zip).
 """
+import json
 import os
 import sys
 import tempfile
@@ -15,6 +16,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import flasher  # noqa: E402  (ядро: MANIFEST, load_manifest)
+import data_update  # noqa: E402
 
 
 def safe_extract(zf, dest):
@@ -28,8 +30,8 @@ def safe_extract(zf, dest):
 
 
 def find_pkgdir(root):
-    """Найти каталог с flash.json: корень либо единственная вложенная папка."""
-    if os.path.isfile(os.path.join(root, flasher.MANIFEST)):
+    """Найти каталог с flash.json/data.json: корень либо одна вложенная папка."""
+    if any(os.path.isfile(os.path.join(root, name)) for name in (flasher.MANIFEST, "data.json")):
         return root, None
     try:
         names = sorted(os.listdir(root))
@@ -38,12 +40,12 @@ def find_pkgdir(root):
     subs = [
         d for d in names
         if os.path.isdir(os.path.join(root, d))
-        and os.path.isfile(os.path.join(root, d, flasher.MANIFEST))
+        and any(os.path.isfile(os.path.join(root, d, name)) for name in (flasher.MANIFEST, "data.json"))
     ]
     if len(subs) == 1:
         return os.path.join(root, subs[0]), None
     if not subs:
-        return None, f"в ZIP нет {flasher.MANIFEST} (ни в корне, ни во вложенной папке)"
+        return None, "в ZIP нет flash.json или data.json (ни в корне, ни во вложенной папке)"
     return None, "в ZIP несколько пакетов: " + ", ".join(subs)
 
 
@@ -72,9 +74,15 @@ class ZipPackage:
             pkgdir, err = find_pkgdir(self.tmp.name)
             if err:
                 raise ValueError(err)
-            m, err = flasher.load_manifest(pkgdir)
-            if err:
-                raise ValueError(err)
+            if os.path.isfile(os.path.join(pkgdir, "data.json")):
+                if os.path.isfile(os.path.join(pkgdir, flasher.MANIFEST)):
+                    raise ValueError("ZIP содержит два типа пакета одновременно")
+                with open(os.path.join(pkgdir, "data.json"), encoding="utf-8") as f:
+                    m = data_update.validate_manifest(json.load(f), pkgdir)
+            else:
+                m, err = flasher.load_manifest(pkgdir)
+                if err:
+                    raise ValueError(err)
             self.pkgdir = pkgdir
             self.manifest = m
         except zipfile.BadZipFile:
@@ -92,6 +100,10 @@ class ZipPackage:
 
     def summary(self):
         m = self.manifest
+        if m.get("kind") == "map-data":
+            return (f"Данные: {m.get('name', '?')} — карта и стартовые точки. "
+                    "Выбери, что обновить. Прошивка не меняется. "
+                    f"Раздел: {m['fs_offset']:#x}, {m['fs_size']} Б")
         lines = [
             f"Пакет: {m.get('name', '?')}  (из {os.path.basename(self.zippath)})",
             f"Прошивка: v{m.get('fw_version', '?')}",

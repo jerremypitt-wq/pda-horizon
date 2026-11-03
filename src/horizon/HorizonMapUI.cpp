@@ -22,7 +22,7 @@ static fs::FS &mapFs = PortduinoFS;
 static fs::FS &mapFs = LittleFS;
 #endif
 
-// Буферы карты (исходник 300 КБ + кадр до ~270 КБ) - только PSRAM:
+// Буферы карты (исходник до 1.2 МБ + обзор 300 КБ + кадр 300 КБ) - только PSRAM:
 // в DRAM ESP32-S3 столько нет. Освобождать обычным free() (годен для ps_malloc).
 #if defined(ARDUINO_ARCH_ESP32)
 #define HZMAP_ALLOC(n) ps_malloc(n)
@@ -35,8 +35,10 @@ using namespace HorizonStrings;
 namespace {
 constexpr int16_t kStatusH = 22;
 constexpr int16_t kHeaderH = 40;
-constexpr int kMapW = 480;
-constexpr int kMapH = 320;
+constexpr int kMapW = 960;
+constexpr int kMapH = 640;
+constexpr int kOldMapW = 480;
+constexpr int kOldMapH = 320;
 // Уровни лупы (множитель к базовому масштабу cover).
 constexpr float kZoomSteps[] = {1.0f, 1.5f, 2.0f, 3.0f};
 constexpr int kZoomCount = 4;
@@ -50,7 +52,7 @@ constexpr uint32_t kPoiColors[5] = {
 };
 constexpr int kTapSlopPx = 12;   // сдвиг меньше - это тап, а не драг
 constexpr int kMarkerHitPx = 26; // радиус попадания в маркер, px
-constexpr uint32_t kMarkersMs = 120; // маркеры при драге - не чаще (иначе дёргается)
+constexpr uint32_t kPanFrameMs = 40; // не пересчитывать полный кадр на каждом опросе тача
 
 void styleDropdownListLocal(lv_obj_t *dd)
 {
@@ -68,7 +70,7 @@ bool readMapFile(const char *path, uint8_t *dst, size_t len)
     File f = mapFs.open(path, "r");
     if (!f)
         return false;
-    size_t n = f.readBytes((char *)dst, len);
+    size_t n = f.size() == len ? f.readBytes((char *)dst, len) : 0;
     f.close();
     return n == len;
 }
@@ -76,6 +78,11 @@ bool readMapFile(const char *path, uint8_t *dst, size_t len)
 
 // Состояние экрана карты: виджеты умирают с экраном (mapDropWidgets),
 // буферы и вид (зум/сдвиг) живут между MAP и MAP_FORM.
+struct HzMapMarker {
+    lv_obj_t *dot;
+    uint16_t x, y; // координаты точки в тысячных долях
+};
+
 struct HzMapUi {
     lv_obj_t *img = nullptr;
     lv_obj_t *markers = nullptr;
@@ -111,7 +118,11 @@ struct HzMapUi {
     uint8_t draftType = 0;
     uint8_t draftVis = 0;
     uint8_t draftDest = 0;
-    uint8_t *mapBuf = nullptr;  // исходник 480x320x2
+    uint8_t *mapBuf = nullptr;  // исходник 960x640x2 (старые разделы: 480x320)
+    uint8_t *previewBuf = nullptr; // сглаженный обзор 480x320 для масштаба 1x
+    int mapW = 0, mapH = 0;
+    std::vector<HzMapMarker> dots;
+    std::vector<int16_t> sampleX; // кэш колонок для пересчёта кадра
     uint8_t *viewBuf = nullptr; // кадр под текущий вид
     lv_image_dsc_t dsc;
     int viewY = 0;
@@ -126,7 +137,8 @@ struct HzMapUi {
     int lastX = 0;
     int lastY = 0;
     int moved = 0;
-    uint32_t lastMarkersMs = 0;
+    uint32_t lastFrameMs = 0;
+    bool framePending = false;
     char popupId[28] = "";
     char formEditId[28] = ""; // "" = новая точка
     int formX = 0;            // тысячные доли для новой точки
@@ -143,8 +155,8 @@ int rndPx(float v)
 // Точка (тысячные доли) -> px вида.
 void poiToScreen(const HzMapUi *m, const HzPoi *p, int *sx, int *sy)
 {
-    float px = (p->x * (kMapW - 1)) / 1000.0f;
-    float py = (p->y * (kMapH - 1)) / 1000.0f;
+    float px = (p->x * (m->mapW - 1)) / 1000.0f;
+    float py = (p->y * (m->mapH - 1)) / 1000.0f;
     *sx = rndPx((px - m->ox) * m->scale);
     *sy = rndPx((py - m->oy) * m->scale);
 }
@@ -156,14 +168,14 @@ void screenToPm(const HzMapUi *m, int lx, int ly, int *xPm, int *yPm)
     float py = m->oy + ly / m->scale;
     if (px < 0)
         px = 0;
-    if (px > kMapW - 1)
-        px = kMapW - 1;
+    if (px > m->mapW - 1)
+        px = m->mapW - 1;
     if (py < 0)
         py = 0;
-    if (py > kMapH - 1)
-        py = kMapH - 1;
-    *xPm = (int)(px * 1000.0f / (kMapW - 1) + 0.5f);
-    *yPm = (int)(py * 1000.0f / (kMapH - 1) + 0.5f);
+    if (py > m->mapH - 1)
+        py = m->mapH - 1;
+    *xPm = (int)(px * 1000.0f / (m->mapW - 1) + 0.5f);
+    *yPm = (int)(py * 1000.0f / (m->mapH - 1) + 0.5f);
 }
 
 // Видна ли точка с учётом фильтров (запечённые - общие).
@@ -178,8 +190,8 @@ bool mapShown(const HzMapUi *m, const HzPoi &p)
 
 void clampView(HzMapUi *m)
 {
-    float maxOx = kMapW - m->viewW / m->scale;
-    float maxOy = kMapH - m->viewH / m->scale;
+    float maxOx = m->mapW - m->viewW / m->scale;
+    float maxOy = m->mapH - m->viewH / m->scale;
     if (maxOx < 0)
         m->ox = maxOx / 2; // вид шире карты - по центру
     else {
@@ -198,45 +210,64 @@ void clampView(HzMapUi *m)
     }
 }
 
-// Пересчёт кадра из исходника (nearest neighbour: безопасно на любом LVGL,
-// карта рисованная - ступеньки незаметны).
+// Пересчёт кадра: выборка X вычисляется один раз на столбец, а не
+// для каждого пикселя. На масштабе 1x используем готовый сглаженный обзор.
 void renderView(HzMapUi *m)
 {
     if (!m->mapBuf || !m->viewBuf || !m->img)
         return;
     uint16_t *dst = (uint16_t *)m->viewBuf;
-    const uint16_t *src = (const uint16_t *)m->mapBuf;
-    float inv = 1.0f / m->scale;
+    bool preview = m->previewBuf && m->zoomIdx == 0;
+    const uint16_t *src = (const uint16_t *)(preview ? m->previewBuf : m->mapBuf);
+    int srcW = preview ? kOldMapW : m->mapW;
+    int srcH = preview ? kOldMapH : m->mapH;
+    float factor = preview ? 0.5f : 1.0f;
+    float inv = factor / m->scale;
+    float left = factor * m->ox;
+    float top = factor * m->oy;
+    // Ёмкость сохраняется между кадрами: без повторных выделений при драге.
+    m->sampleX.resize(m->viewW);
+    for (int x = 0; x < m->viewW; x++)
+        m->sampleX[x] = (int16_t)(left + x * inv);
     for (int y = 0; y < m->viewH; y++) {
-        int sy = (int)(m->oy + y * inv);
-        bool rowOk = sy >= 0 && sy < kMapH;
+        int sy = (int)(top + y * inv);
+        const uint16_t *row = sy >= 0 && sy < srcH ? src + sy * srcW : nullptr;
         for (int x = 0; x < m->viewW; x++) {
-            int sx = (int)(m->ox + x * inv);
-            uint16_t px = 0x0000;
-            if (rowOk && sx >= 0 && sx < kMapW)
-                px = src[sy * kMapW + sx];
-            *dst++ = px;
+            int sx = m->sampleX[x];
+            *dst++ = row && sx >= 0 && sx < srcW ? row[sx] : 0x0000;
         }
     }
     if (lv_obj_is_valid(m->img))
         lv_obj_invalidate(m->img);
+    m->lastFrameMs = millis();
+    m->framePending = false;
+}
+
+// Переставляем уже созданные маркеры, не удаляя/создавая LVGL-объекты
+// каждые 40 мс. В том числе показываем маркеры, вошедшие в вид при панораме.
+void moveMarkers(HzMapUi *m)
+{
+    for (const HzMapMarker &mark : m->dots) {
+        float px = (mark.x * (m->mapW - 1)) / 1000.0f;
+        float py = (mark.y * (m->mapH - 1)) / 1000.0f;
+        int sx = rndPx((px - m->ox) * m->scale);
+        int sy = rndPx((py - m->oy) * m->scale);
+        if (sx < -20 || sy < -20 || sx > m->viewW + 20 || sy > m->viewH + 20)
+            lv_obj_add_flag(mark.dot, LV_OBJ_FLAG_HIDDEN);
+        else {
+            lv_obj_set_pos(mark.dot, sx - 7, sy - 7);
+            lv_obj_remove_flag(mark.dot, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 void addMarkersFor(HzMapUi *m, const std::vector<HzPoi> &v, HzMapStore &st, bool baked)
 {
     for (const HzPoi &p : v) {
-        if (baked && st.isTombstoned(p.id))
+        if ((baked && st.isTombstoned(p.id)) || !mapShown(m, p))
             continue;
-        if (!mapShown(m, p))
-            continue; // скрыта фильтром
-        int sx = 0, sy = 0;
-        poiToScreen(m, &p, &sx, &sy);
-        if (sx < -20 || sy < -20 || sx > m->viewW + 20 || sy > m->viewH + 20)
-            continue; // за кадром
-        // Только цветная точка без подписи (имя - биркой по первому тапу).
         lv_obj_t *dot = lv_obj_create(m->markers);
         lv_obj_set_size(dot, 14, 14);
-        lv_obj_set_pos(dot, sx - 7, sy - 7);
         uint32_t col = kPoiColors[p.type < HZ_POI_COUNT ? p.type : 0];
         lv_obj_set_style_bg_color(dot, hzColor(col), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, LV_PART_MAIN);
@@ -244,7 +275,8 @@ void addMarkersFor(HzMapUi *m, const std::vector<HzPoi> &v, HzMapStore &st, bool
         lv_obj_set_style_border_color(dot, hzColor(0x000000), LV_PART_MAIN);
         lv_obj_set_style_radius(dot, 7, LV_PART_MAIN);
         lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE); // тапы - виду под маркерами
+        lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+        m->dots.push_back({dot, p.x, p.y});
     }
 }
 
@@ -281,6 +313,7 @@ void HorizonUI::mapDropWidgets(void)
         return;
     mapUi->img = nullptr;
     mapUi->markers = nullptr;
+    mapUi->dots.clear();
     mapUi->popup = nullptr;
     mapUi->zin = nullptr;
     mapUi->zout = nullptr;
@@ -306,6 +339,10 @@ void HorizonUI::mapCleanup(void)
     if (mapUi->mapBuf) {
         free(mapUi->mapBuf);
         mapUi->mapBuf = nullptr;
+    }
+    if (mapUi->previewBuf) {
+        free(mapUi->previewBuf);
+        mapUi->previewBuf = nullptr;
     }
     if (mapUi->viewBuf) {
         free(mapUi->viewBuf);
@@ -333,8 +370,21 @@ void HorizonUI::buildMap(void)
     // clearScreen возвращает ориентацию, выбранную в настройках.
     horizonSetMapLandscape(view->getDisplayDriver(), true);
     if (!m->mapBuf) {
-        uint8_t *buf = (uint8_t *)HZMAP_ALLOC((size_t)kMapW * kMapH * 2);
-        if (!buf || !readMapFile("/hzmap/map.rgb565", buf, (size_t)kMapW * kMapH * 2)) {
+        // Старая ФС остаётся рабочей при обычной прошивке: размер файла
+        // определяет геометрию, а новая карта ставится отдельным обновлением.
+        File mf = mapFs.open("/hzmap/map.rgb565", "r");
+        size_t bytes = mf ? mf.size() : 0;
+        if (mf)
+            mf.close();
+        if (bytes == (size_t)kMapW * kMapH * 2) {
+            m->mapW = kMapW;
+            m->mapH = kMapH;
+        } else if (bytes == (size_t)kOldMapW * kOldMapH * 2) {
+            m->mapW = kOldMapW;
+            m->mapH = kOldMapH;
+        }
+        uint8_t *buf = bytes && m->mapW ? (uint8_t *)HZMAP_ALLOC(bytes) : nullptr;
+        if (!buf || !readMapFile("/hzmap/map.rgb565", buf, bytes)) {
             if (buf)
                 free(buf);
             mapCleanup();
@@ -344,6 +394,14 @@ void HorizonUI::buildMap(void)
             return;
         }
         m->mapBuf = buf;
+        if (m->mapW == kMapW) {
+            size_t n = (size_t)kOldMapW * kOldMapH * 2;
+            m->previewBuf = (uint8_t *)HZMAP_ALLOC(n);
+            if (m->previewBuf && !readMapFile("/hzmap/map_preview.rgb565", m->previewBuf, n)) {
+                free(m->previewBuf);
+                m->previewBuf = nullptr; // файл необязательный: fallback к полной карте
+            }
+        }
     }
     // Карта занимает и область статусбара: прозрачный бар лежит поверх картинки.
     m->viewY = 0;
@@ -352,8 +410,8 @@ void HorizonUI::buildMap(void)
     if (!m->viewBuf) {
         // Cover, не fit: карта всегда заливает вид целиком, фона не видно
         // вообще (лишнее обрезается и доступно двигом).
-        float fit = m->viewW / (float)kMapW;
-        float fitH = m->viewH / (float)kMapH;
+        float fit = m->viewW / (float)m->mapW;
+        float fitH = m->viewH / (float)m->mapH;
         if (fitH > fit)
             fit = fitH;
         m->baseScale = fit;
@@ -485,11 +543,12 @@ void HorizonUI::mapRefreshMarkers(void)
     if (!mapUi || !mapUi->markers || !lv_obj_is_valid(mapUi->markers))
         return;
     lv_obj_clean(mapUi->markers);
+    mapUi->dots.clear();
     HzMapStore &st = view->getMapStore();
     addMarkersFor(mapUi, st.baked(), st, true);
     addMarkersFor(mapUi, st.net(), st, false);
     addMarkersFor(mapUi, st.my(), st, false);
-    mapUi->lastMarkersMs = nowMs();
+    moveMarkers(mapUi);
 }
 
 // Точка прилетела/удалилась из эфира: обновить открытый экран карты.
@@ -990,15 +1049,19 @@ void HorizonUI::cbMapTouch(lv_event_t *e)
             m->ox -= dx / m->scale;
             m->oy -= dy / m->scale;
             clampView(m);
-            renderView(m);
-            if (nowMs() - m->lastMarkersMs > kMarkersMs)
-                self->mapRefreshMarkers();
-            self->mapPlaceTag(); // бирка едет за маркером
+            m->framePending = true;
+            if (nowMs() - m->lastFrameMs >= kPanFrameMs) {
+                renderView(m);
+                moveMarkers(m);
+                self->mapPlaceTag(); // бирка едет за маркером
+            }
         }
     } else if (code == LV_EVENT_RELEASED) {
         bool tap = m->down && m->moved < kTapSlopPx;
         m->down = false;
-        self->mapRefreshMarkers(); // маркеры точно на места после драга
+        if (m->framePending)
+            renderView(m); // последнее положение пальца всегда отрисовано
+        moveMarkers(m);
         self->mapPlaceTag();
         if (tap)
             self->mapTap(lx, ly);
@@ -1028,7 +1091,7 @@ void HorizonUI::cbMapZoom(lv_event_t *e)
     m->oy = cy - (m->viewH / m->scale) / 2;
     clampView(m);
     renderView(m);
-    self->mapRefreshMarkers();
+    moveMarkers(m);
     self->mapPlaceTag();
 }
 

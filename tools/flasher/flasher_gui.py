@@ -24,6 +24,7 @@ if _HERE not in sys.path:
 
 import flasher  # noqa: E402
 import package as zpkg  # noqa: E402
+import data_update  # noqa: E402
 
 APP_TITLE = "HorizonFlasher — прошивка ПДА «Горизонт»"
 AUTO_PORT = "Авто"
@@ -74,7 +75,8 @@ class QueueWriter:
 class FlashWorker(threading.Thread):
     """Запись прошивки в фоне. Протокол очереди: log/stage/progress/done."""
 
-    def __init__(self, q, manifest, port_choice, baud_choice, erase_all, skip_fs):
+    def __init__(self, q, manifest, port_choice, baud_choice, erase_all, skip_fs,
+                 pkgdir=None, selected=()):
         super().__init__(daemon=True)
         self.q = q
         self.manifest = manifest
@@ -82,6 +84,8 @@ class FlashWorker(threading.Thread):
         self.baud_choice = baud_choice
         self.erase_all = erase_all
         self.skip_fs = skip_fs
+        self.pkgdir = pkgdir
+        self.selected = selected
 
     def fail(self, msg):
         self.q.put(("done", False, msg))
@@ -91,9 +95,10 @@ class FlashWorker(threading.Thread):
         sys.stdout = sys.stderr = QueueWriter(self.q)
         try:
             self.go()
-        except Exception:  # noqa: BLE001 - всё в лог, окну коротко
+        except Exception as e:  # noqa: BLE001 - ошибка до/после записи: покажи копию
             self.q.put(("log", traceback.format_exc()))
-            self.fail("Внутренняя ошибка (подробности в логе)")
+            self.fail(str(e) if self.manifest.get("kind") == "map-data" else
+                      "Внутренняя ошибка (подробности в логе)")
         finally:
             sys.stdout, sys.stderr = old_out, old_err
 
@@ -122,6 +127,20 @@ class FlashWorker(threading.Thread):
             self.fail(f"плохая скорость: {self.baud_choice}")
             return
 
+        if m.get("kind") == "map-data":
+            self.q.put(("progress", "marquee"))
+            backup = data_update.update_device(
+                m, self.pkgdir, self.selected, port, baud,
+                progress=lambda text: self.q.put(("stage", text)),
+            )
+            self.q.put(("progress", 100))
+            self.q.put(("done", True, "ГОТОВО: карта/точки обновлены без прошивки. "
+                        f"Резервная копия: {backup}"))
+            return
+
+        if self.erase_all and self.skip_fs:
+            self.fail("Полное стирание и сохранение ФС несовместимы")
+            return
         print(f"{flasher.APP}: прошивка ПДА «Горизонт»")
         print(f"Пакет: {m.get('name', '?')}")
         print(f"Прошивка: v{m.get('fw_version', '?')}")
@@ -207,17 +226,25 @@ class App(tk.Tk):
         self._update_bauds()
 
         self.erase_var = tk.BooleanVar(value=False)
-        self.skipfs_var = tk.BooleanVar(value=False)
+        self.writefs_var = tk.BooleanVar(value=False)
+        self.map_var = tk.BooleanVar(value=True)
+        self.points_var = tk.BooleanVar(value=True)
         self.erase_chk = ttk.Checkbutton(
             root, text="Стереть весь чип перед записью (чистое устройство)",
             variable=self.erase_var,
         )
         self.erase_chk.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(6, 0))
-        self.skipfs_chk = ttk.Checkbutton(
-            root, text="Не трогать файловую систему (сохранить данные)",
-            variable=self.skipfs_var,
+        self.writefs_chk = ttk.Checkbutton(
+            root, text="СТЕРЕТЬ данные: записать чистую файловую систему из пакета",
+            variable=self.writefs_var,
         )
-        self.skipfs_chk.grid(row=5, column=0, columnspan=3, sticky=tk.W)
+        self.writefs_chk.grid(row=5, column=0, columnspan=3, sticky=tk.W)
+        self.map_chk = ttk.Checkbutton(root, text="Обновить карту", variable=self.map_var)
+        self.map_chk.grid(row=4, column=0, sticky=tk.W)
+        self.points_chk = ttk.Checkbutton(root, text="Обновить стартовые точки", variable=self.points_var)
+        self.points_chk.grid(row=5, column=0, columnspan=3, sticky=tk.W)
+        self.map_chk.grid_remove()
+        self.points_chk.grid_remove()
 
         self.flash_btn = ttk.Button(
             root, text="ПРОШИТЬ", command=self.start_flash, state=tk.DISABLED
@@ -258,6 +285,22 @@ class App(tk.Tk):
             messagebox.showerror("Пакет", f"Пакет не подошёл:\n{pkg.error}")
             return
         self.pkg = pkg
+        # Каждый новый ZIP начинается с безопасных значений: старые галочки
+        # очистки не должны незаметно переехать на следующую прошивку.
+        self.erase_var.set(False)
+        self.writefs_var.set(False)
+        if pkg.manifest.get("kind") == "map-data":
+            self.erase_chk.grid_remove()
+            self.writefs_chk.grid_remove()
+            self.map_chk.grid()
+            self.points_chk.grid()
+            self.flash_btn.config(text="ОБНОВИТЬ КАРТУ/ТОЧКИ")
+        else:
+            self.map_chk.grid_remove()
+            self.points_chk.grid_remove()
+            self.erase_chk.grid()
+            self.writefs_chk.grid()
+            self.flash_btn.config(text="ПРОШИТЬ")
         self.zip_var.set(path)
         self.pkg_info.config(text=pkg.summary())
         try:
@@ -266,7 +309,7 @@ class App(tk.Tk):
             self.pkg_baud = 921600
         self._update_bauds()
         self.flash_btn.config(state=tk.NORMAL)
-        self.status_var.set("2. Проверь порт и жми ПРОШИТЬ.")
+        self.status_var.set("2. Проверь порт и выбери действие.")
         self.log_line(f"Выбран пакет: {path}\n{pkg.summary()}\n")
 
     def _close_pkg(self):
@@ -310,23 +353,41 @@ class App(tk.Tk):
         if self.worker is not None and self.worker.is_alive():
             return
         if self.pkg is None or not self.pkg.ok:
-            messagebox.showerror("Пакет", "Сначала выбери ZIP-пакет прошивки.")
+            messagebox.showerror("Пакет", "Сначала выбери ZIP-пакет прошивки или данных.")
             return
-        if self.erase_var.get() and self.skipfs_var.get():
-            messagebox.showerror(
-                "Опции",
-                "«Стереть всё» + «Не трогать ФС» вместе нельзя: стирание снесёт "
-                "данные в любом случае. Убери одну галочку.",
-            )
+        is_data = self.pkg.manifest.get("kind") == "map-data"
+        selected = tuple(k for k, var in (("map", self.map_var), ("points", self.points_var)) if var.get())
+        if is_data and not selected:
+            messagebox.showerror("Опции", "Выбери карту и/или стартовые точки.")
+            return
+        if not is_data and self.erase_var.get() and not self.writefs_var.get():
+            messagebox.showerror("Опции", "Полное стирание уничтожит данные. "
+                                 "Для нового устройства отметь также «СТЕРЕТЬ данные». ")
+            return
+        if not is_data and self.writefs_var.get() and not any(p["tag"] == "fs" for p in self.pkg.manifest["parts"]):
+            messagebox.showerror("Опции", "В пакете нет файловой системы: очистка невозможна.")
+            return
+        if not is_data and self.writefs_var.get() and not messagebox.askyesno(
+            "Удаление данных",
+            "Будут удалены ВСЕ чаты, пользовательские и принятые точки и настройки. "
+            "Отмена вернёт к выбору опций. Продолжить очистку?",
+        ):
+            return
+        if is_data and "map" in selected and not messagebox.askyesno(
+            "Совместимость карты",
+            "Для карты 960×640 на ПДА нужна прошивка 1.8.4.ZI или новее. "
+            "Сначала установи её обычной прошивкой БЕЗ стирания данных. Продолжить?",
+        ):
             return
         self._set_busy(True)
         self.bar.config(mode="determinate")
         self.bar["value"] = 0
         self.write_stage = False
-        self.status_var.set("Прошивка...")
+        self.status_var.set("Обновление данных..." if is_data else "Прошивка...")
         self.worker = FlashWorker(
             self.q, self.pkg.manifest, self.port_combo.get(), self.baud_value(),
-            self.erase_var.get(), self.skipfs_var.get(),
+            self.erase_var.get() if not is_data else False, not self.writefs_var.get(),
+            pkgdir=self.pkg.pkgdir, selected=selected,
         )
         self.worker.start()
 
@@ -378,7 +439,9 @@ class App(tk.Tk):
         self.port_combo.config(state=tk.DISABLED if busy else "readonly")
         self.baud_combo.config(state=tk.DISABLED if busy else "readonly")
         self.erase_chk.config(state=st)
-        self.skipfs_chk.config(state=st)
+        self.writefs_chk.config(state=st)
+        self.map_chk.config(state=st)
+        self.points_chk.config(state=st)
         self.flash_btn.config(state=tk.DISABLED if busy or self.pkg is None else tk.NORMAL)
 
     # --- лог и выход ---

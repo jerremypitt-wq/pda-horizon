@@ -17,34 +17,50 @@ VIEW = (ROOT / "src/horizon/HorizonView.cpp").read_text(encoding="utf-8")
 
 class MapUiContracts(unittest.TestCase):
     def test_cover_cannot_expose_background(self):
-        for w, h in ((480, 298), (480, 320), (320, 458), (320, 480)):
-            for zoom in (1, 1.5, 2, 3):
-                scale = max(w / 480, h / 320) * zoom
-                self.assertGreaterEqual(480 - w / scale, -1e-6)
-                self.assertGreaterEqual(320 - h / scale, -1e-6)
-                for ox, oy in ((0, 0), (480 - w / scale, 320 - h / scale)):
-                    for x, y in ((0, 0), (w - 1, h - 1)):
-                        self.assertTrue(0 <= int(ox + x / scale) < 480)
-                        self.assertTrue(0 <= int(oy + y / scale) < 320)
+        for map_w, map_h in ((480, 320), (960, 640)):
+            for w, h in ((480, 298), (480, 320), (320, 458), (320, 480)):
+                for zoom in (1, 1.5, 2, 3):
+                    scale = max(w / map_w, h / map_h) * zoom
+                    self.assertGreaterEqual(map_w - w / scale, -1e-6)
+                    self.assertGreaterEqual(map_h - h / scale, -1e-6)
+                    for ox, oy in ((0, 0), (map_w - w / scale, map_h - h / scale)):
+                        for x, y in ((0, 0), (w - 1, h - 1)):
+                            self.assertTrue(0 <= int(ox + x / scale) < map_w)
+                            self.assertTrue(0 <= int(oy + y / scale) < map_h)
 
     def test_visible_markers_roundtrip(self):
         rng = random.Random(42)
-        for w, h in ((480, 298), (320, 458)):
-            for zoom in (1, 1.5, 2, 3):
-                scale = max(w / 480, h / 320) * zoom
-                for _ in range(3000):
-                    ox = rng.uniform(0, 480 - w / scale)
-                    oy = rng.uniform(0, 320 - h / scale)
-                    xpm, ypm = rng.randrange(1001), rng.randrange(1001)
-                    dx = (xpm * 479 / 1000 - ox) * scale
-                    dy = (ypm * 319 / 1000 - oy) * scale
-                    sx = int(dx + (0.5 if dx >= 0 else -0.5))
-                    sy = int(dy + (0.5 if dy >= 0 else -0.5))
-                    if 0 <= sx < w and 0 <= sy < h:
-                        gotx = int((ox + sx / scale) * 1000 / 479 + 0.5)
-                        goty = int((oy + sy / scale) * 1000 / 319 + 0.5)
-                        self.assertLessEqual(abs(gotx - xpm), 2)
-                        self.assertLessEqual(abs(goty - ypm), 2)
+        for map_w, map_h in ((480, 320), (960, 640)):
+            for w, h in ((480, 298), (320, 458)):
+                for zoom in (1, 1.5, 2, 3):
+                    scale = max(w / map_w, h / map_h) * zoom
+                    for _ in range(3000):
+                        ox = rng.uniform(0, map_w - w / scale)
+                        oy = rng.uniform(0, map_h - h / scale)
+                        xpm, ypm = rng.randrange(1001), rng.randrange(1001)
+                        dx = (xpm * (map_w - 1) / 1000 - ox) * scale
+                        dy = (ypm * (map_h - 1) / 1000 - oy) * scale
+                        sx = int(dx + (0.5 if dx >= 0 else -0.5))
+                        sy = int(dy + (0.5 if dy >= 0 else -0.5))
+                        if 0 <= sx < w and 0 <= sy < h:
+                            gotx = int((ox + sx / scale) * 1000 / (map_w - 1) + 0.5)
+                            goty = int((oy + sy / scale) * 1000 / (map_h - 1) + 0.5)
+                            self.assertLessEqual(abs(gotx - xpm), 2)
+                            self.assertLessEqual(abs(goty - ypm), 2)
+
+    def test_new_image_and_pan_cache_contract(self):
+        self.assertIn("constexpr int kMapW = 960", UI)
+        self.assertIn("constexpr int kMapH = 640", UI)
+        self.assertIn("constexpr int kOldMapW = 480", UI)
+        self.assertIn("bytes == (size_t)kOldMapW * kOldMapH * 2", UI)
+        self.assertIn("map_preview.rgb565", UI)
+        self.assertIn("m->sampleX.resize(m->viewW)", UI)
+        self.assertIn("constexpr uint32_t kPanFrameMs = 40", UI)
+        self.assertIn("if (m->framePending)", UI)
+        self.assertIn("moveMarkers(m);", UI)
+        pressing = UI.split("} else if (code == LV_EVENT_PRESSING)", 1)[1].split("} else if (code == LV_EVENT_RELEASED)", 1)[0]
+        self.assertNotIn("mapRefreshMarkers", pressing)
+        self.assertIn("clampView(m)", pressing)
 
     def test_rotation_and_touch_share_coordinates(self):
         self.assertIn("this->tft->setRotation(enabled ? 3 : 0)", DRIVER)

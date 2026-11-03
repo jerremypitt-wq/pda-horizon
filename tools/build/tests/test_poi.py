@@ -76,12 +76,13 @@ except poi.PoiError:
 print("== poi_pack: карта и сквозной прогон ==")
 gd = os.path.join(TMP, "game")
 os.makedirs(gd, exist_ok=True)
-Image.new("RGB", (480, 320), (10, 20, 30)).save(os.path.join(gd, "map.jpg"))
+Image.new("RGB", (960, 640), (10, 20, 30)).save(os.path.join(gd, "map.jpg"))
 with open(os.path.join(gd, "pois.txt"), "w", encoding="utf-8") as f:
     f.write("1. Опасность, Воронка, x479, y0, Мастер, Не подходить.\n")
 out = os.path.join(TMP, "out")
 check("main-exit", poi.main(["--game", gd, "--out", out]) == 0)
-check("main-map", os.path.getsize(os.path.join(out, "map.rgb565")) == 480 * 320 * 2)
+check("main-map", os.path.getsize(os.path.join(out, "map.rgb565")) == 960 * 640 * 2)
+check("main-preview", os.path.getsize(os.path.join(out, "map_preview.rgb565")) == 480 * 320 * 2)
 with open(os.path.join(out, "pois.csv"), encoding="utf-8") as f:
     csv = f.read()
 check("main-csv", csv == "B001|2|Воронка|1000|0|Мастер|Не подходить.\n", csv)
@@ -100,6 +101,8 @@ with open(os.path.join(ziout, "pois.csv"), encoding="utf-8") as f:
     lines = f.read().splitlines()
 check("zi-count", len(lines) == 3, str(lines))
 check("zi-first", lines[0].startswith("B001|1|Бар|386|172|Мастер|"), lines[0])
-check("zi-map", os.path.getsize(os.path.join(ziout, "map.rgb565")) == 480 * 320 * 2)
+check("zi-map", os.path.getsize(os.path.join(ziout, "map.rgb565")) == 960 * 640 * 2)
+check("zi-preview", os.path.getsize(os.path.join(ziout, "map_preview.rgb565")) == 480 * 320 * 2)
+check("new-coordinates", poi.parse_pois_txt(write_txt("1. База, А, x959, y639, М, К\n"), 960, 640)[0]["x"] == 1000)
 
 print(f"\nВСЕГО ПРОШЛО: {len(PASS)}")

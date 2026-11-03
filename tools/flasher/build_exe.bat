@@ -14,9 +14,9 @@ echo [1/4] Установка зависимостей...
 echo [2/4] PyInstaller: оконный HorizonFlasher (продукт для покупателя)...
 rem --collect-data esptool обязателен: в .exe должны попасть stub-загрузчики
 rem (esptool/targets/stub_flasher/*.json), без них запись невозможна.
-%PYCMD% -m PyInstaller --onefile --windowed --name HorizonFlasher --collect-data esptool --clean flasher_gui.py || (echo BUILD GUI FAILED & pause & exit /b 1)
+%PYCMD% -m PyInstaller --onefile --windowed --name HorizonFlasher --collect-data esptool --collect-all littlefs --clean flasher_gui.py || (echo BUILD GUI FAILED & pause & exit /b 1)
 echo [3/4] PyInstaller: консольный HorizonFlasher-CLI...
-%PYCMD% -m PyInstaller --onefile --console --name HorizonFlasher-CLI --collect-data esptool --clean flasher.py || (echo BUILD CLI FAILED & pause & exit /b 1)
+%PYCMD% -m PyInstaller --onefile --console --name HorizonFlasher-CLI --collect-data esptool --collect-all littlefs --clean flasher.py || (echo BUILD CLI FAILED & pause & exit /b 1)
 echo [4/4] Готово:
 dir dist\\HorizonFlasher.exe dist\\HorizonFlasher-CLI.exe
 pause

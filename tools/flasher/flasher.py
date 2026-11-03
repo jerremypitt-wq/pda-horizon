@@ -279,7 +279,9 @@ def main(argv=None):
                     help="скорость (по умолчанию из пакета; при ошибках - 460800/115200)")
     ap.add_argument("--list-ports", action="store_true", help="показать COM-порты и выйти")
     ap.add_argument("--skip-fs", action="store_true",
-                    help="не трогать файловую систему (сохранить данные на устройстве)")
+                    help="устаревший ключ: ФС теперь сохраняется по умолчанию")
+    ap.add_argument("--write-fs", action="store_true",
+                    help="ОПАСНО: заменить ФС из пакета и удалить пользовательские данные")
     ap.add_argument("--erase-all", action="store_true",
                     help="стереть весь чип перед записью (чистое устройство)")
     ap.add_argument("--no-pause", action="store_true", help="не ждать Enter в конце (для скриптов)")
@@ -314,6 +316,16 @@ def main(argv=None):
         pause_if_needed(args)
         return 1
 
+    if args.skip_fs and args.write_fs:
+        print("ОШИБКА: --skip-fs и --write-fs несовместимы")
+        return 1
+    if args.erase_all and not args.write_fs:
+        print("ОШИБКА: полное стирание удалит данные; укажи --write-fs явно")
+        return 1
+    if args.write_fs and not any(p["tag"] == "fs" for p in m["parts"]):
+        print("ОШИБКА: в пакете нет ФС для полной очистки")
+        return 1
+
     print(f"Пакет: {m.get('name', os.path.basename(pkgdir))} ({pkgdir})")
     print(f"Прошивка: v{m.get('fw_version', '?')}")
     print(f"Порт: {port}, скорость: {baud}")
@@ -331,7 +343,7 @@ def main(argv=None):
             return 1
 
     print("Записываю прошивку...")
-    code, err = run_esptool(build_write_argv(m, port, baud, args.skip_fs))
+    code, err = run_esptool(build_write_argv(m, port, baud, not args.write_fs))
     if err or code != 0:
         print(f"ОШИБКА: запись не удалась: {err or f'esptool код {code}'}")
         print("Подсказки: другой кабель/порт USB, --baud 460800, зажать BOOT на время старта.")

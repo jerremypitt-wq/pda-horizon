@@ -449,4 +449,17 @@ check("argv-freq", argv[argv.index("--flash-freq") + 1] == "40m", str(argv))
 check("argv-size", argv[argv.index("--flash-size") + 1] == "8MB", str(argv))
 check("argv-baud", argv[argv.index("--baud") + 1] == "460800", str(argv))
 
+print("== CLI: данные сохраняются по умолчанию ==")
+flasher.run_esptool = fake_run
+calls.clear()
+args = ["--package", src, "--port", "COM8", "--no-pause"]
+check("cli-default-exit", flasher.main(args) == 0)
+check("cli-default-preserves", len(calls) == 1 and "littlefs.bin" not in " ".join(calls[0]), str(calls))
+calls.clear()
+check("cli-writefs-exit", flasher.main(args + ["--write-fs"]) == 0)
+check("cli-writefs-explicit", len(calls) == 1 and any("littlefs.bin" in x for x in calls[0]))
+calls.clear()
+check("cli-erase-guard", flasher.main(args + ["--erase-all"]) == 1 and not calls)
+check("cli-conflict-guard", flasher.main(args + ["--skip-fs", "--write-fs"]) == 1 and not calls)
+
 print(f"\nВСЕГО ПРОШЛО: {len(PASS)}")
