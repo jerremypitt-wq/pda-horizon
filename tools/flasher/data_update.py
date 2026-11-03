@@ -124,7 +124,8 @@ def _esptool(argv, stage):
         raise RuntimeError(f"{stage}: {err or 'esptool код ' + str(code)}")
 
 
-def update_device(m, pkgdir, selected, port, baud, progress=None, backup_dir=None):
+def update_device(m, pkgdir, selected, port, baud, progress=None, backup_dir=None,
+                  initial_no_reset=False):
     """Читать -> копия -> изменить -> записать ТОЛЬКО ФС -> читать -> сравнить.
 
     Сбой после записи нельзя скрыть: резервная копия сохраняется, в ошибке
@@ -146,6 +147,8 @@ def update_device(m, pkgdir, selected, port, baud, progress=None, backup_dir=Non
     # После первого чтения ПДА остаётся в ROM bootloader; последующие
     # esptool-команды не должны аппаратно сбрасывать его перед подключением.
     stay = ["no-reset" if arg == "default-reset" else arg for arg in keep]
+    if initial_no_reset:
+        keep = stay  # редактор уже прочитал таблицу и оставил ПДА в загрузчике
     finish = ["no-reset" if arg == "default-reset" else arg for arg in base]
     with tempfile.TemporaryDirectory(prefix="hz-data-") as tmp:
         part = Path(tmp) / "partitions.bin"

@@ -25,6 +25,7 @@ if _HERE not in sys.path:
 import flasher  # noqa: E402
 import package as zpkg  # noqa: E402
 import data_update  # noqa: E402
+import editor_data  # noqa: E402
 
 APP_TITLE = "HorizonFlasher — прошивка ПДА «Горизонт»"
 AUTO_PORT = "Авто"
@@ -76,7 +77,7 @@ class FlashWorker(threading.Thread):
     """Запись прошивки в фоне. Протокол очереди: log/stage/progress/done."""
 
     def __init__(self, q, manifest, port_choice, baud_choice, erase_all, skip_fs,
-                 pkgdir=None, selected=()):
+                 pkgdir=None, selected=(), project=None):
         super().__init__(daemon=True)
         self.q = q
         self.manifest = manifest
@@ -86,6 +87,7 @@ class FlashWorker(threading.Thread):
         self.skip_fs = skip_fs
         self.pkgdir = pkgdir
         self.selected = selected
+        self.project = project
 
     def fail(self, msg):
         self.q.put(("done", False, msg))
@@ -97,7 +99,7 @@ class FlashWorker(threading.Thread):
             self.go()
         except Exception as e:  # noqa: BLE001 - ошибка до/после записи: покажи копию
             self.q.put(("log", traceback.format_exc()))
-            self.fail(str(e) if self.manifest.get("kind") == "map-data" else
+            self.fail(str(e) if self.manifest.get("kind") in ("map-data", "map-editor") else
                       "Внутренняя ошибка (подробности в логе)")
         finally:
             sys.stdout, sys.stderr = old_out, old_err
@@ -125,6 +127,17 @@ class FlashWorker(threading.Thread):
             baud = int(self.baud_choice) if self.baud_choice else int(m.get("baud", 921600))
         except ValueError:
             self.fail(f"плохая скорость: {self.baud_choice}")
+            return
+
+        if m.get("kind") == "map-editor":
+            self.q.put(("progress", "marquee"))
+            backup = editor_data.upload_project(
+                self.project, port, baud,
+                progress=lambda text: self.q.put(("stage", text)),
+            )
+            self.q.put(("progress", 100))
+            self.q.put(("done", True, "ГОТОВО: карта и стартовые точки записаны без прошивки. "
+                        f"Резервная копия: {backup}"))
             return
 
         if m.get("kind") == "map-data":
@@ -176,7 +189,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_TITLE)
-        self.minsize(660, 600)
+        self.minsize(660, 630)
         try:
             self.state("zoomed")
         except tk.TclError:
@@ -185,6 +198,7 @@ class App(tk.Tk):
         self.pkg = None
         self.pkg_baud = 921600
         self.worker = None
+        self.editor = None
         self.write_stage = False
         self._build()
         self.refresh_ports()
@@ -198,7 +212,7 @@ class App(tk.Tk):
         root.pack(fill=tk.BOTH, expand=True)
         root.columnconfigure(1, weight=1)
 
-        ttk.Label(root, text="ZIP-пакет прошивки:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(root, text="ZIP прошивки / данных:").grid(row=0, column=0, sticky=tk.W)
         self.zip_var = tk.StringVar(value="(не выбран)")
         ttk.Entry(root, textvariable=self.zip_var, state="readonly").grid(
             row=0, column=1, sticky=tk.EW, padx=(6, 6)
@@ -207,7 +221,7 @@ class App(tk.Tk):
         self.browse_btn.grid(row=0, column=2)
 
         self.pkg_info = tk.Label(
-            root, text="1. Выбери ZIP-пакет прошивки (кнопка «Обзор...»).",
+            root, text="Открой редактор карты без ZIP либо выбери готовый ZIP прошивки/данных.",
             justify=tk.LEFT, anchor=tk.W, bg="#f0f0f0", relief=tk.SUNKEN,
             padx=6, pady=6, font=("TkDefaultFont", 9),
         )
@@ -252,20 +266,24 @@ class App(tk.Tk):
         self.flash_btn.grid(row=6, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0),
                             ipady=6)
 
+        self.editor_btn = ttk.Button(root, text="ОТКРЫТЬ РЕДАКТОР КАРТЫ И ТОЧЕК",
+                                     command=self.open_editor)
+        self.editor_btn.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(6, 0), ipady=5)
+
         self.bar = ttk.Progressbar(root, mode="determinate", maximum=100, value=0)
-        self.bar.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
+        self.bar.grid(row=8, column=0, columnspan=3, sticky=tk.EW, pady=(8, 0))
         self.status_var = tk.StringVar(value="Ожидание.")
         ttk.Label(root, textvariable=self.status_var).grid(
-            row=8, column=0, columnspan=3, sticky=tk.W
+            row=9, column=0, columnspan=3, sticky=tk.W
         )
 
         self.log = scrolledtext.ScrolledText(root, wrap=tk.WORD, state=tk.DISABLED,
                                              height=16, font=("Consolas", 9))
-        self.log.grid(row=9, column=0, columnspan=3, sticky=tk.NSEW, pady=(6, 0))
-        root.rowconfigure(9, weight=1)
+        self.log.grid(row=10, column=0, columnspan=3, sticky=tk.NSEW, pady=(6, 0))
+        root.rowconfigure(10, weight=1)
         self.savelog_btn = ttk.Button(root, text="Сохранить лог...",
                                       command=self.save_log)
-        self.savelog_btn.grid(row=10, column=2, sticky=tk.E, pady=(6, 0))
+        self.savelog_btn.grid(row=11, column=2, sticky=tk.E, pady=(6, 0))
 
     # --- пакет ---
 
@@ -347,6 +365,34 @@ class App(tk.Tk):
         else:
             self.status_var.set(f"Порты: найдено {len(devs)} шт.")
 
+    # --- редактор карты (одна программа, ZIP для работы не нужен) ---
+
+    def open_editor(self):
+        if self.editor is not None and self.editor.winfo_exists():
+            self.editor.lift()
+            return
+        try:
+            from map_editor import MapEditor  # Pillow нужен только при открытии редактора
+            self.editor = MapEditor(self, self.start_editor_upload)
+        except (ImportError, OSError) as e:
+            messagebox.showerror("Редактор", f"Не удалось открыть редактор: {e}")
+
+    def start_editor_upload(self, project):
+        if self.worker is not None and self.worker.is_alive():
+            messagebox.showwarning("ПДА занят", "Дождись окончания предыдущей записи.")
+            return
+        self._set_busy(True)
+        self.bar.config(mode="indeterminate")
+        self.bar.start(20)
+        self.write_stage = False
+        self.status_var.set("Редактор: подготовка карты и точек...")
+        self.editor.set_busy(True)
+        self.worker = FlashWorker(
+            self.q, {"kind": "map-editor", "chip": "esp32s3", "baud": 921600},
+            self.port_combo.get(), self.baud_value(), False, True, project=project,
+        )
+        self.worker.start()
+
     # --- прошивка ---
 
     def start_flash(self):
@@ -403,6 +449,8 @@ class App(tk.Tk):
                             self.bar["value"] = pct
                             self.status_var.set(f"Запись прошивки... {pct}%")
                 elif kind == "stage":
+                    if self.editor is not None and self.editor.winfo_exists() and self.editor.busy:
+                        self.editor.set_status(rest[0])
                     self.status_var.set(rest[0])
                     self.log_line(f"--- {rest[0]} ---\n")
                     self.write_stage = rest[0].startswith("Запись")
@@ -422,12 +470,16 @@ class App(tk.Tk):
                     if ok:
                         self.bar["value"] = 100
                     self._set_busy(False)
+                    if self.editor is not None and self.editor.winfo_exists() and self.editor.busy:
+                        self.editor.set_busy(False)
+                        self.editor.set_status(msg)
                     self.status_var.set(msg)
                     self.log_line(msg + "\n")
                     if ok:
-                        messagebox.showinfo("Готово", msg)
+                        messagebox.showinfo("Готово", msg, parent=self.editor if self.editor and self.editor.winfo_exists() else self)
                     else:
-                        messagebox.showerror("Ошибка", msg + "\n\nПодробности — в логе окна.")
+                        messagebox.showerror("Ошибка", msg + "\n\nПодробности — в логе окна.",
+                                             parent=self.editor if self.editor and self.editor.winfo_exists() else self)
         except queue.Empty:
             pass
         self.after(100, self.poll)
@@ -435,6 +487,7 @@ class App(tk.Tk):
     def _set_busy(self, busy):
         st = tk.DISABLED if busy else tk.NORMAL
         self.browse_btn.config(state=st)
+        self.editor_btn.config(state=st)
         self.refresh_btn.config(state=st)
         self.port_combo.config(state=tk.DISABLED if busy else "readonly")
         self.baud_combo.config(state=tk.DISABLED if busy else "readonly")
@@ -477,6 +530,10 @@ class App(tk.Tk):
                 "испортит прошивку). Дождись конца.",
             )
             return
+        if self.editor is not None and self.editor.winfo_exists():
+            self.editor.close_editor()
+            if self.editor.winfo_exists():
+                return
         self._close_pkg()
         self.destroy()
 
