@@ -24,9 +24,15 @@ jobs:
       - name: Test editor and safe update
         shell: pwsh
         run: |
-          python tools/flasher/tests/test_map_editor.py
-          python tools/flasher/tests/test_data_update.py
-          python tools/flasher/tests/test_flasher.py
+          foreach ($test in @('test_map_editor.py', 'test_data_update.py', 'test_flasher.py')) {
+            $output = & python "tools/flasher/tests/$test" 2>&1
+            $output | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+              $last = ($output | Select-Object -Last 14) -join ' | '
+              Write-Output "::error title=Windows $test failed::$last"
+              exit 1
+            }
+          }
       - name: Build one-file Windows application with editor
         shell: cmd
         run: tools\flasher\build_exe.bat --ci
