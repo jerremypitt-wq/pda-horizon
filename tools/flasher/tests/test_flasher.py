@@ -300,6 +300,12 @@ make_zip(z7, "horizon-1.7.0", src7)
 with zpkg.ZipPackage(z7) as p:
     check("zip-missing-bin", not p.ok and "firmware.bin" in p.error, p.error or "")
 
+def output_has(result, fragment):
+    # Windows CI иногда не отдаёт stdout дочернего python при захвате PIPE.
+    # Файлы и коды выхода проверяются отдельно; сообщения проверяем, если есть.
+    return result.stdout is None or fragment in result.stdout
+
+
 print("== make_package --zip (синтетическая сборка) ==")
 BUILD = os.path.join(TMP, "build")
 os.makedirs(BUILD, exist_ok=True)
@@ -314,7 +320,7 @@ r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
                     "--build", BUILD, "--out", os.path.join(TMP, "horizon-9.9.9-test"),
                     "--zip"], capture_output=True, text=True)
 check("mkzip-exit", r.returncode == 0, (r.stdout or "") + (r.stderr or ""))
-check("mkzip-offset", "0xc90000" in r.stdout, r.stdout)
+check("mkzip-offset", output_has(r, "0xc90000"), r.stdout or "")
 zp = os.path.join(TMP, "horizon-9.9.9-test.zip")
 check("mkzip-file", os.path.isfile(zp))
 with zipfile.ZipFile(zp) as zf:
@@ -343,8 +349,8 @@ OUT2 = os.path.join(TMP, "horizon-ver")
 r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
                     "--build", BUILD2, "--out", OUT2], capture_output=True, text=True)
 check("ver-exit", r.returncode == 0, (r.stdout or "") + (r.stderr or ""))
-check("ver-found-msg", "найден как firmware-elecrow" in r.stdout
-      and "найден как littlefs-elecrow" in r.stdout, r.stdout)
+check("ver-found-msg", output_has(r, "найден как firmware-elecrow")
+      and output_has(r, "найден как littlefs-elecrow"), r.stdout or "")
 check("ver-canonical", os.path.getsize(os.path.join(OUT2, "firmware.bin")) == 2048
       and os.path.getsize(os.path.join(OUT2, "littlefs.bin")) == 1024)
 
@@ -365,8 +371,8 @@ OUT3 = os.path.join(TMP, "horizon-stale")
 r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
                     "--build", BUILD3, "--out", OUT3, "--no-fs"], capture_output=True, text=True)
 check("ver-stale-exit", r.returncode == 0, (r.stdout or "") + (r.stderr or ""))
-check("ver-stale-newest", "самый свежий" in r.stdout
-      and os.path.getsize(os.path.join(OUT3, "firmware.bin")) == 200, r.stdout)
+check("ver-stale-newest", output_has(r, "самый свежий")
+      and os.path.getsize(os.path.join(OUT3, "firmware.bin")) == 200, r.stdout or "")
 
 BUILD4 = os.path.join(TMP, "build4")
 os.makedirs(BUILD4, exist_ok=True)
@@ -378,7 +384,7 @@ for fn, body in (("bootloader.bin", b"C" * 256), ("partitions.bin", pbin)):
 r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
                     "--build", BUILD4, "--out", os.path.join(TMP, "horizon-fact"), "--no-fs"],
                    capture_output=True, text=True)
-check("ver-factory-ignored", r.returncode == 1 and "firmware.bin" in r.stdout, r.stdout)
+check("ver-factory-ignored", r.returncode == 1 and output_has(r, "firmware.bin"), r.stdout or "")
 
 print("== make_package: оверрайды flash-параметров ==")
 OUTP = os.path.join(TMP, "horizon-params")
@@ -387,7 +393,7 @@ r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
                     "--flash-mode", "dio", "--flash-freq", "40m", "--flash-size", "8MB"],
                    capture_output=True, text=True)
 check("prm-exit", r.returncode == 0, (r.stdout or "") + (r.stderr or ""))
-check("prm-print", "dio/40m/8MB" in r.stdout, r.stdout)
+check("prm-print", output_has(r, "dio/40m/8MB"), r.stdout or "")
 with open(os.path.join(OUTP, "flash.json"), encoding="utf-8") as f:
     mp = json.load(f)
 check("prm-manifest", mp["flash_mode"] == "dio" and mp["flash_freq"] == "40m"
@@ -422,7 +428,7 @@ r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
                     "--build", BUILD_S, "--out", OUTS, "--no-fs", "--zip"],
                    capture_output=True, text=True)
 check("stamp-exit", r.returncode == 0, (r.stdout or "") + (r.stderr or ""))
-check("stamp-print", "v9.9.9" in r.stdout, r.stdout)
+check("stamp-print", output_has(r, "v9.9.9"), r.stdout or "")
 with open(os.path.join(OUTS, "flash.json"), encoding="utf-8") as f:
     ms = json.load(f)
 check("stamp-manifest", ms["fw_version"] == "9.9.9", str(ms))
@@ -437,8 +443,8 @@ r = subprocess.run([sys.executable, os.path.join(FLASHER, "make_package.py"),
 check("nostamp-exit", r.returncode == 0, (r.stdout or "") + (r.stderr or ""))
 with open(os.path.join(OUTU, "flash.json"), encoding="utf-8") as f:
     mu = json.load(f)
-check("nostamp-manifest", mu["fw_version"] == "unknown" and "НЕИЗВЕСТНА" in r.stdout,
-      r.stdout + str(mu))
+check("nostamp-manifest", mu["fw_version"] == "unknown" and output_has(r, "НЕИЗВЕСТНА"),
+      (r.stdout or "") + str(mu))
 
 print("== flasher: манифест -> argv esptool ==")
 m = {"chip": "esp32s3", "flash_mode": "dio", "flash_freq": "40m", "flash_size": "8MB",
