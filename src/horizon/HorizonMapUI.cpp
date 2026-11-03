@@ -22,8 +22,9 @@ static fs::FS &mapFs = PortduinoFS;
 static fs::FS &mapFs = LittleFS;
 #endif
 
-// Буферы карты (исходник до 1.2 МБ + обзор 300 КБ + кадр 300 КБ) - только PSRAM:
-// в DRAM ESP32-S3 столько нет. Освобождать обычным free() (годен для ps_malloc).
+// Обзор и кадр (~600 КБ) нужны сразу; исходник 1.2 МБ — только при зуме.
+// Буферы изображения — PSRAM; при нехватке памяти строки читаются из LittleFS.
+// Освобождать обычным free() (годен для ps_malloc).
 #if defined(ARDUINO_ARCH_ESP32)
 #define HZMAP_ALLOC(n) ps_malloc(n)
 #else
@@ -118,11 +119,14 @@ struct HzMapUi {
     uint8_t draftType = 0;
     uint8_t draftVis = 0;
     uint8_t draftDest = 0;
-    uint8_t *mapBuf = nullptr;  // исходник 960x640x2 (старые разделы: 480x320)
+    uint8_t *mapBuf = nullptr;  // полный исходник, если поместился в PSRAM
+    bool mapReady = false;      // файл проверен, даже если большой буфер не выделен
+    bool mapLoadTried = false;  // не пробовать ps_malloc(1.2 МБ) на каждом кадре
     uint8_t *previewBuf = nullptr; // сглаженный обзор 480x320 для масштаба 1x
     int mapW = 0, mapH = 0;
     std::vector<HzMapMarker> dots;
     std::vector<int16_t> sampleX; // кэш колонок для пересчёта кадра
+    std::vector<uint16_t> rowCache; // до 1920 Б, запасной путь без большой PSRAM
     uint8_t *viewBuf = nullptr; // кадр под текущий вид
     lv_image_dsc_t dsc;
     int viewY = 0;
@@ -210,14 +214,39 @@ void clampView(HzMapUi *m)
     }
 }
 
-// Пересчёт кадра: выборка X вычисляется один раз на столбец, а не
-// для каждого пикселя. На масштабе 1x используем готовый сглаженный обзор.
-void renderView(HzMapUi *m)
+// Пересчёт кадра. На масштабе 1x — сглаженный обзор, без загрузки
+// исходника 1.2 МБ в PSRAM. При увеличении пробуем кешировать исходник;
+// если памяти мало, читаем нужные строки LittleFS по одной (~2 КБ RAM).
+// Возвращает false при ошибке чтения; плохой файл не должен ронять UI.
+bool renderView(HzMapUi *m)
 {
-    if (!m->mapBuf || !m->viewBuf || !m->img)
-        return;
-    uint16_t *dst = (uint16_t *)m->viewBuf;
+    if (!m->viewBuf || !m->img)
+        return false;
     bool preview = m->previewBuf && m->zoomIdx == 0;
+    size_t mapBytes = (size_t)m->mapW * m->mapH * 2;
+    if (!preview && !m->mapBuf && !m->mapLoadTried) {
+        m->mapLoadTried = true;
+        uint8_t *buf = (uint8_t *)HZMAP_ALLOC(mapBytes);
+        if (buf && readMapFile("/hzmap/map.rgb565", buf, mapBytes))
+            m->mapBuf = buf;
+        else {
+            if (buf)
+                free(buf);
+            ILOG_INFO("Horizon: map: full PSRAM cache unavailable; use LittleFS rows");
+        }
+    }
+    File file;
+    bool stream = !preview && !m->mapBuf;
+    if (stream) {
+        file = mapFs.open("/hzmap/map.rgb565", "r");
+        if (!file || file.size() != mapBytes) {
+            if (file)
+                file.close();
+            ILOG_ERROR("Horizon: map: stream open/size failed");
+            return false;
+        }
+    }
+    uint16_t *dst = (uint16_t *)m->viewBuf;
     const uint16_t *src = (const uint16_t *)(preview ? m->previewBuf : m->mapBuf);
     int srcW = preview ? kOldMapW : m->mapW;
     int srcH = preview ? kOldMapH : m->mapH;
@@ -225,22 +254,43 @@ void renderView(HzMapUi *m)
     float inv = factor / m->scale;
     float left = factor * m->ox;
     float top = factor * m->oy;
-    // Ёмкость сохраняется между кадрами: без повторных выделений при драге.
-    m->sampleX.resize(m->viewW);
+    m->sampleX.resize(m->viewW); // сохраняет ёмкость между кадрами
     for (int x = 0; x < m->viewW; x++)
         m->sampleX[x] = (int16_t)(left + x * inv);
+    if (stream)
+        m->rowCache.resize(srcW);
+    int lastSy = -1;
     for (int y = 0; y < m->viewH; y++) {
         int sy = (int)(top + y * inv);
-        const uint16_t *row = sy >= 0 && sy < srcH ? src + sy * srcW : nullptr;
+        const uint16_t *row = nullptr;
+        if (sy >= 0 && sy < srcH) {
+            if (stream) {
+                if (sy != lastSy) {
+                    size_t offset = (size_t)sy * srcW * 2;
+                    if (!file.seek(offset) || file.read((uint8_t *)m->rowCache.data(), srcW * 2) != (size_t)srcW * 2) {
+                        file.close();
+                        ILOG_ERROR("Horizon: map: row read failed at %u", (unsigned)offset);
+                        return false;
+                    }
+                    lastSy = sy;
+                }
+                row = m->rowCache.data();
+            } else {
+                row = src + sy * srcW;
+            }
+        }
         for (int x = 0; x < m->viewW; x++) {
             int sx = m->sampleX[x];
             *dst++ = row && sx >= 0 && sx < srcW ? row[sx] : 0x0000;
         }
     }
+    if (stream)
+        file.close();
     if (lv_obj_is_valid(m->img))
         lv_obj_invalidate(m->img);
     m->lastFrameMs = millis();
     m->framePending = false;
+    return true;
 }
 
 // Переставляем уже созданные маркеры, не удаляя/создавая LVGL-объекты
@@ -366,12 +416,8 @@ void HorizonUI::buildMap(void)
         mapUi = new HzMapUi();
     HzMapUi *m = mapUi;
     m->formDraft = false; // черновик жил только для выбора контакта
-    // В отличие от остальных экранов, карта всегда альбомная. При выходе
-    // clearScreen возвращает ориентацию, выбранную в настройках.
-    horizonSetMapLandscape(view->getDisplayDriver(), true);
-    if (!m->mapBuf) {
-        // Старая ФС остаётся рабочей при обычной прошивке: размер файла
-        // определяет геометрию, а новая карта ставится отдельным обновлением.
+    // Пока не трогать ориентацию: ошибка файла не должна мигать экраном.
+    if (!m->mapReady) {
         File mf = mapFs.open("/hzmap/map.rgb565", "r");
         size_t bytes = mf ? mf.size() : 0;
         if (mf)
@@ -379,30 +425,39 @@ void HorizonUI::buildMap(void)
         if (bytes == (size_t)kMapW * kMapH * 2) {
             m->mapW = kMapW;
             m->mapH = kMapH;
-        } else if (bytes == (size_t)kOldMapW * kOldMapH * 2) {
-            m->mapW = kOldMapW;
-            m->mapH = kOldMapH;
-        }
-        uint8_t *buf = bytes && m->mapW ? (uint8_t *)HZMAP_ALLOC(bytes) : nullptr;
-        if (!buf || !readMapFile("/hzmap/map.rgb565", buf, bytes)) {
-            if (buf)
-                free(buf);
-            mapCleanup();
-            toast("Нет файла карты");
-            ILOG_ERROR("Horizon: map: bad /hzmap/map.rgb565");
-            showMenu();
-            return;
-        }
-        m->mapBuf = buf;
-        if (m->mapW == kMapW) {
+            // Обзор всего 300 КБ: на обычном масштабе большой буфер не нужен.
             size_t n = (size_t)kOldMapW * kOldMapH * 2;
             m->previewBuf = (uint8_t *)HZMAP_ALLOC(n);
             if (m->previewBuf && !readMapFile("/hzmap/map_preview.rgb565", m->previewBuf, n)) {
                 free(m->previewBuf);
-                m->previewBuf = nullptr; // файл необязательный: fallback к полной карте
+                m->previewBuf = nullptr; // обзор необязателен: запасной путь — строки карты
+            }
+        } else if (bytes == (size_t)kOldMapW * kOldMapH * 2) {
+            m->mapW = kOldMapW;
+            m->mapH = kOldMapH;
+        } else {
+            ILOG_ERROR("Horizon: map: invalid file size %u (expected 307200/1228800)", (unsigned)bytes);
+            showMenu();
+            toast("Карта: неверный размер файла (%u)", (unsigned)bytes);
+            return;
+        }
+        // Старый файл маленький: кешируем, если есть память. Неуспех не
+        // критичен — renderView сможет читать строки и старого формата.
+        if (m->mapW == kOldMapW) {
+            m->mapLoadTried = true;
+            m->mapBuf = (uint8_t *)HZMAP_ALLOC(bytes);
+            if (m->mapBuf && !readMapFile("/hzmap/map.rgb565", m->mapBuf, bytes)) {
+                free(m->mapBuf);
+                m->mapBuf = nullptr;
             }
         }
+        m->mapReady = true;
+        ILOG_INFO("Horizon: map: %ux%u, preview %s, cache %s",
+                  (unsigned)m->mapW, (unsigned)m->mapH,
+                  m->previewBuf ? "yes" : "no", m->mapBuf ? "yes" : "no");
     }
+    // Карта всегда альбомная. При выходе clearScreen вернёт настройку ПДА.
+    horizonSetMapLandscape(view->getDisplayDriver(), true);
     // Карта занимает и область статусбара: прозрачный бар лежит поверх картинки.
     m->viewY = 0;
     m->viewW = W();
@@ -417,12 +472,25 @@ void HorizonUI::buildMap(void)
         m->baseScale = fit;
         m->scale = fit * kZoomSteps[m->zoomIdx];
         clampView(m);
-        m->viewBuf = (uint8_t *)HZMAP_ALLOC((size_t)m->viewW * m->viewH * 2);
+        size_t viewBytes = (size_t)m->viewW * m->viewH * 2;
+        m->viewBuf = (uint8_t *)HZMAP_ALLOC(viewBytes);
+        if (!m->viewBuf && m->previewBuf) {
+            // Последний шанс: освободить обзор и читать карту из ФС построчно.
+            free(m->previewBuf);
+            m->previewBuf = nullptr;
+            m->viewBuf = (uint8_t *)HZMAP_ALLOC(viewBytes);
+        }
+        if (!m->viewBuf && m->mapBuf) {
+            free(m->mapBuf);
+            m->mapBuf = nullptr;
+            m->mapLoadTried = true;
+            m->viewBuf = (uint8_t *)HZMAP_ALLOC(viewBytes);
+        }
         if (!m->viewBuf) {
-            mapCleanup();
-            toast("Нет памяти для карты");
-            ILOG_ERROR("Horizon: map: view alloc failed");
-            showMenu();
+            ILOG_ERROR("Horizon: map: view alloc failed (%u bytes)",
+                       (unsigned)((size_t)m->viewW * m->viewH * 2));
+            showMenu(); // сам освободит карту и вернёт ориентацию
+            toast("Карта: не хватает памяти для экрана");
             return;
         }
         m->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
@@ -533,7 +601,11 @@ void HorizonUI::buildMap(void)
     lv_obj_set_style_text_color(bar, hzColor(0xFFFFFF), LV_PART_MAIN);
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE); // тап по карте проходит сквозь бар
 
-    renderView(m);
+    if (!renderView(m)) {
+        showMenu();
+        toast("Карта: ошибка чтения данных");
+        return;
+    }
     mapRefreshMarkers();
     mapPlaceTag();
 }

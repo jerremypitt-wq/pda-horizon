@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Оверлей ПДА «Горизонт» поверх дерева прошивки Meshtastic.
 
-Только копирование файлов - БЕЗ правок platformio.ini и БЕЗ форка прошивки.
+Копирование файлов + безопасный патч FSCommon.h - БЕЗ правок platformio.ini
+и БЕЗ форка прошивки. Патч обратим: сохраняется FSCommon.h.stock-horizon.
 Сборка после наложения - стоковым env: pio run -e elecrow-adv-35-tft.
 
 Что копируется (подробности в fw/README.md):
@@ -10,7 +11,8 @@
  3. variants/elecrow-adv-35/config.h -> <fw>/src/horizon/config.h (класс панели)
  4. fw/horizon_target_firmware.h      -> <fw>/src/horizon/horizon_target.h (вкус!)
  5. fw/tftSetup_horizon.cpp          -> <fw>/src/graphics/tftSetup.cpp (бекап .stock)
- 6. Boot-заливка в установленном device-ui: зелёный -> чёрный (идемпотентно).
+ 6. FSCommon.h: не форматировать ФС при сбое монтирования (с бекапом).
+ 7. Boot-заливка в установленном device-ui: зелёный -> чёрный (идемпотентно).
 
 Использование (Windows, PowerShell, из клона прошивки на теге v2.8.1):
   pio pkg install -e elecrow-adv-35-tft
@@ -32,6 +34,8 @@ ENV = "elecrow-adv-35-tft"
 
 BOOT_OLD = "color565(0x3D, 0xDA, 0x83)"
 BOOT_NEW = "color565(0x00, 0x00, 0x00)"
+FS_OLD = b"#define FSBegin() FSCom.begin(true) // format on failure"
+FS_SAFE = b"#define FSBegin() FSCom.begin(false) // Horizon: preserve user data on mount failure"
 
 
 def copy_tree(src, dst, dry):
@@ -65,6 +69,8 @@ def main():
     horizon_dst = os.path.join(fw, "src", "horizon")
     tft_dst = os.path.join(fw, "src", "graphics", "tftSetup.cpp")
     tft_stock = tft_dst + ".stock"
+    fs_header = os.path.join(fw, "src", "FSCommon.h")
+    fs_stock = fs_header + ".stock-horizon"
 
     if args.revert:
         if os.path.isfile(tft_stock):
@@ -74,6 +80,11 @@ def main():
             print("  revert src/graphics/tftSetup.cpp из .stock")
         else:
             print("  нет tftSetup.cpp.stock - клей не откатываю")
+        if os.path.isfile(fs_stock):
+            if not args.dry_run:
+                shutil.copy2(fs_stock, fs_header)
+                os.remove(fs_stock)
+            print("  revert src/FSCommon.h из .stock-horizon")
         if os.path.isdir(horizon_dst):
             if not args.dry_run:
                 shutil.rmtree(horizon_dst)
@@ -95,6 +106,15 @@ def main():
             print(msg + " Продолжаю по --force.")
         else:
             sys.exit("ОШИБКА: " + msg + " Проверьте тег либо добавьте --force.")
+
+    # Проверить совместимость с зафиксированным тегом ДО копирования оверлея.
+    try:
+        with open(fs_header, "rb") as f:
+            fs_text = f.read()
+    except OSError as e:
+        sys.exit(f"ОШИБКА: не найден {fs_header}: {e}")
+    if FS_OLD not in fs_text and FS_SAFE not in fs_text:
+        sys.exit("ОШИБКА: FSCommon.h изменён; не рискуем подменить логику ФС")
 
     total = 0
     print("1) src/horizon -> src/horizon:")
@@ -133,8 +153,20 @@ def main():
     print("  copy tftSetup.cpp (glue)")
     total += 1
 
+    print("6) Безопасное монтирование файловой системы (FSCommon.h):")
+    if FS_OLD in fs_text:
+        if not args.dry_run:
+            if not os.path.isfile(fs_stock):
+                shutil.copy2(fs_header, fs_stock)
+            with open(fs_header, "wb") as f:
+                f.write(fs_text.replace(FS_OLD, FS_SAFE))
+        print("  patched FSBegin(false), сохранён оригинал .stock-horizon")
+    else:
+        print("  уже безопасно (FSBegin(false))")
+    total += 1
+
     if not args.no_bootpatch:
-        print("6) boot-заливка в установленном device-ui:")
+        print("7) boot-заливка в установленном device-ui:")
         cands = glob.glob(os.path.join(fw, ".pio", "libdeps", ENV, "*", "include", "graphics",
                                        "driver", "LGFXDriver.h"))
         if not cands:

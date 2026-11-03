@@ -55,12 +55,31 @@ class MapUiContracts(unittest.TestCase):
         self.assertIn("bytes == (size_t)kOldMapW * kOldMapH * 2", UI)
         self.assertIn("map_preview.rgb565", UI)
         self.assertIn("m->sampleX.resize(m->viewW)", UI)
+        self.assertIn("m->mapReady = true;", UI)
+        self.assertIn("m->mapLoadTried = true;", UI)
+        self.assertIn("bool stream = !preview && !m->mapBuf;", UI)
+        self.assertIn("m->rowCache.resize(srcW);", UI)
+        self.assertIn("file.seek(offset)", UI)
+        build = UI.split("void HorizonUI::buildMap(void)", 1)[1].split("void HorizonUI::mapRefreshMarkers(void)", 1)[0]
+        start = build.split("if (bytes == (size_t)kMapW * kMapH * 2)", 1)[1].split("} else if (bytes == (size_t)kOldMapW", 1)[0]
+        self.assertIn("map_preview.rgb565", start)
+        self.assertNotIn("HZMAP_ALLOC(bytes)", start)  # не просить 1.2 МБ для открытия
+        self.assertLess(build.index("if (!m->mapReady)"), build.index("horizonSetMapLandscape"))
+        self.assertIn('showMenu();\n            toast("Карта: неверный размер файла', build)
+        self.assertIn('showMenu(); // сам освободит карту и вернёт ориентацию\n            toast("Карта: не хватает памяти', build)
+        self.assertIn('if (!renderView(m))', build)
+        self.assertIn('if (!m->viewBuf && m->previewBuf)', build)
+        self.assertIn('if (!m->viewBuf && m->mapBuf)', build)
         self.assertIn("constexpr uint32_t kPanFrameMs = 40", UI)
         self.assertIn("if (m->framePending)", UI)
         self.assertIn("moveMarkers(m);", UI)
         pressing = UI.split("} else if (code == LV_EVENT_PRESSING)", 1)[1].split("} else if (code == LV_EVENT_RELEASED)", 1)[0]
         self.assertNotIn("mapRefreshMarkers", pressing)
         self.assertIn("clampView(m)", pressing)
+
+    def test_fs_mount_must_not_format_user_data_on_error(self):
+        main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+        self.assertIn("#if defined(HORIZON_UI)\n#define FSBegin() LittleFS.begin(false)", main)
 
     def test_rotation_and_touch_share_coordinates(self):
         self.assertIn("this->tft->setRotation(enabled ? 3 : 0)", DRIVER)

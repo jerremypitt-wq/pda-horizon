@@ -268,6 +268,8 @@ fwroot = os.path.join(TMP, "fwroot")
 os.makedirs(os.path.join(fwroot, "src", "graphics"), exist_ok=True)
 with open(os.path.join(fwroot, "src", "graphics", "tftSetup.cpp"), "w") as f:
     f.write("// stock tft\n")
+with open(os.path.join(fwroot, "src", "FSCommon.h"), "wb") as f:
+    f.write(b"// default FS\n#define FSBegin() FSCom.begin(true) // format on failure\n")
 with open(os.path.join(fwroot, "platformio.ini"), "w") as f:
     f.write("lib_deps = protocol://x#" + ovmod.DEVICEUI_PIN + "\n")
 OVP = os.path.join(REPO, "fw", "overlay.py")
@@ -276,6 +278,9 @@ r = subprocess.run([sys.executable, OVP, "--fw", fwroot],
 check("ov-exit1", r.returncode == 0, r.stdout + r.stderr)
 hzdst = os.path.join(fwroot, "src", "horizon")
 check("ov-marker", build.overlay_ok(fwroot))
+fs_header = os.path.join(fwroot, "src", "FSCommon.h")
+check("ov-fs-safe", ovmod.FS_SAFE in open(fs_header, "rb").read())
+check("ov-fs-backup", ovmod.FS_OLD in open(fs_header + ".stock-horizon", "rb").read())
 check("ov-target", os.path.isfile(os.path.join(hzdst, "horizon_target.h")))
 with open(os.path.join(REPO, "src", "horizon", "HorizonStrings.h"), "rb") as f:
     real_hz = f.read()
@@ -289,6 +294,7 @@ r = subprocess.run([sys.executable, OVP, "--fw", fwroot],
                    capture_output=True, text=True)
 check("ov-exit2", r.returncode == 0, r.stdout + r.stderr)
 check("ov-stock-once", open(stock, encoding="utf-8").read() == "// stock tft\n")
+check("ov-fs-idempotent", ovmod.FS_SAFE in open(fs_header, "rb").read())
 # Регрессия «замороженный оверлей»: протухшая копия обязана затоптаться повтором.
 with open(os.path.join(hzdst, "HorizonStrings.h"), "w") as f:
     f.write('constexpr const char *kFirmwareVersion = "0.0.0";\n')
@@ -297,6 +303,11 @@ r = subprocess.run([sys.executable, OVP, "--fw", fwroot],
 check("ov-exit3", r.returncode == 0, r.stdout + r.stderr)
 with open(os.path.join(hzdst, "HorizonStrings.h"), "rb") as f:
     check("ov-resync", f.read() == real_hz)
+r = subprocess.run([sys.executable, OVP, "--fw", fwroot, "--revert"],
+                   capture_output=True, text=True)
+check("ov-revert-exit", r.returncode == 0, r.stdout + r.stderr)
+check("ov-fs-revert", ovmod.FS_OLD in open(fs_header, "rb").read()
+      and not os.path.exists(fs_header + ".stock-horizon"))
 
 print("== build.py: игровой пакет в data/hzmap ==")
 try:

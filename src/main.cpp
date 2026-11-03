@@ -18,7 +18,13 @@
 #else
 #include "LittleFS.h"
 #define FSCom LittleFS
+// Не форматировать автоматически при сбое монтирования: это стирает чаты,
+// свои и принятые точки. Новому ПДА ФС ставится флешером по явной галочке.
+#if defined(HORIZON_UI)
+#define FSBegin() LittleFS.begin(false)
+#else
 #define FSBegin() LittleFS.begin(true)
+#endif
 #endif
 
 #if defined(I2C_SDA) || defined(I2C_SDA1)

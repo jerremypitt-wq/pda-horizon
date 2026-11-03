@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Собрать ZIP карты/стартовых точек БЕЗ прошивки для HorizonFlasher.
 
-python tools/flasher/make_data_package.py --partitions firmware-hz/.pio/build/elecrow-adv-35-tft/partitions.bin --game games/zabytye-istorii --out horizon-map-1.8.4.zip
+python tools/flasher/make_data_package.py --partitions firmware-hz/.pio/build/elecrow-adv-35-tft/partitions.bin --game games/zabytye-istorii --out horizon-map-1.8.5.zip
 """
 import argparse
 import hashlib

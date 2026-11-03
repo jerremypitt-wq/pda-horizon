@@ -6,8 +6,9 @@
 стоковым окружением `elecrow-adv-35-tft`, а данные берёт по внутреннему
 PacketAPI (PacketServer + PacketClient) вместо UART-клиента.
 
-`fw/overlay.py` — единственный инструмент переноса: **только копирование
-файлов**, без форка прошивки и без правок её `platformio.ini`. Вкус сборки
+`fw/overlay.py` — инструмент переноса: копирует файлы и точечно меняет
+`src/FSCommon.h` (отключает автоформатирование при сбое ФС, оригинал сохраняет
+в `.stock-horizon`). Без форка и без правок её `platformio.ini`. Вкус сборки
 переключается перезаписываемым `horizon_target.h` (флаг `HORIZON_PACKET_LINK`).
 Слот радиоплагина на плате — J9+J11 (распиновка и нюансы: ключ U8/IO45,
 общий CS/BOOT, общий I2C с тачем — в `docs/HORIZON.md`, раздел single-MCU).
@@ -52,7 +53,7 @@ pio run -e elecrow-adv-35-tft -t upload
 pio device monitor -b 115200
 ```
 
-`pio pkg install` нужен ДО оверлея, чтобы шаг 6 (boot-заливка) застал
+`pio pkg install` нужен ДО оверлея, чтобы шаг 7 (boot-заливка) застал
 установленный device-ui. Если libdeps не было — overlay предупредит, файлы
 всё равно скопируются; тогда повторить `overlay.py` после первой сборки.
 
@@ -73,6 +74,7 @@ pio device monitor -b 115200
 | `variants/elecrow-adv-35/config.h` | `src/horizon/config.h` (класс панели, тач 0x14) |
 | `fw/horizon_target_firmware.h` | `src/horizon/horizon_target.h` (флаг `HORIZON_PACKET_LINK`) |
 | `fw/tftSetup_horizon.cpp` | `src/graphics/tftSetup.cpp` (клей; оригинал → `.stock`) |
+| `src/FSCommon.h` апстрима | `FSBegin(false)` вместо автоформата (оригинал → `.stock-horizon`) |
 
 Почему это работает без правок ini: `src/horizon/` компилируется общим
 `src_filter +<*>`; quoted-инклуды (`"config.h"`, `"horizon_target.h"`,
@@ -101,7 +103,7 @@ extra-скрипт самого device-ui по `-D VIEW_320x240`; логи `ILOG
 - `TypeError: ... not NoneType` в `arduino.py`, строка `Path(FRAMEWORK_DIR)` →
   не установлен пакет платформы `framework-arduinoespressif32` (в списке
   PACKAGES его нет, есть только `...-libs`). Сам оверлей тут ни при чём:
-  он только копирует файлы и пакеты PlatformIO не трогает. Лечение —
+  он копирует файлы, безопасно меняет FSCommon.h и пакеты PlatformIO не трогает. Лечение —
   переустановить платформу начисто (закрыть VSCode, PowerShell):
   ```powershell
   pio platform uninstall espressif32
