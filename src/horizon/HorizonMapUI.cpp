@@ -36,8 +36,10 @@ using namespace HorizonStrings;
 namespace {
 constexpr int16_t kStatusH = 22;
 constexpr int16_t kHeaderH = 40;
-constexpr int kMapW = 960;
-constexpr int kMapH = 640;
+// Новые карты не более 720×480; 960×640 читаем ради ранее отправленных.
+// Для строго 3:2: W=3*k, H=2*k, RGB565 = 12*k*k байт.
+constexpr int kMinMapUnit = 160;
+constexpr int kMaxMapUnit = 320;
 constexpr int kOldMapW = 480;
 constexpr int kOldMapH = 320;
 // Уровни лупы (множитель к базовому масштабу cover).
@@ -250,7 +252,7 @@ bool renderView(HzMapUi *m)
     const uint16_t *src = (const uint16_t *)(preview ? m->previewBuf : m->mapBuf);
     int srcW = preview ? kOldMapW : m->mapW;
     int srcH = preview ? kOldMapH : m->mapH;
-    float factor = preview ? 0.5f : 1.0f;
+    float factor = preview ? kOldMapW / (float)m->mapW : 1.0f;
     float inv = factor / m->scale;
     float left = factor * m->ox;
     float top = factor * m->oy;
@@ -422,24 +424,27 @@ void HorizonUI::buildMap(void)
         size_t bytes = mf ? mf.size() : 0;
         if (mf)
             mf.close();
-        if (bytes == (size_t)kMapW * kMapH * 2) {
-            m->mapW = kMapW;
-            m->mapH = kMapH;
-            // Обзор всего 300 КБ: на обычном масштабе большой буфер не нужен.
+        for (int unit = kMinMapUnit; unit <= kMaxMapUnit; unit++) {
+            if (bytes == (size_t)12 * unit * unit) {
+                m->mapW = 3 * unit;
+                m->mapH = 2 * unit;
+                break;
+            }
+        }
+        if (!m->mapW) {
+            ILOG_ERROR("Horizon: map: invalid file size %u (expected 3:2, 480x320..960x640)", (unsigned)bytes);
+            showMenu();
+            toast("Карта: неверный размер файла (%u)", (unsigned)bytes);
+            return;
+        }
+        if (m->mapW > kOldMapW) {
+            // Обзор всего 300 КБ: на обычном масштабе крупный буфер не нужен.
             size_t n = (size_t)kOldMapW * kOldMapH * 2;
             m->previewBuf = (uint8_t *)HZMAP_ALLOC(n);
             if (m->previewBuf && !readMapFile("/hzmap/map_preview.rgb565", m->previewBuf, n)) {
                 free(m->previewBuf);
                 m->previewBuf = nullptr; // обзор необязателен: запасной путь — строки карты
             }
-        } else if (bytes == (size_t)kOldMapW * kOldMapH * 2) {
-            m->mapW = kOldMapW;
-            m->mapH = kOldMapH;
-        } else {
-            ILOG_ERROR("Horizon: map: invalid file size %u (expected 307200/1228800)", (unsigned)bytes);
-            showMenu();
-            toast("Карта: неверный размер файла (%u)", (unsigned)bytes);
-            return;
         }
         // Старый файл маленький: кешируем, если есть память. Неуспех не
         // критичен — renderView сможет читать строки и старого формата.

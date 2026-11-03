@@ -13,7 +13,7 @@ pio run -e elecrow-adv-35-horizon        # сборка
 pio run -e elecrow-adv-35-horizon -t upload  # прошивка
 ```
 
-Версия прошивки: `1.7.0` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
+Версия исходников Horizon: `1.8.6.ZI` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
 
 Windows: путь к проекту — только латиница без пробелов (пиннутый
 xtensa GCC 8.4.0 не открывает абсолютные пути с кириллицей, падает

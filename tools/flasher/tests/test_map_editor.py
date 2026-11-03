@@ -56,19 +56,39 @@ class MapEditorTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 p.add(wrong)
         with self.assertRaises(ValueError):
-            editor_data.MapProject(blank_jpg((480, 320)))
+            editor_data.MapProject(blank_jpg((400, 400)))
         with self.assertRaises(ValueError):
             editor_data.MapProject(b"not a JPEG")
+        with self.assertRaisesRegex(ValueError, "8 МБ"):
+            editor_data.MapProject(blank_jpg() + b" " * (8 * 1024 * 1024))
         with self.assertRaisesRegex(ValueError, "50"):
             p50 = editor_data.MapProject(blank_jpg(), [sample_point()] * 50)
             p50.add(sample_point())
+
+    def test_multiple_sizes_roundtrip_and_point_bounds(self):
+        for width, height in ((480, 320), (624, 416), (600, 400), (720, 480), (960, 640)):
+            with self.subTest(size=(width, height)), tempfile.TemporaryDirectory() as tmp:
+                p = editor_data.MapProject(blank_jpg((width, height)))
+                p.add(sample_point(width - 1, height - 1))
+                with self.assertRaises(ValueError):
+                    p.add(sample_point(width, height - 1))
+                project_file = Path(tmp) / "point.hzmap"
+                p.save(project_file)
+                restored = editor_data.MapProject.load(project_file)
+                self.assertEqual((restored.width, restored.height), (width, height))
+                self.assertEqual(restored.points, p.points)
+                m = editor_data.prepare_package(restored, OFFSET, SIZE, "spiffs", tmp)
+                self.assertEqual(m["files"]["map.rgb565"]["size"],
+                                 min(width, 720) * min(height, 480) * 2)
+                self.assertEqual((Path(tmp) / "pois.csv").read_text(encoding="utf-8").split("|")[3:5],
+                                 ["1000", "1000"])
 
     def test_rgb_package_csv_aligns_with_old_map(self):
         p = editor_data.MapProject(blank_jpg(), [sample_point(), sample_point(959, 639)])
         with tempfile.TemporaryDirectory() as tmp:
             m = editor_data.prepare_package(p, OFFSET, SIZE, "spiffs", tmp)
             self.assertEqual(m["kind"], "map-data")
-            self.assertEqual(m["files"]["map.rgb565"]["size"], 960 * 640 * 2)
+            self.assertEqual(m["files"]["map.rgb565"]["size"], 720 * 480 * 2)
             self.assertEqual(m["files"]["map_preview.rgb565"]["size"], 480 * 320 * 2)
             rows = (Path(tmp) / "pois.csv").read_text(encoding="utf-8").splitlines()
             self.assertEqual(rows[0], "B001|1|Бар|386|172|Мастер|Тихое место")
@@ -129,7 +149,7 @@ class MapEditorTests(unittest.TestCase):
                 with checkfs.open("/hzmap/pois.csv", "rb") as f:
                     self.assertTrue(f.read().startswith("B001|1|Бар|386|172|".encode()))
                 with checkfs.open("/hzmap/map.rgb565", "rb") as f:
-                    self.assertEqual(len(f.read()), 960 * 640 * 2)
+                    self.assertEqual(len(f.read()), 720 * 480 * 2)
             finally:
                 checkfs.unmount()
         finally:

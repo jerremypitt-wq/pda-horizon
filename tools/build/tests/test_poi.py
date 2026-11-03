@@ -81,7 +81,7 @@ with open(os.path.join(gd, "pois.txt"), "w", encoding="utf-8") as f:
     f.write("1. Опасность, Воронка, x479, y0, Мастер, Не подходить.\n")
 out = os.path.join(TMP, "out")
 check("main-exit", poi.main(["--game", gd, "--out", out]) == 0)
-check("main-map", os.path.getsize(os.path.join(out, "map.rgb565")) == 960 * 640 * 2)
+check("main-map", os.path.getsize(os.path.join(out, "map.rgb565")) == 720 * 480 * 2)
 check("main-preview", os.path.getsize(os.path.join(out, "map_preview.rgb565")) == 480 * 320 * 2)
 with open(os.path.join(out, "pois.csv"), encoding="utf-8") as f:
     csv = f.read()
@@ -101,8 +101,34 @@ with open(os.path.join(ziout, "pois.csv"), encoding="utf-8") as f:
     lines = f.read().splitlines()
 check("zi-count", len(lines) == 3, str(lines))
 check("zi-first", lines[0].startswith("B001|1|Бар|386|172|Мастер|"), lines[0])
-check("zi-map", os.path.getsize(os.path.join(ziout, "map.rgb565")) == 960 * 640 * 2)
+check("zi-map", os.path.getsize(os.path.join(ziout, "map.rgb565")) == 720 * 480 * 2)
 check("zi-preview", os.path.getsize(os.path.join(ziout, "map_preview.rgb565")) == 480 * 320 * 2)
 check("new-coordinates", poi.parse_pois_txt(write_txt("1. База, А, x959, y639, М, К\n"), 960, 640)[0]["x"] == 1000)
+custom_game = os.path.join(TMP, "game-624")
+os.makedirs(custom_game, exist_ok=True)
+Image.new("RGB", (624, 416)).save(os.path.join(custom_game, "map.jpg"))
+with open(os.path.join(custom_game, "pois.txt"), "w", encoding="utf-8") as f:
+    f.write("1. База, Край, x623, y415, М, К\n")
+for coords in ("map", "624x416"):
+    output = os.path.join(TMP, "custom-" + coords)
+    check("custom-coordinates-" + coords,
+          poi.main(["--game", custom_game, "--out", output,
+                    "--poi-coordinates", coords]) == 0 and
+          "|1000|1000|" in open(os.path.join(output, "pois.csv"), encoding="utf-8").read())
+for width, height in ((480, 320), (624, 416), (720, 480), (960, 640)):
+    img = os.path.join(TMP, f"input-{width}.jpg")
+    dest = os.path.join(TMP, f"output-{width}.rgb565")
+    Image.new("RGB", (width, height), (1, 2, 3)).save(img)
+    sz = poi.convert_map(img, dest)
+    check(f"resize-{width}", sz == min(width, 720) * min(height, 480) * 2
+          and os.path.getsize(dest) == sz)
+for width, height in ((400, 400), (479, 319), (721, 481), (963, 642)):
+    img = os.path.join(TMP, f"bad-{width}.jpg")
+    Image.new("RGB", (width, height)).save(img)
+    try:
+        poi.convert_map(img, os.path.join(TMP, "bad-out.rgb565"))
+        check(f"bad-size-{width}", False)
+    except poi.PoiError:
+        check(f"bad-size-{width}", True)
 
 print(f"\nВСЕГО ПРОШЛО: {len(PASS)}")

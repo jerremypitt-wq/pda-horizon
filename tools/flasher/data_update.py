@@ -39,8 +39,13 @@ def validate_manifest(m, pkgdir):
             raise ValueError(f"нет файла {fn} или неверный размер")
         if hashlib.sha256(path.read_bytes()).hexdigest() != spec["sha256"]:
             raise ValueError(f"не совпала контрольная сумма {fn}")
-    if files["map.rgb565"]["size"] != 960 * 640 * 2 or files["map_preview.rgb565"]["size"] != 480 * 320 * 2:
-        raise ValueError("неверный размер карты или обзора")
+    raw_size = files["map.rgb565"]["size"]
+    # Размер RGB565 однозначно задаёт геометрию при строго 3:2: 12*k*k.
+    # Новая заливка ограничена 720×480; прежние 960×640 уже на ПДА читаются,
+    # но новые пакеты такого размера создавать/записывать не разрешаем.
+    if (raw_size not in (12 * k * k for k in range(160, 241)) or
+            files["map_preview.rgb565"]["size"] != 480 * 320 * 2):
+        raise ValueError("неверный размер карты (3:2, 480×320–720×480) или обзора")
     # Точки всегда проверяются даже при загрузке одной карты: нельзя выдавать
     # пакет с повреждённой частью за проверенный.
     text = (Path(pkgdir) / "pois.csv").read_text(encoding="utf-8")

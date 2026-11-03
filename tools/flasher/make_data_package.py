@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Собрать ZIP карты/стартовых точек БЕЗ прошивки для HorizonFlasher.
 
-python tools/flasher/make_data_package.py --partitions firmware-hz/.pio/build/elecrow-adv-35-tft/partitions.bin --game games/zabytye-istorii --out horizon-map-1.8.5.zip
+python tools/flasher/make_data_package.py --partitions firmware-hz/.pio/build/elecrow-adv-35-tft/partitions.bin --game games/zabytye-istorii --out horizon-map-1.8.6.zip
 """
 import argparse
 import hashlib
@@ -25,8 +25,8 @@ def main(argv=None):
     ap.add_argument("--partitions", required=True, help="partitions.bin именно от этой прошивки ПДА")
     ap.add_argument("--game", required=True, help="папка с map.jpg и pois.txt")
     ap.add_argument("--out", required=True, help="имя выходного ZIP")
-    ap.add_argument("--poi-coordinates", choices=("480x320", "960x640"), default="480x320",
-                    help="координаты pois.txt (старые точки — 480x320)")
+    ap.add_argument("--poi-coordinates", default="480x320",
+                    help="координаты pois.txt (480x320 по умолчанию; map = размеры JPG; либо 624x416 и т. п.)")
     args = ap.parse_args(argv)
     offset, size, label = parse_partitions_bin(args.partitions)
     if not offset or not size or label.lower() not in ("littlefs", "spiffs") or offset % 4096 or size % 4096:

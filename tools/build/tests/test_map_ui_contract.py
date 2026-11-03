@@ -17,7 +17,7 @@ VIEW = (ROOT / "src/horizon/HorizonView.cpp").read_text(encoding="utf-8")
 
 class MapUiContracts(unittest.TestCase):
     def test_cover_cannot_expose_background(self):
-        for map_w, map_h in ((480, 320), (960, 640)):
+        for map_w, map_h in ((480, 320), (624, 416), (720, 480), (960, 640)):
             for w, h in ((480, 298), (480, 320), (320, 458), (320, 480)):
                 for zoom in (1, 1.5, 2, 3):
                     scale = max(w / map_w, h / map_h) * zoom
@@ -30,7 +30,7 @@ class MapUiContracts(unittest.TestCase):
 
     def test_visible_markers_roundtrip(self):
         rng = random.Random(42)
-        for map_w, map_h in ((480, 320), (960, 640)):
+        for map_w, map_h in ((480, 320), (624, 416), (720, 480), (960, 640)):
             for w, h in ((480, 298), (320, 458)):
                 for zoom in (1, 1.5, 2, 3):
                     scale = max(w / map_w, h / map_h) * zoom
@@ -49,10 +49,14 @@ class MapUiContracts(unittest.TestCase):
                             self.assertLessEqual(abs(goty - ypm), 2)
 
     def test_new_image_and_pan_cache_contract(self):
-        self.assertIn("constexpr int kMapW = 960", UI)
-        self.assertIn("constexpr int kMapH = 640", UI)
+        self.assertIn("constexpr int kMinMapUnit = 160", UI)
+        self.assertIn("constexpr int kMaxMapUnit = 320", UI)
+        self.assertIn("bytes == (size_t)12 * unit * unit", UI)
+        self.assertIn("m->mapW = 3 * unit;", UI)
+        self.assertIn("m->mapH = 2 * unit;", UI)
+        self.assertIn("preview ? kOldMapW / (float)m->mapW : 1.0f", UI)
         self.assertIn("constexpr int kOldMapW = 480", UI)
-        self.assertIn("bytes == (size_t)kOldMapW * kOldMapH * 2", UI)
+        self.assertIn("m->mapW == kOldMapW", UI)
         self.assertIn("map_preview.rgb565", UI)
         self.assertIn("m->sampleX.resize(m->viewW)", UI)
         self.assertIn("m->mapReady = true;", UI)
@@ -61,7 +65,7 @@ class MapUiContracts(unittest.TestCase):
         self.assertIn("m->rowCache.resize(srcW);", UI)
         self.assertIn("file.seek(offset)", UI)
         build = UI.split("void HorizonUI::buildMap(void)", 1)[1].split("void HorizonUI::mapRefreshMarkers(void)", 1)[0]
-        start = build.split("if (bytes == (size_t)kMapW * kMapH * 2)", 1)[1].split("} else if (bytes == (size_t)kOldMapW", 1)[0]
+        start = build.split("if (m->mapW > kOldMapW)", 1)[1].split("// Старый файл маленький", 1)[0]
         self.assertIn("map_preview.rgb565", start)
         self.assertNotIn("HZMAP_ALLOC(bytes)", start)  # не просить 1.2 МБ для открытия
         self.assertLess(build.index("if (!m->mapReady)"), build.index("horizonSetMapLandscape"))

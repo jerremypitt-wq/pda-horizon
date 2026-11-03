@@ -48,7 +48,7 @@ class MapEditor(tk.Toplevel):
         self.upload_btn.pack(side=tk.RIGHT, padx=3)
 
         ttk.Label(self, text="Левая кнопка: выбрать точку; пустая карта: место новой точки. "
-                  "Двойной щелчок: перейти к её заполнению. Масштаб 0,5 — размер экрана ПДА. Перетяни точку, чтобы изменить место; "
+                  "Двойной щелчок: перейти к её заполнению. Масштаб здесь — только просмотр редактора. Перетяни точку, чтобы изменить место; "
                   "правая кнопка: двигать карту. Стартовые точки — только общие.",
                   wraplength=1050).pack(fill=tk.X, padx=12)
         main = ttk.Frame(self, padding=8)
@@ -94,10 +94,13 @@ class MapEditor(tk.Toplevel):
         self.x = tk.StringVar(value="0")
         self.y = tk.StringVar(value="0")
         self.type_name = tk.StringVar(value=editor_data.poi_pack.TYPES[0])
+        self.x_label = ttk.Label(form, text="X")
+        self.y_label = ttk.Label(form, text="Y")
         for row, (caption, var) in enumerate((("Название", self.name), ("Тип", self.type_name),
-                                              ("Автор", self.sender), ("X (0–959)", self.x),
-                                              ("Y (0–639)", self.y))):
-            ttk.Label(form, text=caption).grid(row=row, column=0, sticky="w", pady=3)
+                                              ("Автор", self.sender), ("X", self.x),
+                                              ("Y", self.y))):
+            label = self.x_label if caption == "X" else self.y_label if caption == "Y" else ttk.Label(form, text=caption)
+            label.grid(row=row, column=0, sticky="w", pady=3)
             if caption == "Тип":
                 widget = ttk.Combobox(form, textvariable=var, state="readonly",
                                        values=editor_data.poi_pack.TYPES)
@@ -115,7 +118,7 @@ class MapEditor(tk.Toplevel):
         self.apply_btn = ttk.Button(buttons, text="Добавить / сохранить точку", command=self.apply)
         self.apply_btn.pack(side=tk.LEFT, padx=2)
         ttk.Button(buttons, text="Удалить точку", command=self.delete).pack(side=tk.LEFT, padx=2)
-        self.status = tk.StringVar(value="Открой JPG 960×640 или сохранённый проект.")
+        self.status = tk.StringVar(value="Открой JPG 3:2 от 480×320 до 960×640 или сохранённый проект.")
         ttk.Label(self, textvariable=self.status, wraplength=1050).pack(fill=tk.X, padx=12, pady=6)
 
     def set_status(self, text):
@@ -131,6 +134,8 @@ class MapEditor(tk.Toplevel):
 
     def _set_project(self, project, path=None):
         self.project = project
+        self.x_label.config(text=f"X (0–{project.width - 1})")
+        self.y_label.config(text=f"Y (0–{project.height - 1})")
         self.project_path = path
         self.dirty = path is None
         self.selected = None
@@ -139,13 +144,15 @@ class MapEditor(tk.Toplevel):
         self._fill_form(None)
         self._redraw_image()
         self._refresh_list()
-        self.set_status(f"Карта 960×640 открыта. Точек: {len(project.points)}. "
+        out_w, out_h = editor_data.poi_pack.output_size(project.width, project.height)
+        self.set_status(f"JPG {project.width}×{project.height}; на ПДА: {out_w}×{out_h} "
+                        f"(не более 720×480). Точек: {len(project.points)}. "
                         "Щёлкни по пустому месту и заполни карточку справа.")
 
     def open_jpg(self):
         if self.busy or not self._discard_ok():
             return
-        path = filedialog.askopenfilename(parent=self, title="Открой карту 960×640",
+        path = filedialog.askopenfilename(parent=self, title="Открой JPG 3:2 (от 480×320 до 960×640)",
                                           filetypes=[("JPEG", "*.jpg *.jpeg"), ("Все файлы", "*.*")])
         if path:
             try:
@@ -186,7 +193,7 @@ class MapEditor(tk.Toplevel):
         self.canvas.delete("all")
         if self.source is None:
             return
-        w, h = round(editor_data.WIDTH * self.scale), round(editor_data.HEIGHT * self.scale)
+        w, h = round(self.project.width * self.scale), round(self.project.height * self.scale)
         resized = self.source.resize((w, h), Image.Resampling.LANCZOS)
         self.photo = ImageTk.PhotoImage(resized, master=self.canvas)
         self.canvas.create_image(0, 0, image=self.photo, anchor="nw")
@@ -247,7 +254,8 @@ class MapEditor(tk.Toplevel):
         return editor_data.validate_point({"x": x, "y": y, "type": typ,
                                            "name": self.name.get().strip(),
                                            "sender": self.sender.get().strip(),
-                                           "comment": self.comment.get("1.0", "end-1c").strip()})
+                                           "comment": self.comment.get("1.0", "end-1c").strip()},
+                                          self.project.width, self.project.height)
 
     def _commit_form(self, explicit=False):
         if not self.project:
@@ -310,7 +318,7 @@ class MapEditor(tk.Toplevel):
             return None
         px = round(self.canvas.canvasx(event.x) / self.scale)
         py = round(self.canvas.canvasy(event.y) / self.scale)
-        if 0 <= px < editor_data.WIDTH and 0 <= py < editor_data.HEIGHT:
+        if 0 <= px < self.project.width and 0 <= py < self.project.height:
             return px, py
         return None
 
@@ -381,7 +389,7 @@ class MapEditor(tk.Toplevel):
         cy = (self.canvas.canvasy(0) + self.canvas.winfo_height() / 2) / self.scale
         self.scale = steps[nxt]
         self._redraw_image()
-        full_w, full_h = editor_data.WIDTH * self.scale, editor_data.HEIGHT * self.scale
+        full_w, full_h = self.project.width * self.scale, self.project.height * self.scale
         self.canvas.xview_moveto(max(0, (cx * self.scale - self.canvas.winfo_width()/2) / full_w))
         self.canvas.yview_moveto(max(0, (cy * self.scale - self.canvas.winfo_height()/2) / full_h))
 
@@ -390,7 +398,7 @@ class MapEditor(tk.Toplevel):
             return
         if not messagebox.askyesno("Отправить на ПДА",
                                    "Записать карту и ВСЕ стартовые точки из этого проекта на ПДА? "
-                                   "Чаты, свои и принятые точки останутся. Для карты нужна прошивка 1.8.5.ZI или новее. "
+                                   "Чаты, свои и принятые точки останутся. Для новых размеров карты нужна прошивка 1.8.6.ZI или новее. "
                                    "Перед записью программа сохранит резервную копию.", parent=self):
             return
         self.on_upload(self.project.snapshot())

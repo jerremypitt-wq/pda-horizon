@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Проект настольного редактора и безопасная отправка стартовых точек на ПДА.
 
-Формат .hzmap — ZIP с JPG и JSON. Точки в проекте — в пикселях 960×640;
+Формат .hzmap — ZIP с JPG и JSON. Точки в проекте — в пикселях исходного JPG;
 на ПДА (pois.csv) переводятся в тысячные доли, как точки экрана ПДА.
 """
 import hashlib
@@ -26,8 +26,7 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "build"))
     import poi_pack
 
-WIDTH, HEIGHT = 960, 640
-MAX_IMAGE_BYTES = 16 * 1024 * 1024
+MAX_IMAGE_BYTES = poi_pack.MAX_IMAGE_BYTES
 MAX_PROJECT_BYTES = 1024 * 1024
 PROJECT_VERSION = 1
 COLORS = ("#e8c33a", "#3fa34d", "#c0392b", "#8e44ad", "#2e86de")
@@ -36,24 +35,25 @@ COLORS = ("#e8c33a", "#3fa34d", "#c0392b", "#8e44ad", "#2e86de")
 def validate_image(data):
     from PIL import Image
     if not isinstance(data, bytes) or not 0 < len(data) <= MAX_IMAGE_BYTES:
-        raise ValueError("файл карты пустой или слишком большой (максимум 16 МБ)")
+        raise ValueError("файл карты пустой или слишком большой (максимум 8 МБ)")
     try:
         with Image.open(io.BytesIO(data)) as image:
-            if image.format != "JPEG" or image.size != (WIDTH, HEIGHT):
-                raise ValueError("нужен JPG ровно 960×640 пикселей")
+            if image.format != "JPEG" or not poi_pack.valid_source_size(*image.size):
+                raise ValueError("нужен JPG с соотношением 3:2, от 480×320 до 960×640")
+            size = image.size
             image.load()
-    except (OSError, SyntaxError) as e:
+    except (OSError, SyntaxError, Image.DecompressionBombError) as e:
         raise ValueError(f"JPG повреждён: {e}") from e
-    return data
+    return size
 
 
-def validate_point(point):
+def validate_point(point, width, height):
     if not isinstance(point, dict) or set(point) != {"x", "y", "type", "name", "sender", "comment"}:
         raise ValueError("неверный формат точки")
     x, y, typ = point["x"], point["y"], point["type"]
     if any(isinstance(v, bool) or not isinstance(v, int) for v in (x, y, typ)):
         raise ValueError("координаты и тип точки должны быть целыми числами")
-    if not (0 <= x < WIDTH and 0 <= y < HEIGHT and 0 <= typ < len(poi_pack.TYPES)):
+    if not (0 <= x < width and 0 <= y < height and 0 <= typ < len(poi_pack.TYPES)):
         raise ValueError("точка выходит за границу карты или тип неизвестен")
     for key, limit, optional in (("name", 20, False), ("sender", 40, False), ("comment", 150, True)):
         text = point[key]
@@ -69,8 +69,9 @@ def validate_point(point):
 
 class MapProject:
     def __init__(self, image, points=None):
-        self.image = validate_image(image)
-        self.points = [validate_point(p.copy()).copy() for p in (points or [])]
+        self.width, self.height = validate_image(image)
+        self.image = image
+        self.points = [validate_point(p.copy(), self.width, self.height).copy() for p in (points or [])]
         if len(self.points) > poi_pack.MAX_POINTS:
             raise ValueError("не больше 50 стартовых точек")
 
@@ -78,7 +79,10 @@ class MapProject:
     def from_jpg(cls, path):
         """JPG + старый pois.txt рядом (если есть): сохранить прежние B001…"""
         path = Path(path)
+        if path.stat().st_size > MAX_IMAGE_BYTES:
+            raise ValueError("JPG слишком большой (максимум 8 МБ)")
         image = path.read_bytes()
+        width, height = validate_image(image)
         source = path.with_name("pois.txt")
         points = []
         if source.is_file():
@@ -87,8 +91,8 @@ class MapProject:
             except poi_pack.PoiError as e:
                 raise ValueError(f"рядом с картой найден pois.txt, но он не читается: {e}") from e
             for p in rows:
-                points.append({"x": round(p["x"] * (WIDTH - 1) / 1000),
-                               "y": round(p["y"] * (HEIGHT - 1) / 1000),
+                points.append({"x": round(p["x"] * (width - 1) / 1000),
+                               "y": round(p["y"] * (height - 1) / 1000),
                                "type": p["type"], "name": p["name"],
                                "sender": p["sender"], "comment": p["comment"]})
         return cls(image, points)
@@ -99,10 +103,10 @@ class MapProject:
     def add(self, point):
         if len(self.points) >= poi_pack.MAX_POINTS:
             raise ValueError("лимит — 50 стартовых точек")
-        self.points.append(validate_point(point.copy()).copy())
+        self.points.append(validate_point(point.copy(), self.width, self.height).copy())
 
     def replace(self, index, point):
-        self.points[index] = validate_point(point.copy()).copy()
+        self.points[index] = validate_point(point.copy(), self.width, self.height).copy()
 
     def save(self, path):
         """Атомарно сохранить самодостаточный проект (JPG внутри ZIP)."""
@@ -145,9 +149,10 @@ def prepare_package(project, offset, size, label, out):
     out.mkdir(parents=True, exist_ok=True)
     (out / "map.jpg").write_bytes(project.image)
     poi_pack.convert_map(str(out / "map.jpg"), str(out / "map.rgb565"), str(out / "map_preview.rgb565"))
+    width, height = project.width, project.height
     rows = [{"type": p["type"], "name": p["name"],
-             "x": poi_pack.to_promille(p["x"], WIDTH - 1),
-             "y": poi_pack.to_promille(p["y"], HEIGHT - 1),
+             "x": poi_pack.to_promille(p["x"], width - 1),
+             "y": poi_pack.to_promille(p["y"], height - 1),
              "sender": p["sender"], "comment": p["comment"]} for p in project.points]
     poi_pack.write_csv(rows, str(out / "pois.csv"))
     files = {}

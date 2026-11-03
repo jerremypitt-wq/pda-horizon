@@ -27,7 +27,7 @@ class DataUpdateTests(unittest.TestCase):
         cls.root = Path(cls.tmp.name)
         cls.pkg = cls.root / "pack"
         cls.pkg.mkdir()
-        cls.new = {"map.rgb565": b"M" * (960 * 640 * 2),
+        cls.new = {"map.rgb565": b"M" * (720 * 480 * 2),
                    "map_preview.rgb565": b"V" * (480 * 320 * 2),
                    "pois.csv": "B001|1|Бар|386|172|Мастер|\n".encode()}
         files = {}
@@ -82,6 +82,14 @@ class DataUpdateTests(unittest.TestCase):
                     fs.unmount()
                 self.assertEqual(len(image), SIZE)
 
+    def test_map_geometry_rejected_before_write(self):
+        import copy
+        for bad in (720 * 480 * 2 + 2, 960 * 640 * 2, 480 * 320 * 2 - 12):
+            m = copy.deepcopy(self.manifest)
+            m["files"]["map.rgb565"]["size"] = bad
+            with self.subTest(size=bad), self.assertRaisesRegex(ValueError, "размер"):
+                data_update.validate_manifest(m, self.pkg)
+
     def test_invalid_image_does_not_format(self):
         broken = b"\xff" * SIZE
         with self.assertRaises(Exception):
@@ -118,7 +126,7 @@ class DataUpdateTests(unittest.TestCase):
             self.assertTrue(pack.ok, pack.error)
             self.assertEqual(pack.manifest["fs_size"], SIZE)
             self.assertEqual(pack.manifest["fs_label"], "spiffs")
-            self.assertEqual(pack.manifest["files"]["map.rgb565"]["size"], 960 * 640 * 2)
+            self.assertEqual(pack.manifest["files"]["map.rgb565"]["size"], 720 * 480 * 2)
             self.assertEqual((Path(pack.pkgdir) / "pois.csv").read_text(encoding="utf-8").splitlines()[0].split("|")[3], "386")
 
     def test_bad_image_backed_up_but_not_written(self):

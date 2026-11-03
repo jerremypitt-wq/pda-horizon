@@ -326,7 +326,7 @@ fwdir = os.path.join(groot, "firmware-hz")
 os.makedirs(fwdir, exist_ok=True)
 build.ensure_gamepack(groot, fwdir)
 hz = os.path.join(fwdir, "data", "hzmap")
-check("gp-map", os.path.getsize(os.path.join(hz, "map.rgb565")) == 960 * 640 * 2)
+check("gp-map", os.path.getsize(os.path.join(hz, "map.rgb565")) == 720 * 480 * 2)
 with open(os.path.join(hz, "pois.csv"), encoding="utf-8") as f:
     check("gp-csv", f.read() == "B001|1|Тест|21|63|Мастер|Проверка.\n", f.read()[:60])
 try:
