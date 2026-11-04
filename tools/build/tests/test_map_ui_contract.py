@@ -5,6 +5,8 @@ Elecrow touch controller must still be tested on the device.
 """
 from pathlib import Path
 import random
+import shutil
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -122,6 +124,26 @@ class MapUiContracts(unittest.TestCase):
         reset = UI.split("void HorizonUI::cbMapFilterReset(lv_event_t *e)", 1)[1]
         self.assertIn("m->filterRows[i]", reset)
         self.assertNotIn("self->mapBuildFilterPanel()", reset)  # не удалять кнопку во время тапа
+
+    def test_filter_bitmap_descriptor_compiles_as_cpp17(self):
+        """The firmware compiles MapUI.cpp as C++17, unlike HorizonLogo.c."""
+        bitmap = UI.split("// 20x20 alpha-mask funnel", 1)[1].split("constexpr int16_t kHeaderH", 1)[0]
+        self.assertNotIn("\n    .header.magic =", bitmap)  # not a C++17 initializer
+        self.assertIn("icon.header.magic = LV_IMAGE_HEADER_MAGIC;", bitmap)
+        self.assertIn("icon.data = kFilterPixels;", bitmap)
+        compiler = shutil.which("g++")
+        if not compiler:
+            self.skipTest("g++ is not installed; run the firmware compiler too")
+        stub = """#include <stdint.h>
+#define LV_ATTRIBUTE_MEM_ALIGN
+#define LV_IMAGE_HEADER_MAGIC 0x19
+#define LV_COLOR_FORMAT_A8 1
+struct image_header { unsigned magic, cf, flags, w, h, stride; };
+struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *data; };
+// 20x20 alpha-mask funnel""" + bitmap
+        result = subprocess.run([compiler, "-std=gnu++17", "-fsyntax-only", "-x", "c++", "-"],
+                                input=stub, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_form_draft_survives_contact_picker(self):
         self.assertIn("s == Screen::CONTACTS && mapPickMode", CORE)

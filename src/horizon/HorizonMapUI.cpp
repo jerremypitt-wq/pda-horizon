@@ -58,16 +58,20 @@ LV_ATTRIBUTE_MEM_ALIGN const uint8_t kFilterPixels[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
-const lv_image_dsc_t kFilterIcon = {
-    .header.magic = LV_IMAGE_HEADER_MAGIC,
-    .header.cf = LV_COLOR_FORMAT_A8,
-    .header.flags = 0,
-    .header.w = 20,
-    .header.h = 20,
-    .header.stride = 20,
-    .data_size = sizeof(kFilterPixels),
-    .data = kFilterPixels,
-};
+// В C++17 вложенные designated initializers (.header.magic) недопустимы.
+// Заполняем заголовок по полям, сохраняя дескриптор неизменным для LVGL.
+const lv_image_dsc_t kFilterIcon = []() {
+    lv_image_dsc_t icon{};
+    icon.header.magic = LV_IMAGE_HEADER_MAGIC;
+    icon.header.cf = LV_COLOR_FORMAT_A8;
+    icon.header.flags = 0;
+    icon.header.w = 20;
+    icon.header.h = 20;
+    icon.header.stride = 20;
+    icon.data_size = sizeof(kFilterPixels);
+    icon.data = kFilterPixels;
+    return icon;
+}();
 
 constexpr int16_t kHeaderH = 40;
 // Новые карты не более 720×480; 960×640 читаем ради ранее отправленных.
