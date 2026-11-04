@@ -252,9 +252,6 @@ void HorizonUI::cbRow(lv_event_t *e)
     case 3:
         self->buildSetAbout();
         break;
-    case 4:
-        self->buildSetBattery();
-        break;
     case 5:
         // Вложенный раздел мастера: единственный PIN-гейт в настройках.
         self->askPin("Мастер-PIN:", [self]() { self->showMaster(); });
@@ -572,14 +569,6 @@ void HorizonUI::buildSettings(void)
     rowButton(body, "Время", timesub, 1);
     rowButton(body, "Звук", cfg.silent ? "Бесшумный режим" : "Звук включён", 2);
     rowButton(body, "О ПДА", "Версия и состояние", 3);
-    {
-        char vbsub[28];
-        if (view->batteryMv() > 0)
-            snprintf(vbsub, sizeof(vbsub), "%d.%02d В", view->batteryMv() / 1000, (view->batteryMv() % 1000) / 10);
-        else
-            strcpy(vbsub, "замер не найден");
-        rowButton(body, "Батарея", vbsub, 4);
-    }
     rowButton(body, "Мастер", "Каналы, радио, сброс (PIN)", 5);
 }
 
@@ -625,6 +614,9 @@ void HorizonUI::cbMasterRow(lv_event_t *e)
         // сброса своё подтверждение.
         self->buildSetReset();
         break;
+    case 6:
+        self->buildSetBattery();
+        break;
     default:
         break;
     }
@@ -651,17 +643,24 @@ void HorizonUI::buildSetMaster(void)
     struct MRow {
         const char *t;
         const char *s;
+        int id;
     };
-    MRow rows[6] = {
-        {"Каналы чатов", chsub},
-        {"Устройство (LoRa)", "Регион, пресет, роль, радиомолчание"},
-        {"Инструменты Mesh", "Детектор, сканер, маршрут"},
-        {"Мастер-пароль", "Смена PIN"},
-        {"Синхронизация времени", "Разослать дату/время всем"},
-        {"Сброс", "ПДА, NodeDB, заводской"},
+    char vbsub[28];
+    if (view->batteryMv() > 0)
+        snprintf(vbsub, sizeof(vbsub), "%d.%02d В", view->batteryMv() / 1000, (view->batteryMv() % 1000) / 10);
+    else
+        strcpy(vbsub, "замер не найден");
+    MRow rows[7] = {
+        {"Каналы чатов", chsub, 0},
+        {"Устройство (LoRa)", "Регион, пресет, роль, радиомолчание", 1},
+        {"Батарея", vbsub, 6},
+        {"Инструменты Mesh", "Детектор, сканер, маршрут", 2},
+        {"Мастер-пароль", "Смена PIN", 3},
+        {"Синхронизация времени", "Разослать дату/время всем", 4},
+        {"Сброс", "ПДА, NodeDB, заводской", 5},
     };
-    for (int i = 0; i < 6; i++) {
-        lv_obj_t *b = rowButton(body, rows[i].t, rows[i].s, i);
+    for (int i = 0; i < 7; i++) {
+        lv_obj_t *b = rowButton(body, rows[i].t, rows[i].s, rows[i].id);
         // rowButton вешает cbRow (работает только на экране SETTINGS) -
         // переназначить на обработчик раздела.
         lv_obj_remove_event_cb(b, cbRow);
@@ -1316,7 +1315,7 @@ void HorizonUI::buildSetDisplay(void)
     setTheme = lv_dropdown_create(body);
     HorizonTheme::styleField(setTheme);
     {
-        char opts[160] = "";
+        char opts[256] = "";
         for (uint8_t i = 0; i < kThemeCount; i++) {
             strcat(opts, kThemes[i]);
             if (i + 1 < kThemeCount)
@@ -1509,7 +1508,7 @@ void HorizonUI::cbSetApplyBattery(lv_event_t *e)
     }
     cfg.save();
     self->toast("Калибровка сохранена");
-    self->showSettings();
+    self->showMaster();
 }
 
 void HorizonUI::cbRebootNow(lv_event_t *e)

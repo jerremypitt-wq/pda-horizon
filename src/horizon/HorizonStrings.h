@@ -16,7 +16,7 @@ constexpr const char *kAppSub = "MESH-СВЯЗЬ // STALKER NET";
 // Версия прошивки ПДА: MAJOR.MINOR.PATCH. Бампить КАЖДЫМ функциональным
 // изменением (MINOR - фича/партия, PATCH - хотфикс), чтобы по экрану «О ПДА»,
 // сплэшу и логу было видно, что зашито в устройство. Всё до ввода правила = 1.0.0.
-constexpr const char *kFirmwareVersion = "1.8.7.ZI";
+constexpr const char *kFirmwareVersion = "1.8.8.ZI";
 
 // Ранги персонажа
 constexpr uint8_t kRankCount = 4;
@@ -34,7 +34,7 @@ constexpr uint8_t kPoiTypeCount = 5;
 extern const char *const kPoiTypes[kPoiTypeCount];
 
 // Цветовые темы оформления
-constexpr uint8_t kThemeCount = 5;
+constexpr uint8_t kThemeCount = 6;
 extern const char *const kThemes[kThemeCount];
 
 // Регионы LoRa (сокращённый список самых ходовых) + коды meshtastic

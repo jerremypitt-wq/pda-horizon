@@ -110,7 +110,9 @@ class MapUiContracts(unittest.TestCase):
         self.assertIn("lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);", build)
         self.assertIn('lv_label_set_text(bl, "<");', build)
         self.assertIn("lv_obj_set_pos(back, 4, kStatusH + 4);", build)
-        self.assertIn("lv_obj_set_pos(flt, W() - 76, kStatusH + 4);", build)
+        self.assertIn("lv_obj_set_pos(flt, W() - 46, kStatusH + 4);", build)
+        self.assertIn("lv_image_set_src(fl, &kFilterIcon);", build)
+        self.assertNotIn('lv_label_set_text(fl, "Фильтры")', build)
         panel = UI.split("void HorizonUI::mapBuildFilterPanel(void)", 1)[1].split("void HorizonUI::cbMapFilter(lv_event_t *e)", 1)[0]
         self.assertIn('sectionLabel(panel, "По типу");', panel)
         self.assertIn('sectionLabel(panel, "По доступу");', panel)
@@ -131,13 +133,53 @@ class MapUiContracts(unittest.TestCase):
         self.assertIn('"Публичная\\nЧастная"', UI)
         self.assertIn('"Общая\\nГруппировка\\nОтправить контакту"', UI)
 
-    def test_keyboard_only_map_mode(self):
-        self.assertIn("current == Screen::MAP_FORM", CORE)
-        self.assertIn('"ь", "OK", "<<"', CORE)
-        self.assertIn('if (!strcmp(txt, "OK"))', CORE)
-        self.assertIn('kbdHide();', CORE)
-        self.assertIn('kbdLayout == 0 && i == 37', CORE)
-        self.assertIn('kbdLayout == 2 && i == 38', CORE)
+    def test_keyboard_editors_except_chat(self):
+        self.assertIn("bool hasOk = (current != Screen::CHAT);", CORE)
+        self.assertIn("bool mapMode = (current == Screen::MAP_FORM);", CORE)
+        self.assertIn('if (i == 39)\n            keys[i] = "OK";', CORE)
+        self.assertIn('else if (i == 38)\n            keys[i] = "<<";', CORE)
+        self.assertIn('kbdLayout == 1 && !mapMode && i == 36', CORE)
+        self.assertIn('kbdLayout == 2 && i == 37', CORE)
+        self.assertIn("keys[j]", CORE)  # wide space uses transformed keys
+        self.assertIn('if (!strcmp(txt, "OK")) {\n        kbdHide();', CORE)
+        self.assertIn('"ь", "OK", "<<"', CORE)  # map Cyrillic keeps comma absent
+        self.assertIn('lv_label_set_text(pinDots, "----");', CORE)
+        self.assertIn("dots[i] = (i < n) ? '*' : '-';", CORE)
+
+    def test_rank_map_destination_guard_including_old_points(self):
+        self.assertIn('cfg.rank < kRankVeteran ? "Группировка\\nОтправить контакту"', UI)
+        self.assertIn('if (cfg.rank < kRankVeteran && vDest == 0)', UI)  # old general point
+        self.assertIn('lv_dropdown_set_selected(m->formDest, vDest - (cfg.rank < kRankVeteran ? 1 : 0))', UI)
+        self.assertIn('mapFormDestination(m->formDest)', UI)
+        self.assertIn('m->draftDest = mapFormDestination(m->formDest);', UI)
+        self.assertIn('bool wantPeer = (vis == 0 && dest == 2);', UI)
+        self.assertIn('if (shared && cfg.rank < kRankVeteran && (dest == 0 || (dest == 1 && cfg.groupCh == cfg.generalCh)))', UI)
+        self.assertIn('if (to == 0xFFFFFFFFu && cfg.rank < HorizonStrings::kRankVeteran && ch == cfg.generalCh)', VIEW)
+        for rank in range(4):
+            first = 1 if rank < 2 else 0
+            options = ["group", "dm"] if first else ["general", "group", "dm"]
+            self.assertEqual([i + first for i in range(len(options))],
+                             [1, 2] if first else [0, 1, 2])
+
+    def test_theme_version_battery_reboot_contract(self):
+        setup = (ROOT / "src/horizon/HorizonSetupUI.cpp").read_text(encoding="utf-8")
+        theme = (ROOT / "src/horizon/HorizonTheme.cpp").read_text(encoding="utf-8")
+        strings = (ROOT / "src/horizon/HorizonStrings.h").read_text(encoding="utf-8")
+        settings = setup.split("void HorizonUI::buildSettings(void)", 1)[1].split("// ---------------- настройки: раздел мастера", 1)[0]
+        master = setup.split("void HorizonUI::buildSetMaster(void)", 1)[1].split("// ---------------- настройки: время", 1)[0]
+        self.assertNotIn('rowButton(body, "Батарея"', settings)
+        self.assertIn('{"Батарея", vbsub, 6}', master)
+        self.assertIn('case 6:\n        self->buildSetBattery();', setup)
+        self.assertIn('case Screen::SET_BATTERY:\n        self->showMaster();', CORE)
+        self.assertIn('"Киберпанк"', (ROOT / "src/horizon/HorizonStrings.cpp").read_text(encoding="utf-8"))
+        self.assertIn('kThemeCount = 6', strings)
+        self.assertIn('CYBERPUNK', theme)
+        self.assertIn('kFirmwareVersion = "1.8.8.ZI"', strings)
+        self.assertIn('"ПДА «Горизонт» v.%s", kFirmwareVersion', CORE)
+        reboot = VIEW.split('void HorizonView::rebootNode(void)', 1)[1].split('void HorizonView::resetNodeDb(void)', 1)[0]
+        self.assertIn('controller->requestReboot(0, ownNode);', reboot)
+        self.assertIn('controller->requestReboot(3, ownNode);', reboot)
+        self.assertLess(reboot.index('controller->requestReboot(0, ownNode);'), reboot.index('controller->requestReboot(3, ownNode);'))
 
     def test_own_points_older_csv_and_direct_delivery(self):
         self.assertIn("nf != 9 && nf != 10", STORE)

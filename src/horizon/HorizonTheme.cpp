@@ -82,6 +82,21 @@ const HorizonPalette kPalettes[] = {
      .ok = 0x9ACD32,
      .headerBg = 0x2A3324,
      .tileEnd = 0x2E3628},
+    // CYBERPUNK - чёрный фон, неоновый зелёный, читаемый светлый текст.
+    {.bg = 0x050A08,
+     .panel = 0x0B1711,
+     .panel2 = 0x08120D,
+     .border = 0x1E633C,
+     .accent = 0x39E876,
+     .accentText = 0x031008,
+     .text = 0xD7FFE2,
+     .textDim = 0x80B996,
+     .incoming = 0x10321F,
+     .outgoing = 0x12512D,
+     .danger = 0xEF5360,
+     .ok = 0x39E876,
+     .headerBg = 0x091B10,
+     .tileEnd = 0x11271A},
 };
 } // namespace
 

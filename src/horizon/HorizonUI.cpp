@@ -342,7 +342,7 @@ void HorizonUI::askPin(const char *prompt, std::function<void(void)> onOk)
     lv_obj_set_style_text_font(t, HorizonTheme::fontMedium(), LV_PART_MAIN);
 
     pinDots = lv_label_create(panel);
-    lv_label_set_text(pinDots, "____");
+    lv_label_set_text(pinDots, "----");
     lv_obj_set_style_text_font(pinDots, HorizonTheme::fontBig(), LV_PART_MAIN);
     lv_obj_set_style_text_color(pinDots, hzColor(p.accent), LV_PART_MAIN);
 
@@ -421,15 +421,15 @@ void HorizonUI::pinPress(const char *key)
         pinEntry += key;
     }
     if (pinDots && lv_obj_is_valid(pinDots)) {
-        // Маска: ____ -> *___ -> **__ -> ***_ -> ****. PIN длиннее 4 цифр
-        // (до 8) - слоты дорастают до длины ввода, хвост без подчёркиваний.
+        // Маска: ---- -> *--- -> **-- -> ***- -> ****. PIN длиннее 4 цифр
+        // (до 8) - слоты дорастают до длины ввода.
         char dots[10];
         size_t n = pinEntry.size();
         size_t slots = n > 4 ? n : 4;
         if (slots > 8)
             slots = 8;
         for (size_t i = 0; i < slots; i++)
-            dots[i] = (i < n) ? '*' : '_';
+            dots[i] = (i < n) ? '*' : '-';
         dots[slots] = '\0';
         lv_label_set_text(pinDots, dots);
     }
@@ -528,9 +528,9 @@ namespace {
 // Раскладки: ровно kKbdCols*kKbdRows ключей, пустых клеток нет.
 // Широкая клавиша пишется дубликатами подряд и склеивается (см. kbdSetLayout).
 // Служебные клавиши - все в нижнем ряду: переключатель раскладки, "Aa",
-// "123"/"АБВ", пробел, знаки, справа "<<" (стереть). "Aa" - Shift разового
-// действия, двойной тап - CapsLock. В обычных экранах клавиатура убирается
-// тапом мимо поля ввода. В форме карты RU/EN/NUM получают кнопку OK.
+// "123"/"АБВ", пробел, знаки. В чатах справа "<<" (отправка отдельно);
+// в остальных редакторах справа OK, слева от неё "<<". "Aa" - Shift
+// разового действия, двойной тап - CapsLock.
 // RU - ЙЦУКЕН; "х", "ю" - в третьем ряду, десяток добирает "э";
 // в обычных экранах запятая - в нижнем ряду рядом с "<<".
 const char *const kKbdEn[] = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", //
@@ -553,7 +553,7 @@ const char *const kKbdNum[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
                                "-", "/", ":", ";", "(", ")", "+", "=", "*", "_", //
                                ",", "?", "!", ".", "@", "#", "%", "'", "\"", "\\", //
                                "АБВ", "$", "&", " ", " ", " ", " ", " ", "^", "<<"};
-// Карта (MAP_FORM): запятой нет, вместо неё OK (прячет клавиатуру).
+// Карта (MAP_FORM): в русской раскладке запятой нет; OK справа.
 const char *const kKbdRuMap[] = {"й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", //
                                  "ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", //
                                  "я", "ч", "с", "м", "и", "т", "б", "ю", "х", "э", //
@@ -643,8 +643,10 @@ void HorizonUI::kbdSetLayout(uint8_t layout)
     if (!kbd || !lv_obj_is_valid(kbd))
         return;
     lv_obj_clean(kbd);
-    // В форме точки - своя кириллица: без запятой, с кнопкой OK.
+    // В форме точки - своя кириллица без запятой. Чат сохраняет кнопку
+    // отправки и прежнюю клавиатуру без OK.
     bool mapMode = (current == Screen::MAP_FORM);
+    bool hasOk = (current != Screen::CHAT);
     const char *const *map = kKbdEn;
     if (kbdLayout == 1)
         map = mapMode ? (kbdShift ? kKbdRuShiftMap : kKbdRuMap) : (kbdShift ? kKbdRuShift : kKbdRu);
@@ -666,23 +668,36 @@ void HorizonUI::kbdSetLayout(uint8_t layout)
     lv_obj_set_style_grid_column_dsc_array(kbd, col_dsc, LV_PART_MAIN);
     lv_obj_set_style_grid_row_dsc_array(kbd, row_dsc, LV_PART_MAIN);
 
-    // Широкая клавиша пишется дубликатами подряд и склеивается в одну кнопку
-    // (пробел, Aa, <<): создаём на первом вхождении, повторы пропускаем.
+    // Эффективная раскладка: сокращаем пробел на одну ячейку, но сохраняем
+    // знаки препинания; при склейке пробела сравнивать именно итоговые клавиши.
+    const char *keys[kKbdCols * kKbdRows];
+    for (int i = 0; i < kKbdCols * kKbdRows; i++) {
+        keys[i] = map[i];
+        if (!hasOk)
+            continue;
+        if (i == 39)
+            keys[i] = "OK";
+        else if (i == 38)
+            keys[i] = "<<";
+        else if (kbdLayout == 0 && i == 36)
+            keys[i] = ".";
+        else if (kbdLayout == 1 && !mapMode && i == 36)
+            keys[i] = ",";
+        else if (kbdLayout == 2 && i == 37)
+            keys[i] = "^";
+    }
     int cells = kKbdCols * kKbdRows;
     for (int i = 0; i < cells; i++) {
-        const char *key = map[i];
-        // В форме точки OK остаётся на месте и при смене раскладки на EN/123.
-        if (mapMode && ((kbdLayout == 0 && i == 37) || (kbdLayout == 2 && i == 38)))
-            key = "OK";
+        const char *key = keys[i];
         if (!key || !*key)
             continue;
         bool wide = !strcmp(key, " ");
         int col = i % kKbdCols;
         int row = i / kKbdCols;
-        if (col > 0 && map[i - 1] && !strcmp(map[i - 1], key))
+        if (col > 0 && keys[i - 1] && !strcmp(keys[i - 1], key))
             continue; // хвост широкой кнопки
         int span = 1;
-        for (int j = i + 1; j < (row + 1) * kKbdCols && map[j] && !strcmp(map[j], key); j++)
+        for (int j = i + 1; j < (row + 1) * kKbdCols && keys[j] && !strcmp(keys[j], key); j++)
             span++;
         lv_obj_t *b = lv_btn_create(kbd);
         // Служебные клавиши - акцентным цветом, как раньше OK. Взведённый
@@ -754,7 +769,7 @@ void HorizonUI::kbdPress(const char *txt)
         return;
     }
     if (!strcmp(txt, "OK")) {
-        kbdHide(); // кнопка есть только в раскладках формы карты
+        kbdHide(); // все редакторы, кроме чатов с кнопкой отправки
         return;
     }
     if (!kbdTarget || !lv_obj_is_valid(kbdTarget))
@@ -991,7 +1006,9 @@ void HorizonUI::buildMenu(void)
         lv_obj_add_event_cb(t, cbTile, LV_EVENT_CLICKED, this);
     }
 
-    addFooterHint(scr, kAppName);
+    char footer[80];
+    snprintf(footer, sizeof(footer), "ПДА «Горизонт» v.%s", kFirmwareVersion);
+    addFooterHint(scr, footer);
     refreshMenuBadges();
     refreshStatus();
 }
@@ -1116,6 +1133,9 @@ void HorizonUI::cbBack(lv_event_t *e)
     case Screen::SET_PIN:
     case Screen::SET_RESET:
     case Screen::SET_TOOLS:
+        self->showMaster();
+        break;
+    case Screen::SET_BATTERY:
         self->showMaster();
         break;
     case Screen::SET_MASTER:

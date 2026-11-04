@@ -24,7 +24,7 @@ class HorizonConfig
     uint8_t brightness = 180; // 20..255
     uint16_t timeoutSec = 60; // 0 - никогда
     uint8_t orientation = 0;  // 0 - альбомная, 1 - книжная (применяется после перезагрузки)
-    uint8_t theme = 0;        // 0..4, см. HorizonStrings::kThemes
+    uint8_t theme = 0;        // 0..5, см. HorizonStrings::kThemes
 
     // --- Звук ---
     bool silent = false;   // бесшумный режим (без бипов уведомлений)

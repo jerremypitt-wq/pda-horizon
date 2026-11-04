@@ -889,6 +889,12 @@ bool HorizonView::mapSendPoint(const HzPoi &p, uint32_t to)
 {
     if (!radioConnected())
         return false;
+    const HorizonConfig &cfg = HorizonConfig::instance();
+    const uint8_t ch = p.ch > 7 ? cfg.generalCh : p.ch;
+    // Защита на уровне отправителя: запрещена даже при правке старой метки
+    // или если список назначения был открыт до смены ранга.
+    if (to == 0xFFFFFFFFu && cfg.rank < HorizonStrings::kRankVeteran && ch == cfg.generalCh)
+        return false;
     // Бюджет части - 220 байт: чанк подгоняем под шапку (имена - до 80 байт
     // каждое при эмодзи, поэтому фиксированные 96 годятся не всегда).
     // total/idx всегда одна цифра (≤8) - длина шапки точная заранее.
@@ -916,7 +922,6 @@ bool HorizonView::mapSendPoint(const HzPoi &p, uint32_t to)
         total = 1; // пустой комментарий - одна часть без чанка
     if (pos < len)
         ILOG_INFO("Horizon: POI '%s' comment tail dropped (%u parts cap)", p.id, (unsigned)total);
-    uint8_t ch = p.ch > 7 ? HorizonConfig::instance().generalCh : p.ch;
     for (uint8_t i = 0; i < total; i++) {
         size_t start = off[i];
         size_t end = (i + 1 < total) ? off[i + 1] : pos;
@@ -1379,12 +1384,20 @@ void HorizonView::pushOwnerFromDossier(void)
 
 void HorizonView::rebootNode(void)
 {
+#ifdef HORIZON_PACKET_LINK
+    // Радио и экран на одном ESP32. Команда reboot идёт в ТУ ЖЕ очередь,
+    // что и sendConfig: сначала ядро применит и сохранит настройки (saveChanges),
+    // затем запланирует перезапуск с нулевой задержкой. Прямой ESP.restart()
+    // здесь терял бы ещё не обработанные правки LoRa/каналов.
+    controller->requestReboot(0, ownNode);
+#else
     if (!radioConnected()) {
         if (ui)
             ui->toast(HZ_NO_LINK);
         return;
     }
-    controller->requestReboot(3, ownNode);
+    controller->requestReboot(3, ownNode); // отдельный радиомодуль (UART)
+#endif
 }
 
 void HorizonView::resetNodeDb(void)
