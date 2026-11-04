@@ -97,13 +97,17 @@ class MapUiContracts(unittest.TestCase):
         self.assertIn("lv_obj_set_style_pad_all(m->markers, 0, LV_PART_MAIN)", UI)
         self.assertIn("addStatusBar(scr);", UI)
 
-    def test_fullscreen_map_transparent_status_and_filter_groups(self):
+    def test_fullscreen_map_dimmed_status_and_filter_groups(self):
         build = UI.split("void HorizonUI::buildMap(void)", 1)[1].split("void HorizonUI::mapRefreshMarkers(void)", 1)[0]
         self.assertIn("m->viewY = 0;", build)
         self.assertIn("m->viewH = H();", build)
         self.assertLess(build.index("lv_obj_t *box = lv_obj_create(scr);"), build.index("addStatusBar(scr);"))
-        self.assertIn("lv_obj_set_style_bg_opa(bar, LV_OPA_TRANSP, LV_PART_MAIN);", build)
+        self.assertIn("lv_obj_set_style_bg_color(bar, hzColor(0x0A0D0C), LV_PART_MAIN);", build)
+        self.assertIn("lv_obj_set_style_bg_opa(bar, LV_OPA_60, LV_PART_MAIN);", build)
+        self.assertNotIn("lv_obj_set_style_bg_opa(bar, LV_OPA_TRANSP", build)
         self.assertIn("lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);", build)
+        self.assertIn("lv_obj_set_style_text_color(bar, hzColor(0xFFFFFF), LV_PART_MAIN);", build)
+        self.assertIn("lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);", build)
         self.assertIn('lv_label_set_text(bl, "<");', build)
         self.assertIn("lv_obj_set_pos(back, 4, kStatusH + 4);", build)
         self.assertIn("lv_obj_set_pos(flt, W() - 76, kStatusH + 4);", build)

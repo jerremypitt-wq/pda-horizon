@@ -463,7 +463,7 @@ void HorizonUI::buildMap(void)
     }
     // Карта всегда альбомная. При выходе clearScreen вернёт настройку ПДА.
     horizonSetMapLandscape(view->getDisplayDriver(), true);
-    // Карта занимает и область статусбара: прозрачный бар лежит поверх картинки.
+    // Карта занимает и область статусбара: затемнённый полупрозрачный бар поверх картинки.
     m->viewY = 0;
     m->viewW = W();
     m->viewH = H();
@@ -510,7 +510,7 @@ void HorizonUI::buildMap(void)
 
     clearScreen(Screen::MAP); // сносит виджеты (mapDropWidgets), буферы целы
 
-    // Картинка рисуется первой; прозрачный статусбар добавим последним поверх.
+    // Картинка рисуется первой; полупрозрачный статусбар добавим последним поверх.
     // Нулевые отступы обязательны: тапы и маркеры
     // считаются от начала картинки, любой pad темы даст сдвиг.
     lv_obj_t *box = lv_obj_create(scr);
@@ -598,10 +598,11 @@ void HorizonUI::buildMap(void)
     lv_obj_set_user_data(m->zout, (void *)(intptr_t)(-1));
     lv_obj_add_event_cb(m->zout, cbMapZoom, LV_EVENT_CLICKED, this);
 
-    // Создать после картинки: иначе непрозрачная шапка либо перекроет карту,
-    // либо сама спрячется под ней. Текст виден, подложки и рамки нет.
+    // Бар поверх картинки: тёмная полупрозрачная подложка только под белым текстом.
+    // Карта по-прежнему заполняет весь экран, включая область под баром.
     lv_obj_t *bar = addStatusBar(scr);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, hzColor(0x0A0D0C), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_60, LV_PART_MAIN);
     lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
     lv_obj_set_style_text_color(bar, hzColor(0xFFFFFF), LV_PART_MAIN);
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE); // тап по карте проходит сквозь бар
