@@ -1,0 +1,49 @@
+name: HorizonFlasher Windows EXE
+
+on:
+  push:
+    branches: [arena/60816aa0-pda-horizon]
+    paths:
+      - tools/flasher/**
+      - tools/build/poi_pack.py
+      - .github/workflows/horizon-flasher-windows.yml
+  workflow_dispatch:
+
+jobs:
+  flasher:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: python -m pip install -r tools/flasher/requirements.txt
+      - name: Test editor and safe update
+        shell: pwsh
+        run: |
+          foreach ($test in @('test_map_editor.py', 'test_data_update.py', 'test_flasher.py')) {
+            $output = & python "tools/flasher/tests/$test" 2>&1
+            $output | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+              $last = ($output | Select-Object -Last 14) -join ' | '
+              Write-Output "::error title=Windows $test failed::$last"
+              exit 1
+            }
+          }
+      - name: Build one-file Windows application with editor
+        shell: cmd
+        run: tools\flasher\build_exe.bat --ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HorizonFlasher-Windows-with-MapEditor
+          path: |
+            tools/flasher/dist/HorizonFlasher.exe
+            tools/flasher/dist/HorizonFlasher-CLI.exe
+            tools/flasher/README-BUYER.txt
+          if-no-files-found: error
+          retention-days: 14

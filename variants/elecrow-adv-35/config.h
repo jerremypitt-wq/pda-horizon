@@ -1,20 +1,36 @@
 #pragma once
 // variants/elecrow-adv-35/config.h — плата Elecrow CrowPanel Advance 3.5"
-// для репозитория standalone-ui. Зеркалит известную распиновку из
-// meshtastic/firmware variant elecrow_panel.
+// для репозитория standalone-ui / ПДА «Горизонт».
 //
-// Дисплей: ILI9488 (SPI) 480x320 ландшафт
-// Тач:     GT911 (I2C) addr 0x5D
-// ПРОВЕРИТЬ ПО ПРИБОРУ: host/vsync-режим, инверсия цвета, канал PWM подсветки.
+// Дисплей: ILI9488 (SPI) 480x320 ландшафт (или 320x480 книжный для Горизонта)
+// Тач:     GT911 (I2C) addr 0x14
+// Пины и тайминги сверены с официальным LovyanGFX_Driver.h Elecrow (V1.2/1.3/1.4,
+// lesson-03 3_5LVGL) и схемой V1.4: RST LCD = GPIO2, BL = GPIO38 (active-high).
+// ПРОВЕРИТЬ ПО ПРИБОРУ: книжная ориентация (setRotation(0) может дать перевёртыш
+// на 180 градусов — тогда нужен 2); тач на i2c_port=1 (у вендора 0, но шина 1
+// свободна от Arduino Wire и потому безопаснее — см. комментарий ниже).
+//
+// Этот файл инклудится явно там, где нужен класс панели (HorizonDisplay.cpp,
+// фабрика device-ui после применения docs/patches/device-ui-elecrow35-factory.patch).
+// Глобальный -include НЕ используется (ломал LDF и давал конфликт `fonts`).
+// C++-код спрятан за #ifdef __cplusplus, чтобы не ломать Си-файлы.
 
-#ifndef LGFX_DRIVER
-#define LGFX_DRIVER LGFX_ELECROW_ADV_35
-#endif
+#include <stdint.h>
+#include <string.h>
 
-// config.h is force-included by the build. Keep C translation units from
-// parsing the C++-only LovyanGFX headers and class declaration.
+// Keep C translation units from parsing the C++-only LovyanGFX headers
+// and class declaration.
 #ifdef __cplusplus
 #include <LovyanGFX.hpp>
+
+#if defined(HORIZON_UI)
+// Определена в src/horizon/HorizonView.cpp: возвращает orientation из уже
+// загруженного в память HorizonConfig. Именно extern-функция, а не чтение
+// файла: этот заголовок force-include'ится во все единицы трансляции,
+// включая исходники LovyanGFX, где LDF не подхватывает LittleFS
+// (fatal error: LittleFS.h: No such file or directory).
+bool horizonIsPortrait(void);
+#endif
 
 class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
 {
@@ -24,22 +40,26 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
     lgfx::Touch_GT911   _touch;
 
   public:
-    // Logical panel dimensions after rotation: native landscape orientation.
-    const uint16_t screenWidth = 480;
-    const uint16_t screenHeight = 320;
+    // Logical panel dimensions after rotation (may be swapped for portrait).
+    uint16_t screenWidth = 480;
+    uint16_t screenHeight = 320;
 
     // This display has touch input but no physical button exposed by this driver.
     bool hasButton(void) { return false; }
 
     LGFX_ELECROW_ADV_35(void)
     {
+        bool portrait = false;
+#if defined(HORIZON_UI)
+        portrait = horizonIsPortrait();
+#endif
         { // SPI-шина дисплея (из firmware-варианта: SCK42 MOSI39 DC41 CS40)
             auto cfg = _bus.config();
-            cfg.spi_host    = SPI3_HOST;
+            cfg.spi_host    = SPI2_HOST;
             cfg.spi_mode    = 0;
             cfg.freq_write  = 40000000;
             cfg.freq_read   = 16000000;
-            cfg.spi_3wire   = true;
+            cfg.spi_3wire   = false;
             cfg.use_lock    = true;
             cfg.dma_channel = SPI_DMA_CH_AUTO;
             cfg.pin_sclk    = 42;
@@ -49,10 +69,10 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
             _bus.config(cfg);
             _panel.setBus(&_bus);
         }
-        { // Панель ILI9488 480x320
+        { // Панель ILI9488 480x320 (пины/флаги — как у вендора)
             auto cfg = _panel.config();
             cfg.pin_cs   = 40;
-            cfg.pin_rst  = -1;
+            cfg.pin_rst  = 2;
             cfg.pin_busy = -1;
             cfg.memory_width  = 320;
             cfg.memory_height = 480;
@@ -60,10 +80,23 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
             cfg.panel_height  = 480;
             cfg.offset_x = 0;
             cfg.offset_y = 0;
-            cfg.invert   = true;
-            cfg.rgb_order = false;
+            // Вендор: offset_rotation=3 (эффективная ротация 3 = ландшафт).
+            // LovyanGFX считает internal=((r+offset)&3)|((r&4)^(offset&4)),
+            // поэтому offset_rotation=3 при setRotation(0) == наш старый план
+            // setRotation(3). Старый setRotation(1) давал перевёртыш на 180°.
+            cfg.offset_rotation = portrait ? 0 : 3;
+            cfg.dummy_read_pixel = 8;
+            cfg.dummy_read_bits  = 1;
+            cfg.readable    = false;
+            cfg.invert      = true;
+            cfg.rgb_order   = false;
+            cfg.dlen_16bit  = false;
+            cfg.bus_shared  = true;
             _panel.config(cfg);
-            _panel.setRotation(1);
+        }
+        if (portrait) {
+            screenWidth = 320;
+            screenHeight = 480;
         }
         { // Подсветка BL=38
             auto cfg = _light.config();
@@ -74,14 +107,22 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
             _light.config(cfg);
             _panel.setLight(&_light);
         }
-        { // Тач GT911 (SDA15 SCL16 INT47 RST48, 0x5D)
+        { // Тач GT911 (SDA15 SCL16 INT47 RST48, addr 0x14)
             auto cfg = _touch.config();
-            cfg.x_min = 0;  cfg.x_max = 479;
-            cfg.y_min = 0;  cfg.y_max = 319;
+            // Сырые координаты GT911 на этой плате — всегда портрет 320x480;
+            // в экранные их пересчитывает сам LovyanGFX по ротации панели.
+            // У вендора те же 319/479 при ландшафте — дублируем как есть.
+            cfg.x_min = 0;  cfg.x_max = 319;
+            cfg.y_min = 0;  cfg.y_max = 479;
+            cfg.offset_rotation = 0;
+            cfg.bus_shared = false;
             cfg.pin_int = 47;
             cfg.pin_rst = 48;
+            // У вендора i2c_port=0. У нас 1: шина 0 зарезервирована за Arduino
+            // Wire (хоть он у нас и не стартует — I2C_SDA не задан), а тач на
+            // отдельной шине гарантированно ни с чем не конфликтует.
             cfg.i2c_port = 1;
-            cfg.i2c_addr = 0x5D;
+            cfg.i2c_addr = 0x14;
             cfg.pin_sda = 15;
             cfg.pin_scl = 16;
             cfg.freq = 400000;

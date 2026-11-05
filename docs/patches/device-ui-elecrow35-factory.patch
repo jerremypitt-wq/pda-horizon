@@ -1,0 +1,29 @@
+From 0451de74964178b33bf8edd0cd06b7f1c874e35d Mon Sep 17 00:00:00 2001
+From: jerremypitt-wq <342500434+jerremypitt-wq@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 18:41:03 +0000
+Subject: [PATCH] Factory: support CrowPanel Advance 3.5 (pda-horizon
+ ELECROW_ADV_35)
+
+---
+ source/graphics/driver/DisplayDriverFactory.cpp | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/source/graphics/driver/DisplayDriverFactory.cpp b/source/graphics/driver/DisplayDriverFactory.cpp
+index a342272..a89a0b3 100644
+--- a/source/graphics/driver/DisplayDriverFactory.cpp
++++ b/source/graphics/driver/DisplayDriverFactory.cpp
+@@ -63,6 +63,11 @@
+ #ifdef ELECROW_MX
+ #include "graphics/LGFX/LGFX_ELECROW_MX.h"
+ #endif
++#ifdef ELECROW_ADV_35
++// CrowPanel Advance 3.5 (pda-horizon): класс панели живёт в репозитории
++// прошивки, variants/elecrow-adv-35/config.h (-I добавлен в platformio.ini).
++#include "config.h"
++#endif
+ #ifdef ESP32_2432S022
+ #include "graphics/LGFX/LGFX_ESP2432S022.h"
+ #endif
+-- 
+2.39.5
+

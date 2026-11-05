@@ -4,5 +4,17 @@
 .vscode/extensions.json
 .vscode/launch.json
 .vscode/ipch
-squareline
 .vscode/extensions.json
+
+# Дерево форка (клонируется само при сборке) и пакеты (строятся сами) -
+# в репозиторий им нельзя: сотни мегабайт + мусор в git status.
+firmware-hz/
+horizon-*/
+horizon-*.zip
+
+# Python / PyInstaller (tools/flasher)
+__pycache__/
+*.py[cod]
+tools/flasher/dist/
+tools/flasher/build/
+tools/flasher/*.spec
