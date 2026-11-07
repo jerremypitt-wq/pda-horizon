@@ -138,15 +138,18 @@ struct HzMapUi {
     bool fShared = true;
     bool fPriv = true;
     char selId[28] = ""; // выбранная точка (первый тап показал имя)
+    char pulseId[28] = "";
+    uint32_t pulseStartedMs = 0;
+    lv_obj_t *pulseRings[2] = {nullptr, nullptr};
     uint32_t lastEmptyMs = 0; // последний тап по пустому (двойной тап)
     int lastEmptyX = 0;
     int lastEmptyY = 0;
     lv_obj_t *formName = nullptr;
     lv_obj_t *formComment = nullptr;
     lv_obj_t *formType = nullptr;
-    lv_obj_t *formVis = nullptr;      // Публичная/Частная
+    lv_obj_t *formVis = nullptr;      // Публичная/Частная/Поделиться
     lv_obj_t *formDestRow = nullptr;  // строка списка назначения
-    lv_obj_t *formDest = nullptr;     // Общая/Группировка/Отправить контакту
+    lv_obj_t *formDest = nullptr;     // Общая/Группировка
     lv_obj_t *formPeerRow = nullptr;  // строка выбора контакта
     lv_obj_t *formPeerLabel = nullptr;
     bool destRowShown = true;
@@ -411,6 +414,7 @@ void HorizonUI::mapDropWidgets(void)
     mapUi->img = nullptr;
     mapUi->markers = nullptr;
     mapUi->dots.clear();
+    mapUi->pulseRings[0] = mapUi->pulseRings[1] = nullptr;
     mapUi->popup = nullptr;
     mapUi->zin = nullptr;
     mapUi->zout = nullptr;
@@ -667,12 +671,124 @@ void HorizonUI::mapRefreshMarkers(void)
     if (!mapUi || !mapUi->markers || !lv_obj_is_valid(mapUi->markers))
         return;
     lv_obj_clean(mapUi->markers);
+    mapUi->pulseRings[0] = mapUi->pulseRings[1] = nullptr;
     mapUi->dots.clear();
     HzMapStore &st = view->getMapStore();
     addMarkersFor(mapUi, st.baked(), st, true);
     addMarkersFor(mapUi, st.net(), st, false);
     addMarkersFor(mapUi, st.my(), st, false);
     moveMarkers(mapUi);
+}
+
+void HorizonUI::onMapPoint(const char *id, const char *name)
+{
+    if (!id || !hzPoiIdOk(id))
+        return;
+    if (pendingMapId[0]) {
+        const HzPoi *point = view->getMapStore().find(id);
+        if (!strcmp(pendingMapId, id) || (point && !strcmp(pendingMapId, point->sourceId))) {
+            pendingMapId[0] = '\0';
+            mapOpenPoint(id); // ссылка пришла раньше многочастевой точки
+            return;
+        }
+    }
+    toast("Точка: %s", name ? name : "");
+    strncpy(toastMapId, id, sizeof(toastMapId) - 1);
+    toastMapId[sizeof(toastMapId) - 1] = '\0';
+    toastHasTarget = true;
+    if (toastBtn && lv_obj_is_valid(toastBtn))
+        lv_obj_add_flag(toastBtn, LV_OBJ_FLAG_CLICKABLE);
+}
+
+void HorizonUI::mapOpenPoint(const char *id)
+{
+    if (!id || !hzPoiIdOk(id))
+        return;
+    const HzMapStore &st = view->getMapStore();
+    // Если один исходный ID присылали и в общий эфир, и лично, ссылка из
+    // личного чата должна вести именно к моей независимой копии.
+    const HzPoi *point = st.findBySource(id);
+    if (!point)
+        point = st.find(id);
+    if (!point) {
+        if (st.directDismissed(id) || hzPoiAuthorNode(id) == view->getMyNodeNum()) {
+            toast("Точка удалена"); // ссылка осталась в истории, но копии уже нет
+            return;
+        }
+        strncpy(pendingMapId, id, sizeof(pendingMapId) - 1);
+        pendingMapId[sizeof(pendingMapId) - 1] = '\0';
+        showMap();
+        toast("Точка ещё принимается");
+        return;
+    }
+    char localId[28];
+    strncpy(localId, point->id, sizeof(localId) - 1);
+    localId[sizeof(localId) - 1] = '\0';
+    showMap();
+    if (current != Screen::MAP || !mapUi)
+        return;
+    HzMapUi *m = mapUi;
+    point = st.find(localId); // после перехода указатели на пулы не держим
+    if (!point)
+        return;
+    m->fType[point->type < HZ_POI_COUNT ? point->type : 0] = true;
+    if (point->shared) m->fShared = true;
+    else m->fPriv = true;
+    m->ox = point->x * (m->mapW - 1) / 1000.0f - m->viewW / (2 * m->scale);
+    m->oy = point->y * (m->mapH - 1) / 1000.0f - m->viewH / (2 * m->scale);
+    clampView(m);
+    renderView(m);
+    mapRefreshMarkers();
+    strncpy(m->selId, localId, sizeof(m->selId) - 1);
+    m->selId[sizeof(m->selId) - 1] = '\0';
+    mapPlaceTag();
+    strncpy(m->pulseId, localId, sizeof(m->pulseId) - 1);
+    m->pulseId[sizeof(m->pulseId) - 1] = '\0';
+    m->pulseStartedMs = nowMs();
+    mapPulseTick(m->pulseStartedMs);
+}
+
+void HorizonUI::mapPulseTick(uint32_t now)
+{
+    HzMapUi *m = mapUi;
+    if (!m || current != Screen::MAP || !m->pulseId[0] || !m->markers || !lv_obj_is_valid(m->markers))
+        return;
+    const HzPoi *point = view->getMapStore().find(m->pulseId);
+    uint32_t elapsed = now - m->pulseStartedMs;
+    if (!point || elapsed >= 2500) { // 5 волн через каждые полсекунды
+        for (lv_obj_t *&ring : m->pulseRings) {
+            if (ring && lv_obj_is_valid(ring)) lv_obj_delete(ring);
+            ring = nullptr;
+        }
+        m->pulseId[0] = '\0';
+        return;
+    }
+    int sx = 0, sy = 0;
+    poiToScreen(m, point, &sx, &sy);
+    uint32_t phase = elapsed % 500;
+    for (int i = 0; i < 2; i++) {
+        if (!m->pulseRings[i]) {
+            lv_obj_t *ring = lv_obj_create(m->markers);
+            lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, LV_PART_MAIN);
+            lv_obj_set_style_border_width(ring, 2, LV_PART_MAIN);
+            lv_obj_set_style_border_color(ring, hzColor(HorizonTheme::current().accent), LV_PART_MAIN);
+            lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+            lv_obj_set_style_pad_all(ring, 0, LV_PART_MAIN);
+            lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_remove_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
+            m->pulseRings[i] = ring;
+        }
+        int age = (int)phase - i * 150;
+        if (age < 0 || age >= 450) {
+            lv_obj_add_flag(m->pulseRings[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        int radius = 10 + age * 30 / 450; // расходятся недалеко от маркера
+        lv_obj_set_size(m->pulseRings[i], radius * 2, radius * 2);
+        lv_obj_set_pos(m->pulseRings[i], sx - radius, sy - radius);
+        lv_obj_set_style_border_opa(m->pulseRings[i], (lv_opa_t)(220 - age * 190 / 450), LV_PART_MAIN);
+        lv_obj_remove_flag(m->pulseRings[i], LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 // Точка прилетела/удалилась из эфира: обновить открытый экран карты.
@@ -863,21 +979,18 @@ void HorizonUI::buildMapForm(void)
         vName = cur->name.c_str();
         vComment = cur->comment.c_str();
         vType = cur->type;
-        vVis = cur->shared ? 0 : 1;
-        if (cur->dmPeer) {
-            vDest = 2;
+        vVis = cur->sourceId[0] ? 1 : (cur->dmPeer ? 2 : (cur->shared ? 0 : 1));
+        if (cur->dmPeer)
             mapPickPeer = cur->dmPeer;
-        } else {
-            vDest = (cur->ch == cfg.groupCh && cfg.groupCh != cfg.generalCh) ? 1 : 0;
-        }
+        vDest = (cur->ch == cfg.groupCh && cfg.groupCh != cfg.generalCh) ? 1 : 0;
     } else {
         mapPickPeer = 0;
     }
     if (vType >= HZ_POI_COUNT)
         vType = 0;
-    if (vVis > 1)
+    if (vVis > 2)
         vVis = 0;
-    if (vDest > 2)
+    if (vDest > 1)
         vDest = 0;
     if (cfg.rank < kRankVeteran && vDest == 0)
         vDest = 1; // ранее созданная общая точка при понижении ранга
@@ -938,8 +1051,10 @@ void HorizonUI::buildMapForm(void)
     sectionLabel(body, "Видимость");
     m->formVis = lv_dropdown_create(body);
     HorizonTheme::styleField(m->formVis);
-    lv_dropdown_set_options(m->formVis, "Публичная\nЧастная");
+    lv_dropdown_set_options(m->formVis, "Публичная\nЧастная\nПоделиться");
     lv_dropdown_set_selected(m->formVis, vVis);
+    if (cur && cur->sourceId[0])
+        lv_obj_add_state(m->formVis, LV_STATE_DISABLED); // чужую копию меняем только локально
     lv_obj_set_width(m->formVis, lv_pct(100));
     styleDropdownListLocal(m->formVis);
 
@@ -955,13 +1070,13 @@ void HorizonUI::buildMapForm(void)
     sectionLabel(m->formDestRow, "Кому видна точка");
     m->formDest = lv_dropdown_create(m->formDestRow);
     HorizonTheme::styleField(m->formDest);
-    lv_dropdown_set_options(m->formDest, cfg.rank < kRankVeteran ? "Группировка\nОтправить контакту"
-                                                    : "Общая\nГруппировка\nОтправить контакту");
+    lv_dropdown_set_options(m->formDest, cfg.rank < kRankVeteran ? "Группировка"
+                                                    : "Общая\nГруппировка");
     lv_dropdown_set_selected(m->formDest, vDest - (cfg.rank < kRankVeteran ? 1 : 0));
     lv_obj_set_width(m->formDest, lv_pct(100));
     styleDropdownListLocal(m->formDest);
 
-    // Строка выбора контакта (видна только для «Отправить контакту»).
+    // Строка выбора контакта (видна только в режиме «Поделиться»).
     m->formPeerRow = lv_btn_create(body);
     HorizonTheme::styleButton(m->formPeerRow, false);
     lv_obj_set_width(m->formPeerRow, lv_pct(100));
@@ -973,7 +1088,7 @@ void HorizonUI::buildMapForm(void)
 
     // Начальное состояние строк - против значений, чтобы синхронизация применила.
     m->destRowShown = (vVis != 0);
-    m->peerRowShown = (vVis != 0 || vDest != 2);
+    m->peerRowShown = (vVis != 2);
     m->formPeerShown = 0xFFFFFFFFu;
     mapSyncFormRows();
 
@@ -1029,26 +1144,27 @@ void HorizonUI::mapSaveForm(void)
     if (type >= HZ_POI_COUNT)
         type = 0;
     uint8_t vis = m->formVis ? (uint8_t)lv_dropdown_get_selected(m->formVis) : 0;
-    if (vis > 1)
+    if (vis > 2)
         vis = 0;
-    bool shared = (vis == 0);
+    bool shared = (vis != 1);
+    bool sendingDm = (vis == 2);
     HorizonConfig &cfg = HorizonConfig::instance();
     uint8_t dest = mapFormDestination(m->formDest);
-    if (dest > 2)
+    if (dest > 1)
         dest = cfg.rank < kRankVeteran ? 1 : 0;
     // В том числе при правке старой общей метки: запрещаем саму отправку,
     // а не только скрываем пункт списка.
-    if (shared && cfg.rank < kRankVeteran && (dest == 0 || (dest == 1 && cfg.groupCh == cfg.generalCh))) {
+    if (vis == 0 && cfg.rank < kRankVeteran && (dest == 0 || cfg.groupCh == cfg.generalCh)) {
         toast("Для твоего ранга общий канал недоступен");
         return;
     }
-    uint32_t peer = (shared && dest == 2) ? mapPickPeer : 0;
-    if (shared && dest == 2 && (!peer || peer == 0xFFFFFFFFu)) {
+    uint32_t peer = sendingDm ? mapPickPeer : 0;
+    if (sendingDm && (!peer || peer == 0xFFFFFFFFu)) {
         toast("Выбери контакт");
         return;
     }
     uint8_t ch = cfg.generalCh;
-    if (shared && dest == 1)
+    if (vis == 0 && dest == 1)
         ch = cfg.groupCh;
     else if (peer)
         ch = view->mapDmChannel(peer);
@@ -1074,6 +1190,11 @@ void HorizonUI::mapSaveForm(void)
             showMap();
             return;
         }
+        bool imported = e->sourceId[0] != '\0';
+        if (imported) { // личная копия чужой точки не становится общедоступной
+            shared = false;
+            peer = 0;
+        }
         bool wasShared = e->shared;
         uint8_t oldCh = e->ch;
         uint32_t oldPeer = e->dmPeer;
@@ -1091,7 +1212,8 @@ void HorizonUI::mapSaveForm(void)
         e->type = type;
         e->name = name;
         e->comment = comment;
-        e->sender = sender;
+        if (!imported)
+            e->sender = sender; // автор личной копии навсегда остаётся исходным
         e->shared = shared;
         e->ch = ch;
         e->dmPeer = peer;
@@ -1446,9 +1568,8 @@ void HorizonUI::mapSyncFormRows(void)
     if (!m->formVis || !lv_obj_is_valid(m->formVis))
         return;
     uint8_t vis = (uint8_t)lv_dropdown_get_selected(m->formVis);
-    uint8_t dest = m->formDest && lv_obj_is_valid(m->formDest) ? mapFormDestination(m->formDest) : 0;
     bool wantDest = (vis == 0);
-    bool wantPeer = (vis == 0 && dest == 2);
+    bool wantPeer = (vis == 2);
     if (wantDest != m->destRowShown && m->formDestRow && lv_obj_is_valid(m->formDestRow)) {
         m->destRowShown = wantDest;
         if (wantDest)
@@ -1490,9 +1611,9 @@ void HorizonUI::cbMapPeerPick(lv_event_t *e)
     m->draftDest = mapFormDestination(m->formDest);
     if (m->draftType >= HZ_POI_COUNT)
         m->draftType = 0;
-    if (m->draftVis > 1)
+    if (m->draftVis > 2)
         m->draftVis = 0;
-    if (m->draftDest > 2)
+    if (m->draftDest > 1)
         m->draftDest = 0;
     m->formDraft = true;
     self->mapPickMode = true;

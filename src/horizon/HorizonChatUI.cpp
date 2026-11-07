@@ -10,6 +10,7 @@
 #include "graphics/common/ViewController.h"
 #include <algorithm>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <vector>
 
@@ -208,11 +209,26 @@ void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time,
     lv_obj_set_style_text_font(meta, HorizonTheme::fontSmall(), LV_PART_MAIN);
     lv_obj_set_style_text_color(meta, mg, LV_PART_MAIN);
 
+    char linkId[28];
+    bool mapLink = !chatIsChannel && hzPoiLinkId(text, linkId);
     lv_obj_t *body = lv_label_create(b);
-    lv_label_set_text(body, text ? text : "");
+    if (mapLink)
+        lv_label_set_text_fmt(body, "Точка: %s", strchr(text, '|') + 1);
+    else
+        lv_label_set_text(body, text ? text : "");
     lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(body, lv_pct(100));
     lv_obj_set_style_text_color(body, fg, LV_PART_MAIN);
+    if (mapLink) {
+        // Копия ID принадлежит пузырю: история может перераспределять строки.
+        char *ownedId = strdup(linkId);
+        if (ownedId) {
+            lv_obj_set_user_data(b, ownedId);
+            lv_obj_add_event_cb(b, cbMapChatLink, LV_EVENT_CLICKED, this);
+            lv_obj_add_event_cb(b, cbMapChatLink, LV_EVENT_DELETE, this);
+            lv_obj_set_style_text_decor(body, LV_TEXT_DECOR_UNDERLINE, LV_PART_MAIN);
+        }
+    }
 
     {
         HorizonStore &st = view->getStore();
@@ -223,6 +239,23 @@ void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time,
         lv_obj_update_layout(chatList);
         lv_obj_scroll_to_view(row, LV_ANIM_OFF);
     }
+}
+
+void HorizonUI::cbMapChatLink(lv_event_t *e)
+{
+    lv_obj_t *bubble = (lv_obj_t *)lv_event_get_current_target(e);
+    char *id = (char *)lv_obj_get_user_data(bubble);
+    if (lv_event_get_code(e) == LV_EVENT_DELETE) {
+        free(id);
+        return;
+    }
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    if (!id)
+        return;
+    char copy[28];
+    strncpy(copy, id, sizeof(copy) - 1);
+    copy[sizeof(copy) - 1] = '\0'; // showMap удалит пузырь и освободит id
+    self->mapOpenPoint(copy);
 }
 
 void HorizonUI::sendChatInput(void)

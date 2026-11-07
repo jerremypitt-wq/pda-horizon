@@ -259,6 +259,7 @@ void HorizonUI::toast(const char *fmt, ...)
         lv_obj_move_foreground(toastBtn);
     }
     toastHasTarget = false;
+    toastMapId[0] = '\0';
     if (toastBtn && lv_obj_is_valid(toastBtn))
         lv_obj_remove_flag(toastBtn, LV_OBJ_FLAG_CLICKABLE); // инфо-тост: tap'ы проваливаются в список под ним
     lv_label_set_text(toastLabel, buf);
@@ -285,10 +286,15 @@ void HorizonUI::cbToast(lv_event_t *e)
         bool isCh = self->toastIsChannel;
         uint8_t ch = self->toastCh;
         uint32_t peer = self->toastPeer;
+        char mapId[28];
+        memcpy(mapId, self->toastMapId, sizeof(mapId));
         self->toastHasTarget = false;
+        self->toastMapId[0] = '\0';
         if (self->toastBtn)
             lv_obj_add_flag(self->toastBtn, LV_OBJ_FLAG_HIDDEN);
-        if (isCh)
+        if (mapId[0])
+            self->mapOpenPoint(mapId);
+        else if (isCh)
             self->showChatChannel(ch);
         else
             self->showChatDm(peer);
@@ -1219,9 +1225,16 @@ void HorizonUI::onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *te
         refreshStatus();
         return;
     }
-    // Тост с переходом
+    // Тост с переходом. Ссылку в личном чате показываем как название точки,
+    // а не как служебную строку HZ:MAPLINK.
+    char linkId[28];
+    bool mapLink = !isBroadcast && hzPoiLinkId(text, linkId);
+    if (mapLink) {
+        onMapPoint(linkId, strchr(text, '|') + 1);
+        return; // даже если части точки ещё едут, ссылка уже откроет карту
+    }
     char preview[72];
-    copyUtf8(preview, sizeof(preview), text ? text : ""); // не рвать UTF-8 на границе
+    copyUtf8(preview, sizeof(preview), mapLink ? strchr(text, '|') + 1 : (text ? text : "")); // не рвать UTF-8 на границе
     // убрать переносы строк
     for (char *p = preview; *p; p++) {
         if (*p == '\n' || *p == '\r')
@@ -1260,6 +1273,8 @@ void HorizonUI::tick(void)
     // Форма точки: строки назначения/контакта следуют за списками (без событий LVGL).
     if (current == Screen::MAP_FORM)
         mapSyncFormRows();
+    if (current == Screen::MAP)
+        mapPulseTick(now);
 
     if (current == Screen::BOOT) {
         if (bootBar && lv_obj_is_valid(bootBar)) {

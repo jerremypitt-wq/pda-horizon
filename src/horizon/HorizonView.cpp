@@ -388,12 +388,12 @@ void HorizonView::newMessage(uint32_t from, uint32_t to, uint8_t ch, const char 
     // ВАЖНО: POID проверять раньше POI («HZ:POI:» - префикс «HZ:POID:»).
     if (!strncmp(msg, kPoiDelPrefix, kPoiDelPrefixLen)) {
         // Удаление точки: в историю/тосты не идёт (тост - только по факту).
-        handlePoiDelete(from, msg, !restore);
+        handlePoiDelete(from, to, msg, !restore);
         return;
     }
     if (!strncmp(msg, kPoiPrefix, kPoiPrefixLen)) {
         // Точка карты: собрать, в историю/тосты не идёт (тост - только по факту).
-        handlePoiBeacon(from, ch, msg, !restore);
+        handlePoiBeacon(from, to, ch, msg, !restore);
         return;
     }
     if (msgtime < 1000000)
@@ -961,7 +961,14 @@ bool HorizonView::mapSendPointDm(const HzPoi &p, uint32_t peer)
         return false;
     HzPoi out = p;
     out.ch = nodeChannel(peer); // как у чата с узлом; оригинал не изменяем
-    return mapSendPoint(out, peer);
+    if (!mapSendPoint(out, peer))
+        return false;
+    // Текстовая ссылка идёт после частей точки: переживает перезагрузку как
+    // обычное сообщение, видна обоим участникам диалога.
+    char link[160];
+    snprintf(link, sizeof(link), "%s%s|%s", kHzPoiLinkPrefix, p.id, p.name.c_str());
+    sendDirectMessage(peer, link);
+    return true;
 }
 
 bool HorizonView::mapSendDmRaw(uint32_t peer, uint8_t ch, const char *text)
@@ -997,9 +1004,10 @@ void HorizonView::mapDeletePoint(const char *id)
     // Запечённые канала не имеют (0xFF) - удаление в общий.
     uint8_t ch = p->ch > 7 ? HorizonConfig::instance().generalCh : p->ch;
     bool shared = p->shared;
+    bool imported = p->sourceId[0] != '\0';
     uint32_t peer = p->dmPeer;
     mapStore.removeEverywhere(id);
-    if (!shared)
+    if (imported || !shared)
         return;
     if (peer)
         mapSendDeleteDm(id, peer); // best-effort: офлайн - только локально
@@ -1007,7 +1015,7 @@ void HorizonView::mapDeletePoint(const char *id)
         mapSendDelete(id, ch); // best-effort: офлайн - только локально
 }
 
-void HorizonView::handlePoiBeacon(uint32_t from, uint8_t ch, const char *msg, bool canNotify)
+void HorizonView::handlePoiBeacon(uint32_t from, uint32_t to, uint8_t ch, const char *msg, bool canNotify)
 {
     if (from == 0 || from == ownNode || !msg)
         return;
@@ -1059,10 +1067,11 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint8_t ch, const char *msg, bo
         return;
     if (strchr(chunk, '\n') || strchr(chunk, '\r'))
         return; // многострочный мусор - мимо
+    const bool direct = ownNode && to == ownNode;
     purgePoiRx(millis());
     HzPoiRx *rx = nullptr;
     for (HzPoiRx &r : poiRx_) {
-        if (!strcmp(r.id, id)) {
+        if (!strcmp(r.id, id) && r.direct == direct) {
             rx = &r;
             break;
         }
@@ -1077,6 +1086,7 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint8_t ch, const char *msg, bo
         nr.total = (uint8_t)total;
         nr.t0 = millis();
         nr.ch = ch > 7 ? 0 : ch;
+        nr.direct = direct;
         nr.head.type = (uint8_t)type;
         nr.head.name.assign(name, (size_t)(s4 - name));
         nr.head.x = (uint16_t)x;
@@ -1110,7 +1120,7 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint8_t ch, const char *msg, bo
               poi.comment.size() <= 768;
     // Сборщик - долой что на успехе, что на провале (битую версию не копим).
     for (auto it = poiRx_.begin(); it != poiRx_.end(); ++it) {
-        if (!strcmp(it->id, id)) {
+        if (!strcmp(it->id, id) && it->direct == direct) {
             poiRx_.erase(it);
             break;
         }
@@ -1119,22 +1129,42 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint8_t ch, const char *msg, bo
         ILOG_INFO("Horizon: POI '%s' dropped (bad lengths)", id);
         return;
     }
-    if (!mapStore.find(id) && mapStore.sharedCount() >= HzMapStore::kMaxShared) {
-        ILOG_INFO("Horizon: POI '%s' dropped (pool full)", id);
-        return; // молча: тост на каждый чужой маяк - спам
+    if (direct) {
+        // Личный приём - СВОЯ копия с новым ID. Оригинальный ID хранится
+        // отдельно: правка и удаление автора не затрагивают эту копию.
+        if (mapStore.findBySource(id) || mapStore.directDismissed(id))
+            return; // ретрансляция/повтор или уже удалено у получателя
+        if (mapStore.privCount() >= HzMapStore::kMaxPriv || !mapAllocId(poi.id, sizeof(poi.id))) {
+            if (canNotify && ui)
+                ui->toast("Нет места для личной точки");
+            return;
+        }
+        strncpy(poi.sourceId, id, sizeof(poi.sourceId) - 1);
+        poi.shared = false;
+        poi.dmPeer = 0;
+        if (!mapStore.addMy(poi))
+            return;
+        mapStore.saveMy();
+    } else {
+        if (!mapStore.find(id) && mapStore.sharedCount() >= HzMapStore::kMaxShared) {
+            ILOG_INFO("Horizon: POI '%s' dropped (pool full)", id);
+            return; // молча: тост на каждый чужой маяк - спам
+        }
+        mapStore.upsertNet(poi);
+        mapStore.saveNet();
     }
-    mapStore.upsertNet(poi);
-    mapStore.saveNet();
-    ILOG_INFO("Horizon: POI '%s' stored (%u part(s))", id, (unsigned)total);
+    ILOG_INFO("Horizon: POI '%s' stored (%u part(s), direct=%d)", id, (unsigned)total, direct);
     if (canNotify && ui) {
-        ui->toast("Точка: %s", poi.name.c_str());
         ui->mapOnNetUpdate();
+        ui->onMapPoint(poi.id, poi.name.c_str());
     }
 }
 
-void HorizonView::handlePoiDelete(uint32_t from, const char *msg, bool canNotify)
+void HorizonView::handlePoiDelete(uint32_t from, uint32_t to, const char *msg, bool canNotify)
 {
-    if (from == 0 || from == ownNode || !msg)
+    // Личное удаление прежнего оригинала не трогает копию получателя и не
+    // удаляет публичную точку с тем же ID, если её автор отправлял обоими путями.
+    if (from == 0 || from == ownNode || !msg || to != 0xFFFFFFFFu)
         return;
     // HZ:POID:<id>|<node>|<rank>
     const char *p = msg + kPoiDelPrefixLen;
@@ -1165,8 +1195,11 @@ void HorizonView::handlePoiDelete(uint32_t from, const char *msg, bool canNotify
     }
     if (!author && !master)
         return;
-    if (!mapStore.find(id))
-        return; // уже нет (или могила)
+    // Удаление оригинала никогда не стирает личную копию (другой ID).
+    // У старых получателей net.csv не различал личные/общие точки: его
+    // нельзя безопасно конвертировать задним числом без происхождения.
+    if (!mapStore.find(id) || mapStore.isMine(id))
+        return; // уже нет либо это локальная копия
     mapStore.removeEverywhere(id);
     ILOG_INFO("Horizon: POID '%s' applied from %08x", id, (unsigned)from);
     if (canNotify && ui) {

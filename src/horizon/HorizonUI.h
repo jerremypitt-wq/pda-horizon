@@ -41,6 +41,8 @@ class HorizonUI
     void showMaster(void); // раздел мастера (вход по PIN из настроек)
     void showMap(void);
     void mapOnNetUpdate(void); // точка прилетела/удалилась: обновить маркеры
+    void onMapPoint(const char *id, const char *name); // кликабельное уведомление о точке
+    void mapOpenPoint(const char *id); // переход из чата/уведомления, центр + импульсы
 
   private:
     enum class Screen : uint8_t {
@@ -249,6 +251,7 @@ class HorizonUI
     void mapSaveForm(void);
     void mapSyncFormRows(void); // строки формы следуют за списками (из tick)
     void mapPlaceTag(void); // бирка с именем выбранной точки
+    void mapPulseTick(uint32_t now); // пять колец с шагом 0.5 с
     void mapToggleFilter(void);
     void mapBuildFilterPanel(void);
 
@@ -260,6 +263,8 @@ class HorizonUI
     uint8_t toastCh = 0;
     uint32_t toastPeer = 0;
     bool toastHasTarget = false;
+    char toastMapId[28] = ""; // если задан, тап по уведомлению открывает карту
+    char pendingMapId[28] = ""; // ссылка могла приехать раньше частей точки
 
     // --- Модальные окна ---
     lv_obj_t *modal = nullptr;
@@ -362,6 +367,7 @@ class HorizonUI
     static void cbMapZoom(lv_event_t *e);
     static void cbMapPopup(lv_event_t *e);
     static void cbMapFormSave(lv_event_t *e);
+    static void cbMapChatLink(lv_event_t *e);
     static void cbMapPeerPick(lv_event_t *e); // строка контакта: выбор получателя
     static void cbMapFilter(lv_event_t *e);
     static void cbMapFilterRow(lv_event_t *e);

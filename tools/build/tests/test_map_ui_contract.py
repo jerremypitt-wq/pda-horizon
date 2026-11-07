@@ -152,8 +152,8 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         self.assertIn("self->mapPickPeer = id", (ROOT / "src/horizon/HorizonChatUI.cpp").read_text(encoding="utf-8"))
         self.assertIn("m->draftName", UI)
         self.assertIn("m->draftComment", UI)
-        self.assertIn('"Публичная\\nЧастная"', UI)
-        self.assertIn('"Общая\\nГруппировка\\nОтправить контакту"', UI)
+        self.assertIn('"Публичная\\nЧастная\\nПоделиться"', UI)
+        self.assertIn('"Общая\\nГруппировка"', UI)
 
     def test_keyboard_editors_except_chat(self):
         self.assertIn("bool hasOk = (current != Screen::CHAT);", CORE)
@@ -169,19 +169,20 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         self.assertIn("dots[i] = (i < n) ? '*' : '-';", CORE)
 
     def test_rank_map_destination_guard_including_old_points(self):
-        self.assertIn('cfg.rank < kRankVeteran ? "Группировка\\nОтправить контакту"', UI)
+        self.assertIn('cfg.rank < kRankVeteran ? "Группировка"', UI)
         self.assertIn('if (cfg.rank < kRankVeteran && vDest == 0)', UI)  # old general point
         self.assertIn('lv_dropdown_set_selected(m->formDest, vDest - (cfg.rank < kRankVeteran ? 1 : 0))', UI)
         self.assertIn('mapFormDestination(m->formDest)', UI)
         self.assertIn('m->draftDest = mapFormDestination(m->formDest);', UI)
-        self.assertIn('bool wantPeer = (vis == 0 && dest == 2);', UI)
-        self.assertIn('if (shared && cfg.rank < kRankVeteran && (dest == 0 || (dest == 1 && cfg.groupCh == cfg.generalCh)))', UI)
+        self.assertIn('bool wantPeer = (vis == 2);', UI)
+        self.assertIn('bool wantDest = (vis == 0);', UI)
+        self.assertIn('if (vis == 0 && cfg.rank < kRankVeteran && (dest == 0 || cfg.groupCh == cfg.generalCh))', UI)
         self.assertIn('if (to == 0xFFFFFFFFu && cfg.rank < HorizonStrings::kRankVeteran && ch == cfg.generalCh)', VIEW)
         for rank in range(4):
             first = 1 if rank < 2 else 0
-            options = ["group", "dm"] if first else ["general", "group", "dm"]
+            options = ["group"] if first else ["general", "group"]
             self.assertEqual([i + first for i in range(len(options))],
-                             [1, 2] if first else [0, 1, 2])
+                             [1] if first else [0, 1])
 
     def test_theme_version_battery_reboot_contract(self):
         setup = (ROOT / "src/horizon/HorizonSetupUI.cpp").read_text(encoding="utf-8")
@@ -201,17 +202,48 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         for field in ('accent', 'text', 'ok'):
             self.assertIn(f'.{field} = 0x09B80F', cyber)
         self.assertIn('.accentText = 0x000000', cyber)
-        self.assertIn('kFirmwareVersion = "1.8.9.ZI"', strings)
+        self.assertIn('kFirmwareVersion = "1.9.0.ZI"', strings)
         self.assertIn('"ПДА «Горизонт» v.%s", kFirmwareVersion', CORE)
         reboot = VIEW.split('void HorizonView::rebootNode(void)', 1)[1].split('void HorizonView::resetNodeDb(void)', 1)[0]
         self.assertIn('controller->requestReboot(0, ownNode);', reboot)
         self.assertIn('controller->requestReboot(3, ownNode);', reboot)
         self.assertLess(reboot.index('controller->requestReboot(0, ownNode);'), reboot.index('controller->requestReboot(3, ownNode);'))
 
+    def test_personal_copy_link_and_ripple_contract(self):
+        chat = (ROOT / "src/horizon/HorizonChatUI.cpp").read_text(encoding="utf-8")
+        header = (ROOT / "src/horizon/HorizonMap.h").read_text(encoding="utf-8")
+        self.assertIn('char sourceId[28]', header)
+        self.assertIn('kHzPoiLinkPrefix = "HZ:MAPLINK:"', header)
+        self.assertIn('kDirectDelPath = "/hzmap/dm_del.csv"', STORE)
+        self.assertIn('nf != 9 && nf != 10 && nf != 11', STORE)
+        self.assertIn('saveDirectDismissed();', STORE)
+        self.assertIn('findBySource', STORE)
+        self.assertIn('const bool direct = ownNode && to == ownNode;', VIEW)
+        self.assertIn('mapStore.findBySource(id) || mapStore.directDismissed(id)', VIEW)
+        self.assertIn('mapAllocId(poi.id, sizeof(poi.id))', VIEW)
+        self.assertIn('poi.shared = false;', VIEW)
+        self.assertIn('mapStore.saveMy();', VIEW)
+        self.assertIn('if (imported || !shared)', VIEW)
+        self.assertIn('sendDirectMessage(peer, link);', VIEW)
+        self.assertIn('if (!mapStore.find(id) || mapStore.isMine(id))', VIEW)
+        self.assertIn('!msg || to != 0xFFFFFFFFu', VIEW)
+        self.assertIn('if (!imported)\n            e->sender = sender;', UI)
+        self.assertIn('bool wantPeer = (vis == 2);', UI)
+        self.assertIn('bool wantDest = (vis == 0);', UI)
+        self.assertIn('cbMapChatLink', chat)
+        self.assertIn('lv_label_set_text_fmt(body, "Точка: %s"', chat)
+        self.assertIn('self->mapOpenPoint(copy);', chat)
+        self.assertIn('onMapPoint(poi.id, poi.name.c_str());', VIEW)
+        self.assertIn('self->mapOpenPoint(mapId);', CORE)
+        self.assertIn('st.directDismissed(id) || hzPoiAuthorNode(id) == view->getMyNodeNum()', UI)
+        self.assertIn('uint32_t phase = elapsed % 500;', UI)
+        self.assertIn('elapsed >= 2500', UI)
+        self.assertIn('mapPulseTick(now);', CORE)
+
     def test_own_points_older_csv_and_direct_delivery(self):
         self.assertIn("nf != 9 && nf != 10", STORE)
         self.assertIn("p.dmPeer = mode == 1 ? peer : 0", STORE)
-        self.assertIn('f.printf("|%u|%u|%u"', STORE)
+        self.assertIn('f.printf("|%u|%u|%u|%s"', STORE)
         self.assertIn("mapSendDmRaw(to, ch, buf)", VIEW)
         self.assertIn("mapSendDeleteDm(id, peer)", VIEW)
         self.assertIn("p.ch = ch", UI)

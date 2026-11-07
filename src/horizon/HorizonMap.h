@@ -29,6 +29,7 @@ struct HzPoi {
     bool shared = true;
     uint8_t ch = 0;       // канал, куда слалась точка (для удаления)
     uint32_t dmPeer = 0;  // получатель-узел (0 = всем в канал)
+    char sourceId[28] = ""; // личная копия чужой точки: исходный ID, свой id независим
 };
 
 // Три пула точек: запечённые (RO из прошивки), принятые из эфира, свои.
@@ -48,6 +49,7 @@ class HzMapStore
     void saveMy(void);
     void saveNet(void);
     void saveDel(void);
+    void saveDirectDismissed(void); // не восстанавливать локально удалённую личную копию
 
     const std::vector<HzPoi> &baked(void) const { return baked_; }
     const std::vector<HzPoi> &net(void) const { return net_; }
@@ -59,6 +61,8 @@ class HzMapStore
     const HzPoi *find(const char *id) const; // везде (запечённые - кроме могил)
     HzPoi *findMut(const char *id);          // только свои (правка)
     bool isMine(const char *id) const;
+    const HzPoi *findBySource(const char *sourceId) const;
+    bool directDismissed(const char *sourceId) const;
     bool isTombstoned(const char *id) const;
     bool upsertNet(const HzPoi &p); // принять из эфира (true = новая, false = обновили)
     bool addMy(const HzPoi &p);     // false = пул полон (не добавлено)
@@ -69,6 +73,7 @@ class HzMapStore
     std::vector<HzPoi> net_;
     std::vector<HzPoi> my_;
     std::vector<std::string> del_;
+    std::vector<std::string> directDismissed_;
 
     HzMapStore(const HzMapStore &) = delete;
     HzMapStore &operator=(const HzMapStore &) = delete;
@@ -79,6 +84,9 @@ size_t hzUtf8Len(const char *s); // длина в символах (не в ба
 void hzUtf8Trunc(char *dst, size_t dstBytes, const char *src, size_t maxChars); // урезать до N символов
 size_t hzChunkLen(const char *s, size_t maxBytes); // байт чанка ≤ maxBytes по границе UTF-8
 void hzSanitizeField(char *s); // '|' и переводы строк -> пробел (целы CSV и эфир)
+// Текстовая ссылка на точку в личном чате: HZ:MAPLINK:<исходный-id>|<название>.
+constexpr const char *kHzPoiLinkPrefix = "HZ:MAPLINK:";
+bool hzPoiLinkId(const char *text, char out[28]); // только корректная ссылка, без доверия к чужому тексту
 uint32_t hzPoiAuthorNode(const char *id); // число до '-', у запечённых 0
 bool hzPoiIdOk(const char *id); // 1..27 символов из [0-9A-Za-z-]
 

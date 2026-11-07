@@ -21,6 +21,7 @@ constexpr const char *kBakedPath = "/hzmap/pois.csv";
 constexpr const char *kMyPath = "/hzmap/my.csv";
 constexpr const char *kNetPath = "/hzmap/net.csv";
 constexpr const char *kDelPath = "/hzmap/del.csv";
+constexpr const char *kDirectDelPath = "/hzmap/dm_del.csv";
 
 // Разбить строку по '|' (in place). Возврат: число полей, 0 = битая
 // (разделителей больше, чем влезает в maxF).
@@ -52,15 +53,15 @@ bool parseU(const char *s, uint32_t &out)
     return true;
 }
 
-// mode: 0 - запечённые (7 полей), 1 - свои (10: +shared|ch|peer;
-// старые 9 полей читаются), 2 - принятые (8: +ch).
+// mode: 0 - запечённые (7 полей), 1 - свои (11: +shared|ch|peer|sourceId;
+// старые 9 и 10 полей читаются), 2 - принятые (8: +ch).
 bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
 {
     File f = mapFs.open(path, "r");
     if (!f)
         return false;
     char line[1024]; // своя строка: коммент 600 + имя/позывной + поля
-    size_t want = mode == 1 ? 10 : (mode == 2 ? 8 : 7);
+    size_t want = mode == 1 ? 11 : (mode == 2 ? 8 : 7);
     size_t bad = 0;
     while (f.available()) {
         size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
@@ -69,10 +70,10 @@ bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
             line[--n] = '\0';
         if (!line[0])
             continue;
-        char *fld[10] = {nullptr};
+        char *fld[11] = {nullptr};
         size_t nf = splitFields(line, fld, want);
-        // Свои: 9 полей (прошивки ≤1.8.1) или 10 (+peer); остальные - строго.
-        if (mode == 1 ? (nf != 9 && nf != 10) : nf != want) {
+        // Свои: 9/10 полей из прежних прошивок либо 11 (+sourceId).
+        if (mode == 1 ? (nf != 9 && nf != 10 && nf != 11) : nf != want) {
             bad++;
             continue;
         }
@@ -84,7 +85,8 @@ bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
             continue;
         }
         if (mode == 1 && (!parseU(fld[7], shared) || shared > 1 || !parseU(fld[8], ch) || ch > 7 ||
-                          (nf == 10 && !parseU(fld[9], peer)))) {
+                          (nf >= 10 && !parseU(fld[9], peer)) ||
+                          (nf == 11 && *fld[10] && (!hzPoiIdOk(fld[10]) || !strcmp(fld[10], fld[0]))))) {
             bad++;
             continue;
         }
@@ -103,6 +105,8 @@ bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
         p.shared = mode == 1 ? (shared != 0) : true;
         p.ch = mode == 0 ? 0xFF : (uint8_t)ch; // у запечённых канала нет (удаление - в общий)
         p.dmPeer = mode == 1 ? peer : 0;
+        if (mode == 1 && nf == 11 && *fld[10])
+            strcpy(p.sourceId, fld[10]); // проверено выше
         out.push_back(p);
     }
     f.close();
@@ -123,7 +127,7 @@ void saveCsv(const char *path, const std::vector<HzPoi> &v, int mode)
         f.printf("%s|%u|%s|%u|%u|%s|%s", p.id, p.type, p.name.c_str(), p.x, p.y, p.sender.c_str(),
                  p.comment.c_str());
         if (mode == 1)
-            f.printf("|%u|%u|%u", p.shared ? 1 : 0, p.ch, (unsigned)p.dmPeer);
+            f.printf("|%u|%u|%u|%s", p.shared ? 1 : 0, p.ch, (unsigned)p.dmPeer, p.sourceId);
         else if (mode == 2)
             f.printf("|%u", p.ch);
         f.printf("\n");
@@ -138,6 +142,7 @@ void HzMapStore::loadAll(void)
     net_.clear();
     my_.clear();
     del_.clear();
+    directDismissed_.clear();
     mapFs.mkdir(kDir); // buildfs и так создаёт; страховка после вайпа
     loadCsv(kBakedPath, baked_, 0);
     loadCsv(kMyPath, my_, 1);
@@ -154,6 +159,19 @@ void HzMapStore::loadAll(void)
                 del_.push_back(line);
         }
         f.close();
+    }
+    File dismissed = mapFs.open(kDirectDelPath, "r");
+    if (dismissed) {
+        char line[48];
+        while (dismissed.available()) {
+            size_t n = dismissed.readBytesUntil('\n', line, sizeof(line) - 1);
+            line[n] = '\0';
+            while (n > 0 && (line[n - 1] == '\r' || line[n - 1] == '\n'))
+                line[--n] = '\0';
+            if (hzPoiIdOk(line))
+                directDismissed_.push_back(line);
+        }
+        dismissed.close();
     }
     loaded = true;
     ILOG_INFO("Horizon: map loaded (baked %u, net %u, my %u, del %u)", (unsigned)baked_.size(),
@@ -180,6 +198,38 @@ void HzMapStore::saveDel(void)
     for (const std::string &id : del_)
         f.printf("%s\n", id.c_str());
     f.close();
+}
+
+void HzMapStore::saveDirectDismissed(void)
+{
+    File f = mapFs.open(kDirectDelPath, "w");
+    if (!f)
+        return;
+    for (const std::string &id : directDismissed_)
+        f.printf("%s\n", id.c_str());
+    f.close();
+}
+
+const HzPoi *HzMapStore::findBySource(const char *sourceId) const
+{
+    if (!sourceId || !*sourceId)
+        return nullptr;
+    for (const HzPoi &p : my_) {
+        if (!strcmp(p.sourceId, sourceId))
+            return &p;
+    }
+    return nullptr;
+}
+
+bool HzMapStore::directDismissed(const char *sourceId) const
+{
+    if (!sourceId || !*sourceId)
+        return false;
+    for (const std::string &id : directDismissed_) {
+        if (id == sourceId)
+            return true;
+    }
+    return false;
 }
 
 size_t HzMapStore::sharedCount(void) const
@@ -289,6 +339,10 @@ bool HzMapStore::removeEverywhere(const char *id)
     bool gone = false;
     for (auto it = my_.begin(); it != my_.end(); ++it) {
         if (!strcmp(it->id, id)) {
+            if (it->sourceId[0] && !directDismissed(it->sourceId)) {
+                directDismissed_.push_back(it->sourceId);
+                saveDirectDismissed();
+            }
             my_.erase(it);
             saveMy();
             gone = true;
@@ -315,6 +369,20 @@ bool HzMapStore::removeEverywhere(const char *id)
 }
 
 // ---------------- протокол ----------------
+
+bool hzPoiLinkId(const char *text, char out[28])
+{
+    if (!text || !out || strncmp(text, kHzPoiLinkPrefix, strlen(kHzPoiLinkPrefix)))
+        return false;
+    const char *start = text + strlen(kHzPoiLinkPrefix);
+    const char *end = strchr(start, '|');
+    if (!end || end == start || (size_t)(end - start) >= 28 || !end[1] || strchr(end + 1, '|') ||
+        strchr(end + 1, '\n') || strchr(end + 1, '\r'))
+        return false;
+    memcpy(out, start, (size_t)(end - start));
+    out[end - start] = '\0';
+    return hzPoiIdOk(out) && hzUtf8Len(end + 1) <= HzMapStore::kMaxNameChars;
+}
 
 size_t hzUtf8Len(const char *s)
 {

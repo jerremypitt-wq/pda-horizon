@@ -299,13 +299,14 @@ class HorizonView : public MeshtasticView
         uint8_t got = 0;
         uint32_t t0 = 0;
         uint8_t ch = 0;
+        bool direct = false;
         HzPoi head;
         bool have[8] = {false};
         std::string chunks[8];
     };
     std::vector<HzPoiRx> poiRx_;
-    void handlePoiBeacon(uint32_t from, uint8_t ch, const char *msg, bool canNotify);
-    void handlePoiDelete(uint32_t from, const char *msg, bool canNotify);
+    void handlePoiBeacon(uint32_t from, uint32_t to, uint8_t ch, const char *msg, bool canNotify);
+    void handlePoiDelete(uint32_t from, uint32_t to, const char *msg, bool canNotify);
     void purgePoiRx(uint32_t now); // выкинуть несобранные старше таймаута
     bool handleTimeSync(const meshtastic_MeshPacket &p); // PRIVATE_APP HZT1, true = съеден
     HzController *hzController(void); // controller - всегда HzController (см. ctor)
