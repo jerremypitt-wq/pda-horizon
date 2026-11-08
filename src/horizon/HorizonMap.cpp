@@ -178,6 +178,31 @@ void HzMapStore::loadAll(void)
               (unsigned)net_.size(), (unsigned)my_.size(), (unsigned)del_.size());
 }
 
+bool HzMapStore::resetToBaked(void)
+{
+    // Без исходного набора данных нельзя обещать восстановление запечённых точек.
+    File baked = mapFs.open(kBakedPath, "r");
+    if (!baked) {
+        ILOG_ERROR("Horizon: map reset refused: missing %s", kBakedPath);
+        return false;
+    }
+    baked.close();
+    // Не трогаем карту, исходные точки, чаты и настройки. Пустые файлы удобнее
+    // удалённых: следующий запуск читает ровно то же состояние, что сейчас.
+    const char *const paths[] = {kMyPath, kNetPath, kDelPath, kDirectDelPath};
+    for (const char *path : paths) {
+        File f = mapFs.open(path, "w");
+        if (!f) {
+            ILOG_ERROR("Horizon: map reset failed: %s", path);
+            loadAll(); // часть файлов могла очиститься: синхронизировать память с диском
+            return false;
+        }
+        f.close();
+    }
+    loadAll(); // сбросить пулы/могилы и перечитать неизменённый pois.csv
+    return true;
+}
+
 void HzMapStore::saveMy(void)
 {
     saveCsv(kMyPath, my_, 1);

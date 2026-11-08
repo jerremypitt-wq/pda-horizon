@@ -62,6 +62,9 @@ HARNESS = r'''#include "PortduinoFS.h"
 #include <cstring>
 fs::FS PortduinoFS;
 int main() {
+    PortduinoFS.seed("/hzmap/pois.csv", "B001|0|Start|100|200|Maker|base\n");
+    PortduinoFS.seed("/hzmap/del.csv", "B001\n");
+    PortduinoFS.seed("/hzmap/map.rgb565", "image data");
     PortduinoFS.seed("/hzmap/my.csv", "200-1|0|Old|100|200|Me|a|0|1\n"
                                       "200-2|0|Old DM|100|200|Me|b|1|1|100\n"
                                       "200-3|0|Copy|100|200|Xren|c|0|1|0|100-7\n");
@@ -84,6 +87,21 @@ int main() {
     HzMapStore again;
     again.loadAll();
     assert(!again.findBySource("100-7") && again.directDismissed("100-7"));
+    assert(!again.find("B001")); // tombstone hides the initial point before reset
+    assert(again.resetToBaked());
+    assert(again.find("B001") && again.find("B001")->name == "Start");
+    assert(again.my().empty() && again.net().empty() && again.privCount() == 0);
+    assert(!again.directDismissed("100-7") && !again.isTombstoned("B001"));
+    for (const char *path : {"/hzmap/my.csv", "/hzmap/net.csv", "/hzmap/del.csv", "/hzmap/dm_del.csv"})
+        assert(PortduinoFS.files.count(path) && PortduinoFS.files.at(path)->empty());
+    assert(*PortduinoFS.files.at("/hzmap/map.rgb565") == "image data");
+    HzMapStore afterReset;
+    afterReset.loadAll(); // reboot must preserve the reset state
+    assert(afterReset.find("B001") && afterReset.my().empty() && afterReset.net().empty());
+    PortduinoFS.files.erase("/hzmap/pois.csv");
+    PortduinoFS.seed("/hzmap/my.csv", "200-1|0|Old|100|200|Me|a|0|1\n");
+    assert(!afterReset.resetToBaked()); // without initial POIs do not erase user points
+    assert(!PortduinoFS.files.at("/hzmap/my.csv")->empty());
     char id[28] = {};
     assert(hzPoiLinkId("HZ:MAPLINK:100-7|Точка", id) && !strcmp(id, "100-7"));
     assert(!hzPoiLinkId("HZ:MAPLINK:100-7|Точка|extra", id));

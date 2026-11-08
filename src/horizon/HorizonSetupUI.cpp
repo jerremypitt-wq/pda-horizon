@@ -1635,6 +1635,7 @@ void HorizonUI::buildSetReset(void)
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_row(body, 8, LV_PART_MAIN);
+    lv_obj_set_scroll_dir(body, LV_DIR_VER); // пять пунктов листаются и в альбомной ориентации
 
     struct ResetRow {
         const char *t;
@@ -1653,8 +1654,9 @@ void HorizonUI::buildSetReset(void)
         {"Заводской сброс узла", "Полный сброс радиомодуля (мастер)"},
 #endif
         {"Очистить историю чатов", "Только сообщения, настройки целы"},
+        {"Сбросить точки", "Оставить только исходные точки карты"},
     };
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         lv_obj_t *b = lv_btn_create(body);
         HorizonTheme::styleDangerButton(b);
         lv_obj_set_width(b, lv_pct(100));
@@ -1732,6 +1734,16 @@ void HorizonUI::cbSetReset(lv_event_t *e)
             self->refreshMenuBadges();
             self->toast("История очищена");
         });
+    } else if (id == 4) {
+        self->askConfirm("Удалить все созданные и принятые точки на этом ПДА? Исходные останутся.", "Сбросить",
+                         [self]() {
+                             if (!self->view->mapResetPoints()) {
+                                 self->toast("Не удалось сбросить точки");
+                                 return;
+                             }
+                             self->pendingMapId[0] = '\0';
+                             self->toast("Остались исходные точки");
+                         });
     }
 }
 

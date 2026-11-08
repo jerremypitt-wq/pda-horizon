@@ -50,6 +50,7 @@ class HzMapStore
     void saveNet(void);
     void saveDel(void);
     void saveDirectDismissed(void); // не восстанавливать локально удалённую личную копию
+    bool resetToBaked(void); // явный локальный сброс: только исходные pois.csv, не трогает карту/чаты
 
     const std::vector<HzPoi> &baked(void) const { return baked_; }
     const std::vector<HzPoi> &net(void) const { return net_; }

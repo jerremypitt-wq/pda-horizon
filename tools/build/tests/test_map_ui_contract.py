@@ -202,7 +202,7 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         for field in ('accent', 'text', 'ok'):
             self.assertIn(f'.{field} = 0x09B80F', cyber)
         self.assertIn('.accentText = 0x000000', cyber)
-        self.assertIn('kFirmwareVersion = "1.9.1.ZI"', strings)
+        self.assertIn('kFirmwareVersion = "1.9.2.ZI"', strings)
         self.assertIn('"ПДА «Горизонт» v.%s", kFirmwareVersion', CORE)
         reboot = VIEW.split('void HorizonView::rebootNode(void)', 1)[1].split('void HorizonView::resetNodeDb(void)', 1)[0]
         self.assertIn('controller->requestReboot(0, ownNode);', reboot)
@@ -241,6 +241,23 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         self.assertIn('uint32_t phase = elapsed % 500;', UI)
         self.assertIn('elapsed >= 2500', UI)
         self.assertIn('mapPulseTick(now);', CORE)
+
+    def test_explicit_point_reset_leaves_original_and_chats_alone(self):
+        setup = (ROOT / "src/horizon/HorizonSetupUI.cpp").read_text(encoding="utf-8")
+        reset = setup.split('void HorizonUI::buildSetReset(void)', 1)[1].split('// ---------------- настройки: о ПДА', 1)[0]
+        self.assertIn('{"Сбросить точки", "Оставить только исходные точки карты"}', reset)
+        self.assertIn('for (int i = 0; i < 5; i++)', reset)
+        self.assertIn('self->askConfirm("Удалить все созданные и принятые точки', reset)
+        self.assertIn('self->view->mapResetPoints()', reset)
+        self.assertIn("self->pendingMapId[0] = '\\0';", reset)
+        self.assertIn('bool HorizonView::mapResetPoints(void)', VIEW)
+        self.assertIn('poiRx_.clear();', VIEW)
+        store_reset = STORE.split('bool HzMapStore::resetToBaked(void)', 1)[1].split('void HzMapStore::saveMy(void)', 1)[0]
+        self.assertIn('kMyPath, kNetPath, kDelPath, kDirectDelPath', store_reset)
+        self.assertIn('mapFs.open(kBakedPath, "r")', store_reset)
+        self.assertIn('loadAll();', store_reset)
+        self.assertNotIn('kBakedPath, "w"', store_reset)
+        self.assertNotIn('sendChannelRaw', store_reset)
 
     def test_own_points_older_csv_and_direct_delivery(self):
         self.assertIn("nf != 9 && nf != 10", STORE)

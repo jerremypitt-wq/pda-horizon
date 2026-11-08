@@ -1015,6 +1015,14 @@ void HorizonView::mapDeletePoint(const char *id)
         mapSendDelete(id, ch); // best-effort: офлайн - только локально
 }
 
+bool HorizonView::mapResetPoints(void)
+{
+    if (!mapStore.resetToBaked())
+        return false;
+    poiRx_.clear(); // недособранные части, пришедшие до сброса, тоже забываем
+    return true;
+}
+
 void HorizonView::handlePoiBeacon(uint32_t from, uint32_t to, uint8_t ch, const char *msg, bool canNotify)
 {
     if (from == 0 || from == ownNode || !msg)

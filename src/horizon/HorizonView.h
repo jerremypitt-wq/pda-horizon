@@ -219,6 +219,7 @@ class HorizonView : public MeshtasticView
     bool mapSendDelete(const char *id, uint8_t ch); // разослать удаление
     bool mapSendDeleteDm(const char *id, uint32_t peer); // удаление в личку
     void mapDeletePoint(const char *id);    // стереть локально + разослать (shared)
+    bool mapResetPoints(void); // очистить все локальные точки, вернуть исходные, без эфира
     void sendDirectMessage(uint32_t peer, const char *text);
     void broadcastTimeSync(void); // Мастер: разослать время сети (PRIVATE_APP)
     void applyOwnerFromDossier(void);
