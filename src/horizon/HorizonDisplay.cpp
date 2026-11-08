@@ -9,6 +9,7 @@
 
 #if defined(ELECROW_ADV_35)
 #include "graphics/driver/LGFXDriver.h"
+#include "horizon/HorizonWakeGate.h"
 #else
 #include "graphics/driver/DisplayDriverFactory.h"
 #endif
@@ -20,6 +21,19 @@
 class HorizonElecrowDriver : public LGFXDriver<LGFX_ELECROW_ADV_35> {
   public:
     using LGFXDriver<LGFX_ELECROW_ADV_35>::LGFXDriver;
+
+    void init(DeviceGUI *gui) override
+    {
+        LGFXDriver<LGFX_ELECROW_ADV_35>::init(gui);
+        // Стандартный драйвер читает только первую точку GT911. Перехват в
+        // нашем подклассе нужен ДО LVGL: иначе multi-touch обновит таймер
+        // активности и базовый драйвер включит подсветку ещё до проверки.
+        if (this->touch) {
+            lv_indev_set_user_data(this->touch, this);
+            lv_indev_set_read_cb(this->touch, readWakeTouch);
+        }
+    }
+
     void mapLandscape(bool enabled)
     {
         if (!horizonIsPortrait() || enabled == mapMode)
@@ -33,6 +47,64 @@ class HorizonElecrowDriver : public LGFXDriver<LGFX_ELECROW_ADV_35> {
     }
 
   private:
+    static void readWakeTouch(lv_indev_t *indev, lv_indev_data_t *data)
+    {
+        auto *self = static_cast<HorizonElecrowDriver *>(lv_indev_get_user_data(indev));
+        if (!self) {
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+        lgfx::touch_point_t points[5];
+        uint8_t count;
+        {
+            ISpiLock::Guard bus;
+            count = self->tft->getTouch(points, 5); // GT911: координаты уже с учётом поворота
+        }
+        uint32_t inactive = lv_display_get_inactive_time(self->getDisplay());
+        bool dark = self->powerSaving || (self->screenTimeout && inactive >= self->screenTimeout);
+        if (dark) {
+            if (!self->wakeSession) {
+                self->wakeSession = true;
+                self->wakeGate.reset();
+            }
+            // НИ ОДНО касание во время сна не передаём LVGL. Даже первое
+            // нажатие тогда не обновит его таймер и не нажмёт кнопку под ним.
+            if (!self->view->isScreenLocked() &&
+                self->wakeGate.sample(lv_tick_get(), count, count ? points[0].x : 0, count ? points[0].y : 0)) {
+                lv_display_trigger_activity(self->getDisplay());
+                // Пока подсветка лишь гаснет, активности достаточно. Флаг
+                // forceWakeup нужен только после фактического powersave:
+                // иначе он останется висеть до следующего засыпания.
+                if (self->powerSaving)
+                    self->forceWakeup();
+            }
+            data->state = LV_INDEV_STATE_RELEASED;
+            data->point = self->lastTouch;
+            return;
+        }
+        if (self->wakeSession) {
+            // Даже если подсветку включила внешняя активность, не отдаём
+            // удерживаемую руку меню до полного отпускания всех пальцев.
+            data->state = LV_INDEV_STATE_RELEASED;
+            data->point = self->lastTouch;
+            if (count == 0) {
+                self->wakeSession = false;
+                self->wakeGate.reset();
+            }
+            return;
+        }
+        data->state = count ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+        if (count) {
+            self->lastTouch = {(lv_coord_t)points[0].x, (lv_coord_t)points[0].y};
+            data->point = self->lastTouch;
+        } else {
+            data->point = self->lastTouch;
+        }
+    }
+
+    HorizonWakeGate wakeGate;
+    lv_point_t lastTouch = {0, 0};
+    bool wakeSession = false;
     bool mapMode = false;
 };
 static HorizonElecrowDriver *elecrowDriver = nullptr;

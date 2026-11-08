@@ -99,6 +99,16 @@ class MapUiContracts(unittest.TestCase):
         self.assertIn("lv_obj_set_style_pad_all(m->markers, 0, LV_PART_MAIN)", UI)
         self.assertIn("addStatusBar(scr);", UI)
 
+    def test_sleep_touch_is_filtered_before_lvgl_wakeup(self):
+        self.assertIn('lv_indev_set_read_cb(this->touch, readWakeTouch);', DRIVER)
+        self.assertIn('count = self->tft->getTouch(points, 5)', DRIVER)
+        self.assertIn('self->powerSaving || (self->screenTimeout && inactive >= self->screenTimeout)', DRIVER)
+        self.assertLess(DRIVER.index('data->state = LV_INDEV_STATE_RELEASED;\n            data->point = self->lastTouch;\n            return;'),
+                        DRIVER.index('data->state = count ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;'))
+        self.assertIn('self->wakeGate.sample', DRIVER)
+        self.assertIn('self->forceWakeup();', DRIVER)
+        self.assertIn('if (count == 0) {\n                self->wakeSession = false;', DRIVER)
+
     def test_fullscreen_map_dimmed_status_and_filter_groups(self):
         build = UI.split("void HorizonUI::buildMap(void)", 1)[1].split("void HorizonUI::mapRefreshMarkers(void)", 1)[0]
         self.assertIn("m->viewY = 0;", build)
@@ -202,7 +212,7 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         for field in ('accent', 'text', 'ok'):
             self.assertIn(f'.{field} = 0x09B80F', cyber)
         self.assertIn('.accentText = 0x000000', cyber)
-        self.assertIn('kFirmwareVersion = "1.9.2.ZI"', strings)
+        self.assertIn('kFirmwareVersion = "1.9.3.ZI"', strings)
         self.assertIn('"ПДА «Горизонт» v.%s", kFirmwareVersion', CORE)
         reboot = VIEW.split('void HorizonView::rebootNode(void)', 1)[1].split('void HorizonView::resetNodeDb(void)', 1)[0]
         self.assertIn('controller->requestReboot(0, ownNode);', reboot)
