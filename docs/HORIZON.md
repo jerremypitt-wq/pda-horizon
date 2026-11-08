@@ -13,7 +13,10 @@ pio run -e elecrow-adv-35-horizon        # сборка
 pio run -e elecrow-adv-35-horizon -t upload  # прошивка
 ```
 
-Версия исходников Horizon: `1.9.0.ZI` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
+Версия исходников Horizon: `1.9.1.ZI` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
+
+В 1.9.1.ZI исправлен вид ссылки на точку в личном чате: вместо линии
+над текстом ссылка выделяется цветом. Переход по нажатию сохранён.
 
 В 1.9.0.ZI личные точки сохраняются независимыми копиями у получателя,
 ссылка с названием появляется в личном чате, а тап по ссылке или уведомлению

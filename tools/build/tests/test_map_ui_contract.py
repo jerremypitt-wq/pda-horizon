@@ -202,7 +202,7 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         for field in ('accent', 'text', 'ok'):
             self.assertIn(f'.{field} = 0x09B80F', cyber)
         self.assertIn('.accentText = 0x000000', cyber)
-        self.assertIn('kFirmwareVersion = "1.9.0.ZI"', strings)
+        self.assertIn('kFirmwareVersion = "1.9.1.ZI"', strings)
         self.assertIn('"ПДА «Горизонт» v.%s", kFirmwareVersion', CORE)
         reboot = VIEW.split('void HorizonView::rebootNode(void)', 1)[1].split('void HorizonView::resetNodeDb(void)', 1)[0]
         self.assertIn('controller->requestReboot(0, ownNode);', reboot)
@@ -232,6 +232,8 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         self.assertIn('bool wantDest = (vis == 0);', UI)
         self.assertIn('cbMapChatLink', chat)
         self.assertIn('lv_label_set_text_fmt(body, "Точка: %s"', chat)
+        self.assertNotIn('LV_TEXT_DECOR_UNDERLINE', chat)
+        self.assertIn('lv_obj_set_style_text_color(body, hzColor(outgoing ? p.text : p.accent)', chat)
         self.assertIn('self->mapOpenPoint(copy);', chat)
         self.assertIn('onMapPoint(poi.id, poi.name.c_str());', VIEW)
         self.assertIn('self->mapOpenPoint(mapId);', CORE)

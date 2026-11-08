@@ -226,7 +226,9 @@ void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time,
             lv_obj_set_user_data(b, ownedId);
             lv_obj_add_event_cb(b, cbMapChatLink, LV_EVENT_CLICKED, this);
             lv_obj_add_event_cb(b, cbMapChatLink, LV_EVENT_DELETE, this);
-            lv_obj_set_style_text_decor(body, LV_TEXT_DECOR_UNDERLINE, LV_PART_MAIN);
+            // У шрифта панели подчёркивание LVGL оказывается над буквами.
+            // Выделяем ссылку цветом, не рисуя декоративную линию.
+            lv_obj_set_style_text_color(body, hzColor(outgoing ? p.text : p.accent), LV_PART_MAIN);
         }
     }
 
