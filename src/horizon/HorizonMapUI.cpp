@@ -5,6 +5,7 @@
 #include "horizon/HorizonConfig.h"
 #include "horizon/HorizonDisplay.h"
 #include "horizon/HorizonMap.h"
+#include "horizon/HorizonPoiPresentation.h"
 #include "horizon/HorizonStrings.h"
 #include "horizon/HorizonTheme.h"
 #include "horizon/HorizonUI.h"
@@ -237,9 +238,11 @@ bool mapShown(const HzMapUi *m, const HzPoi &p)
 {
     if (p.type >= HZ_POI_COUNT || !m->fType[p.type])
         return false;
-    if (p.shared)
-        return m->fShared;
-    return m->fPriv;
+    // Лично отправленная точка хранится с shared=true (нужен send), но на
+    // карте по доступу она личная, как и полученная независимая копия.
+    if (hzPoiIsPrivateOnMap(p))
+        return m->fPriv;
+    return m->fShared;
 }
 
 void clampView(HzMapUi *m)
@@ -732,8 +735,8 @@ void HorizonUI::mapOpenPoint(const char *id)
     if (!point)
         return;
     m->fType[point->type < HZ_POI_COUNT ? point->type : 0] = true;
-    if (point->shared) m->fShared = true;
-    else m->fPriv = true;
+    if (hzPoiIsPrivateOnMap(*point)) m->fPriv = true;
+    else m->fShared = true;
     m->ox = point->x * (m->mapW - 1) / 1000.0f - m->viewW / (2 * m->scale);
     m->oy = point->y * (m->mapH - 1) / 1000.0f - m->viewH / (2 * m->scale);
     clampView(m);
@@ -894,11 +897,33 @@ void HorizonUI::mapOpenPopup(const char *id)
     lv_obj_set_width(nm, lv_pct(100));
     lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
 
-    lv_obj_t *snd = lv_label_create(card);
-    lv_label_set_text_fmt(snd, "Автор: %s", p->sender.c_str());
-    lv_obj_set_style_text_font(snd, HorizonTheme::fontSmall(), LV_PART_MAIN);
-    lv_obj_set_style_text_color(snd, hzColor(pal.textDim), LV_PART_MAIN);
-    lv_obj_set_width(snd, lv_pct(100));
+    const HorizonConfig &cfg = HorizonConfig::instance();
+    HzPoiAccess access = hzPoiAccess(*p, cfg.generalCh, cfg.groupCh);
+    if (access != HzPoiAccess::Received) {
+        lv_obj_t *author = lv_label_create(card);
+        lv_label_set_text_fmt(author, "Автор: %s", p->sender.c_str());
+        lv_obj_set_style_text_font(author, HorizonTheme::fontSmall(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(author, hzColor(pal.textDim), LV_PART_MAIN);
+        lv_obj_set_width(author, lv_pct(100));
+    }
+    lv_obj_t *scope = lv_label_create(card);
+    if (access == HzPoiAccess::Received) {
+        // В sourceId сохранён номер отправителя; досье могло обновиться после
+        // приёма. Без досье берём позывной, записанный вместе с точкой.
+        const char *contact = p->sender.c_str();
+        uint32_t authorId = hzPoiAuthorNode(p->sourceId);
+        const HorizonDossierInfo *dossier = view->getStore().findDossier(authorId);
+        if (dossier && dossier->callsign[0])
+            contact = dossier->callsign;
+        lv_label_set_text_fmt(scope, "Получена от контакта: %s", contact);
+    } else {
+        lv_label_set_text(scope, access == HzPoiAccess::Group ? "Группировка" :
+                                 access == HzPoiAccess::Personal ? "Личная" : "Общая");
+    }
+    lv_obj_set_style_text_font(scope, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(scope, hzColor(pal.textDim), LV_PART_MAIN);
+    lv_obj_set_width(scope, lv_pct(100));
+    lv_label_set_long_mode(scope, LV_LABEL_LONG_WRAP);
 
     if (!p->comment.empty()) {
         lv_obj_t *cm = lv_label_create(card);
@@ -1459,10 +1484,10 @@ void HorizonUI::mapBuildFilterPanel(void)
                 continue;
             if (p.type < HZ_POI_COUNT)
                 cntType[p.type]++;
-            if (p.shared)
-                cntShared++;
-            else
+            if (hzPoiIsPrivateOnMap(p))
                 cntPriv++;
+            else
+                cntShared++;
         }
     }
 
@@ -1550,7 +1575,8 @@ void HorizonUI::cbMapFilterRow(lv_event_t *e)
         const std::vector<HzPoi> *pools[3] = {&st.baked(), &st.net(), &st.my()};
         for (int i = 0; i < 3; i++)
             for (const HzPoi &p : *pools[i])
-                if (!(i == 0 && st.isTombstoned(p.id)) && (id < 5 ? p.type == id : p.shared == (id == 5)))
+                if (!(i == 0 && st.isTombstoned(p.id)) &&
+                    (id < 5 ? p.type == id : (id == 6) == hzPoiIsPrivateOnMap(p)))
                     count++;
         lv_label_set_text_fmt(label, "%s %s (%d)", on ? "[x]" : "[ ]",
                               id < 5 ? kPoiTypes[id] : (id == 5 ? "Общие" : "Личные"), count);

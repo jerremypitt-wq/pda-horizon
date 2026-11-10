@@ -6,6 +6,7 @@
 #include "graphics/common/ViewController.h"
 #include "graphics/driver/DisplayDriver.h"
 #include "horizon/HorizonDisplay.h"
+#include "horizon/HorizonPoiPresentation.h"
 #include "horizon/HorizonSound.h"
 #include "horizon/HorizonStrings.h" // kFirmwareVersion в стартовый лог
 #include "horizon/HorizonUI.h"
@@ -402,9 +403,12 @@ void HorizonView::newMessage(uint32_t from, uint32_t to, uint8_t ch, const char 
     msgsDirty = true;
     if (!restore && ui)
         ui->onMessage(from, to, ch, msg, msgtime);
-    // Бип на входящее (свои эхо-пакеты не пищим): личка - DIRECT-паттерном,
-    // общий эфир - MESSAGE. Звук - выбранный в настройках.
-    if (!restore && from != ownNode)
+    // Ссылка на присланную точку — часть той же доставки: звук подаётся
+    // после сборки точки (ссылка может прийти как до, так и после частей).
+    // Не перебивать мелодию вторым звуком от ссылки.
+    char pointId[28];
+    bool pointLink = to == ownNode && hzPoiLinkId(msg, pointId);
+    if (!restore && from != ownNode && !pointLink)
         HorizonSound::instance().play(to == ownNode ? HorizonSound::DIRECT : HorizonSound::MESSAGE);
 }
 
@@ -1137,6 +1141,7 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint32_t to, uint8_t ch, const 
         ILOG_INFO("Horizon: POI '%s' dropped (bad lengths)", id);
         return;
     }
+    bool pointChanged = true;
     if (direct) {
         // Личный приём - СВОЯ копия с новым ID. Оригинальный ID хранится
         // отдельно: правка и удаление автора не затрагивают эту копию.
@@ -1154,10 +1159,12 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint32_t to, uint8_t ch, const 
             return;
         mapStore.saveMy();
     } else {
-        if (!mapStore.find(id) && mapStore.sharedCount() >= HzMapStore::kMaxShared) {
+        const HzPoi *previous = mapStore.find(id);
+        if (!previous && mapStore.sharedCount() >= HzMapStore::kMaxShared) {
             ILOG_INFO("Horizon: POI '%s' dropped (pool full)", id);
             return; // молча: тост на каждый чужой маяк - спам
         }
+        pointChanged = !previous || !hzPoiSameContent(*previous, poi);
         mapStore.upsertNet(poi);
         mapStore.saveNet();
     }
@@ -1166,6 +1173,10 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint32_t to, uint8_t ch, const 
         ui->mapOnNetUpdate();
         ui->onMapPoint(poi.id, poi.name.c_str());
     }
+    // Только завершённая новая/изменённая точка, не каждый фрагмент, реплей
+    // истории или повтор того же маяка. Бесшумный режим учтён в play().
+    if (canNotify && pointChanged)
+        HorizonSound::instance().play(direct ? HorizonSound::DIRECT : HorizonSound::MESSAGE);
 }
 
 void HorizonView::handlePoiDelete(uint32_t from, uint32_t to, const char *msg, bool canNotify)

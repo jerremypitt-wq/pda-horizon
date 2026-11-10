@@ -212,7 +212,7 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         for field in ('accent', 'text', 'ok'):
             self.assertIn(f'.{field} = 0x09B80F', cyber)
         self.assertIn('.accentText = 0x000000', cyber)
-        self.assertIn('kFirmwareVersion = "1.9.3.ZI"', strings)
+        self.assertIn('kFirmwareVersion = "1.9.4.ZI"', strings)
         self.assertIn('"ПДА «Горизонт» v.%s", kFirmwareVersion', CORE)
         reboot = VIEW.split('void HorizonView::rebootNode(void)', 1)[1].split('void HorizonView::resetNodeDb(void)', 1)[0]
         self.assertIn('controller->requestReboot(0, ownNode);', reboot)
