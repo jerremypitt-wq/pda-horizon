@@ -197,9 +197,8 @@ void HorizonView::pollBattery(uint32_t nowMs)
         return; // чаще раза в 30 с батарею не дёргаем
     batteryProbed = true;
     lastBatteryMs = nowMs;
-    hzBatteryPoll(vbat, HorizonConfig::instance().vbatScale);
-    if (vbat.percent >= 0)
-        battery = vbat.percent; // делитель главнее телеметрии радио
+    hzBatteryPoll(vbat);
+    battery = vbat.percent; // -1 при обрыве; не подменять показаниями радио
 }
 
 bool HorizonView::bootReady(void) const
@@ -317,8 +316,8 @@ void HorizonView::updateMetrics(uint32_t nodeNum, uint32_t bat_level, float volt
 void HorizonView::updateMetrics(uint32_t nodeNum, const meshtastic_DeviceMetrics &metrics)
 {
     nodeStore.updateDeviceMetrics(nodeNum, metrics);
-    if (nodeNum == ownNode && metrics.has_battery_level && metrics.battery_level <= 100)
-        battery = metrics.battery_level;
+    // Своя батарея — только MAX17048. Радиотелеметрия относится к LoRa,
+    // даже когда радио и экран живут на одном ESP32 (single-MCU).
 }
 
 void HorizonView::updateSignalStrength(uint32_t nodeNum, int32_t rssi, float snr)

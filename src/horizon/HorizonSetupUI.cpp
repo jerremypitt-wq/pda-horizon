@@ -1423,92 +1423,51 @@ void HorizonUI::cbSetApplyDisplay(lv_event_t *e)
 
 // ---------------- настройки: батарея ----------------
 
-void HorizonUI::refreshVbatInfo(int scale)
+void HorizonUI::refreshBatteryInfo(void)
 {
-    if (!setVbatInfo || !lv_obj_is_valid(setVbatInfo))
+    if (!setBattInfo || !lv_obj_is_valid(setBattInfo))
         return;
-    int raw = view->batteryRawMv();
-    if (raw < 0) {
-        lv_label_set_text(setVbatInfo, "Делитель не найден.\nПроверьте пайку и J15 pin 2.");
-        return;
+    char text[120];
+    if (view->batteryFound()) {
+        int mv = view->batteryMv();
+        snprintf(text, sizeof(text), "%d%% · %d.%02d В%s", view->myBattery(),
+                 mv / 1000, (mv % 1000) / 10,
+                 view->batteryCharging() ? " · Зарядка" : "");
+    } else {
+        snprintf(text, sizeof(text), "MAX17048 не найден.\nПроверьте J15 и питание модуля.");
     }
-    int mv = raw * 2 * scale / 1000;
-    lv_label_set_text_fmt(setVbatInfo, "Замер: %d.%02d В (GPIO%d)", mv / 1000, (mv % 1000) / 10,
-                          view->batteryPin());
+    if (strcmp(lv_label_get_text(setBattInfo), text) != 0)
+        lv_label_set_text(setBattInfo, text);
 }
 
 void HorizonUI::buildSetBattery(void)
 {
     clearScreen(Screen::SET_BATTERY);
-    HorizonConfig &cfg = HorizonConfig::instance();
     addStatusBar(scr);
-    addNavHeader(scr, "Батарея", "Замер и калибровка");
+    addNavHeader(scr, "Батарея", "MAX17048 · J15");
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
-    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 56);
+    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 2);
     lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(body, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(body, 6, LV_PART_MAIN);
 
-    sectionLabel(body, "Замер делителя");
-    setVbatInfo = lv_label_create(body);
-    lv_label_set_long_mode(setVbatInfo, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(setVbatInfo, lv_pct(100));
-    lv_obj_set_style_text_font(setVbatInfo, HorizonTheme::fontMedium(), LV_PART_MAIN);
-    refreshVbatInfo(cfg.vbatScale);
-
-    sectionLabel(body, "Калибровка");
-    setVbatScale = lv_slider_create(body);
-    lv_slider_set_range(setVbatScale, 900, 1100);
-    lv_slider_set_value(setVbatScale, cfg.vbatScale, LV_ANIM_OFF);
-    lv_obj_set_width(setVbatScale, lv_pct(100));
-    lv_obj_set_style_bg_color(setVbatScale, hzColor(HorizonTheme::current().panel), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(setVbatScale, hzColor(HorizonTheme::current().accent), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(setVbatScale, hzColor(HorizonTheme::current().accent), LV_PART_KNOB);
-    lv_obj_add_event_cb(setVbatScale, cbVbatScale, LV_EVENT_VALUE_CHANGED, this);
+    sectionLabel(body, "Показания датчика");
+    setBattInfo = lv_label_create(body);
+    lv_label_set_long_mode(setBattInfo, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(setBattInfo, lv_pct(100));
+    lv_obj_set_style_text_font(setBattInfo, HorizonTheme::fontMedium(), LV_PART_MAIN);
+    refreshBatteryInfo();
 
     lv_obj_t *hint = lv_label_create(body);
-    lv_label_set_text(hint, "Замерьте батарею мультиметром, подгоните ползунок под его показания и нажмите Применить.");
+    lv_label_set_text(hint, "Проценты считает MAX17048. Калибровка не нужна; данные обновляются каждые 30 секунд.");
     lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(hint, lv_pct(100));
     lv_obj_set_style_text_font(hint, HorizonTheme::fontSmall(), LV_PART_MAIN);
     lv_obj_set_style_text_color(hint, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
-
-    lv_obj_t *apply = lv_btn_create(scr);
-    HorizonTheme::styleButton(apply, true);
-    lv_obj_set_size(apply, lv_pct(70), 40);
-    lv_obj_align(apply, LV_ALIGN_BOTTOM_MID, 0, -8);
-    lv_obj_t *al = lv_label_create(apply);
-    lv_label_set_text(al, "Применить");
-    lv_obj_center(al);
-    lv_obj_add_event_cb(apply, cbSetApplyBattery, LV_EVENT_CLICKED, this);
-}
-
-void HorizonUI::cbVbatScale(lv_event_t *e)
-{
-    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    if (self->setVbatScale)
-        self->refreshVbatInfo(lv_slider_get_value(self->setVbatScale));
-}
-
-void HorizonUI::cbSetApplyBattery(lv_event_t *e)
-{
-    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    HorizonConfig &cfg = HorizonConfig::instance();
-    if (self->setVbatScale) {
-        int v = lv_slider_get_value(self->setVbatScale);
-        if (v < 800)
-            v = 800;
-        if (v > 1200)
-            v = 1200;
-        cfg.vbatScale = (uint16_t)v;
-    }
-    cfg.save();
-    self->toast("Калибровка сохранена");
-    self->showMaster();
 }
 
 void HorizonUI::cbRebootNow(lv_event_t *e)

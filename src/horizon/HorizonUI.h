@@ -162,7 +162,7 @@ class HorizonUI
     void buildSetTime(void);
     void buildSetSound(void);
     void buildSetBattery(void);
-    void refreshVbatInfo(int scale); // строка замера под ползунком калибровки
+    void refreshBatteryInfo(void);
     void buildSetTools(void);
     void buildSetMaster(void);
 
@@ -194,13 +194,12 @@ class HorizonUI
     lv_obj_t *setHops = nullptr;
     lv_obj_t *setRole = nullptr;
     lv_obj_t *setTx = nullptr;
+    lv_obj_t *setBattInfo = nullptr;
     lv_obj_t *setBrightness = nullptr;
     lv_obj_t *setBrightnessVal = nullptr;
     lv_obj_t *setTimeout = nullptr;
     lv_obj_t *setOrientation = nullptr;
     lv_obj_t *setTheme = nullptr;
-    lv_obj_t *setVbatScale = nullptr;
-    lv_obj_t *setVbatInfo = nullptr;
     // Детали канала: 0=общий, 1=групповой, 2=объявления
     uint8_t setDetailKind = 0;
     lv_obj_t *setDetailCh = nullptr;
@@ -345,8 +344,6 @@ class HorizonUI
     static void cbSetApplyPin(lv_event_t *e);
     static void cbSetReset(lv_event_t *e);
     static void cbBrightness(lv_event_t *e);
-    static void cbVbatScale(lv_event_t *e);
-    static void cbSetApplyBattery(lv_event_t *e);
     static void cbThemeChanged(lv_event_t *e);
     static void cbFilter(lv_event_t *e);
     static void cbClearChats(lv_event_t *e);

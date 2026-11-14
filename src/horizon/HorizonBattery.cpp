@@ -1,101 +1,175 @@
-#include "horizon_target.h" // целевые флаги сборки (вкус: standalone/прошивка)
-// ПДА «Горизонт» - замер батареи через делитель на J15.
+#include "horizon_target.h"
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonBattery.h"
 #include "Arduino.h"
 
 namespace {
-constexpr int kSamples = 7;
-constexpr int kMinValidMv = 1000;  // чтение младше - обрыв/не тот пин
-constexpr int kMaxValidMv = 2500;  // чтение старше - коротыш/не тот пин
-constexpr int kDetectMinMv = 1400; // окно автопоиска уже: висящий пин
-constexpr int kDetectMaxMv = 2250; // в него случайно не попадает
-constexpr uint8_t kPinPrimary = 17;
-constexpr uint8_t kPinAlt = 18;
+#if !defined(ARCH_PORTDUINO)
+constexpr uint8_t kSda = 17; // J15.2
+constexpr uint8_t kScl = 18; // J15.1
+constexpr uint8_t kAddr = 0x36;
+constexpr uint8_t kVcell = 0x02;
+constexpr uint8_t kSoc = 0x04;
+constexpr uint8_t kVersion = 0x08;
+constexpr uint8_t kCrate = 0x16;
+constexpr unsigned kHalfPeriodUs = 5;
+constexpr unsigned kStretchTimeoutUs = 1000;
+
+// Только открытый сток: никогда не выводить HIGH на GPIO, чтобы не подать
+// напряжение батареи/логики обратно в другую цепь. Подтяжки SDA/SCL модуля
+// должны идти к J15.3 (3V3), а не к BAT: это проверяют ДО подключения.
+void release(uint8_t pin) { pinMode(pin, INPUT); }
+void low(uint8_t pin)
+{
+    digitalWrite(pin, LOW);
+    pinMode(pin, OUTPUT);
+}
+void pause(void) { delayMicroseconds(kHalfPeriodUs); }
+
+bool highClock(void)
+{
+    release(kScl);
+    // Если slave держит SCL (clock stretching или неисправность) — не висеть.
+    for (unsigned i = 0; i < kStretchTimeoutUs / kHalfPeriodUs; ++i) {
+        if (digitalRead(kScl) == HIGH) {
+            pause();
+            return true;
+        }
+        pause();
+    }
+    return false;
+}
+
+void stop(void)
+{
+    low(kSda);
+    pause();
+    (void)highClock();
+    release(kSda);
+    pause();
+}
+
+bool start(void)
+{
+    release(kSda);
+    if (!highClock())
+        return false;
+    if (digitalRead(kSda) != HIGH) // шина занята / SDA застряла
+        return false;
+    low(kSda);
+    pause();
+    low(kScl);
+    return true;
+}
+
+// Repeated START после отправки адреса регистра (SCL уже низкий).
+bool restart(void)
+{
+    release(kSda);
+    pause();
+    if (!highClock() || digitalRead(kSda) != HIGH)
+        return false;
+    low(kSda);
+    pause();
+    low(kScl);
+    return true;
+}
+
+bool writeByte(uint8_t value)
+{
+    for (int i = 7; i >= 0; --i) {
+        if (value & (1u << i))
+            release(kSda);
+        else
+            low(kSda);
+        pause();
+        if (!highClock())
+            return false;
+        low(kScl);
+    }
+    release(kSda); // ACK передаёт slave, master никогда не ведёт SDA
+    pause();
+    if (!highClock())
+        return false;
+    bool ack = digitalRead(kSda) == LOW;
+    low(kScl);
+    return ack;
+}
+
+bool readByte(uint8_t &value, bool ack)
+{
+    value = 0;
+    release(kSda);
+    for (int i = 0; i < 8; ++i) {
+        pause();
+        if (!highClock())
+            return false;
+        value = (uint8_t)((value << 1) | (digitalRead(kSda) == HIGH ? 1 : 0));
+        low(kScl);
+    }
+    if (ack)
+        low(kSda);
+    else
+        release(kSda); // NACK после младшего байта
+    pause();
+    if (!highClock())
+        return false;
+    low(kScl);
+    release(kSda);
+    return true;
+}
+
+bool readReg(uint8_t reg, uint16_t &value)
+{
+    // Не делать Wire.begin/TwoWire(1): в single-MCU I2C0 занят firmware
+    // на 15/16, а I2C1 напрямую занят LovyanGFX GT911 на тех же пинах.
+    if (!start()) {
+        release(kSda);
+        release(kScl);
+        return false;
+    }
+    bool ok = writeByte(kAddr << 1) && writeByte(reg) && restart() &&
+              writeByte((kAddr << 1) | 1);
+    uint8_t msb = 0, lsb = 0;
+    if (ok)
+        ok = readByte(msb, true) && readByte(lsb, false);
+    stop(); // отпустить шину и при NACK/таймауте
+    if (ok)
+        value = (uint16_t)((msb << 8) | lsb);
+    return ok;
+}
+#endif // !ARCH_PORTDUINO
 } // namespace
 
-int hzBatteryReadPinMv(int pin)
+bool hzBatteryPoll(HzBatteryState &st)
 {
+    // Нет остаточных процентов при обрыве: телеметрию радио за своё
+    // напряжение тоже не принимаем. Следующий опрос повторит детект.
+    st = HzBatteryState{};
 #if defined(ARCH_PORTDUINO)
-    (void)pin;
-    return -1; // на Linux замера нет
+    return false;
 #else
-    int v[kSamples];
-    int n = 0;
-    for (int i = 0; i < kSamples; i++) {
-        int r = (int)analogReadMilliVolts((uint8_t)pin);
-        if (r > 0)
-            v[n++] = r;
-    }
-    if (n < 3)
-        return -1;
-    for (int i = 1; i < n; i++) { // сортировка вставками, n <= 7
-        int x = v[i], j = i - 1;
-        while (j >= 0 && v[j] > x) {
-            v[j + 1] = v[j];
-            j--;
-        }
-        v[j + 1] = x;
-    }
-    int m = v[n / 2];
-    return (m >= kMinValidMv && m <= kMaxValidMv) ? m : -1;
+    uint16_t version = 0, vcell = 0, soc = 0;
+    if (!readReg(kVersion, version) || version == 0 || version == 0xFFFF ||
+        !readReg(kVcell, vcell) || !readReg(kSoc, soc))
+        return false;
+
+    // VCELL: 78.125 мкВ/LSB (мВ = raw*5/64). Проверяем рабочий
+    // диапазон MAX17048, чтобы пустую шину не показать как 100%.
+    int mv = ((uint32_t)vcell * 5 + 32) / 64;
+    if (mv < 2500 || mv > 4500 || soc == 0xFFFF)
+        return false;
+    st.found = true;
+    st.battMv = mv;
+    int pct = (soc + 128) / 256; // SOC: 1/256 процента на LSB
+    st.percent = pct > 100 ? 100 : pct;
+
+    uint16_t crate = 0;
+    if (readReg(kCrate, crate))
+        st.charging = (int16_t)crate >= 4; // ~0.8 %/ч; отсекаем шум
+    return true;
 #endif
-}
-
-int hzBatteryDetectPin(void)
-{
-    int p = hzBatteryReadPinMv(kPinPrimary);
-    if (p >= kDetectMinMv && p <= kDetectMaxMv)
-        return kPinPrimary;
-    int a = hzBatteryReadPinMv(kPinAlt);
-    if (a >= kDetectMinMv && a <= kDetectMaxMv)
-        return kPinAlt;
-    return -1;
-}
-
-int hzBatteryPercent(int battMv)
-{
-    static const int V[] = {3300, 3550, 3700, 3800, 3900, 4050, 4200};
-    static const int P[] = {0, 12, 28, 45, 65, 85, 100};
-    if (battMv <= V[0])
-        return 0;
-    for (size_t i = 1; i < sizeof(V) / sizeof(V[0]); i++) {
-        if (battMv <= V[i]) {
-            int dv = V[i] - V[i - 1];
-            return P[i - 1] + (P[i] - P[i - 1]) * (battMv - V[i - 1]) / dv;
-        }
-    }
-    return 100;
-}
-
-void hzBatteryPoll(HzBatteryState &st, uint16_t scale)
-{
-    if (st.pin < 0) { // -2 и -1: (пере)поиск каждый опрос, пока не найден
-        st.pin = hzBatteryDetectPin();
-        st.badReads = 0;
-        if (st.pin < 0) {
-            st.rawMv = st.battMv = st.percent = -1;
-            return;
-        }
-    }
-    int mv = hzBatteryReadPinMv(st.pin);
-    if (mv < 0) {
-        if (++st.badReads >= 3) { // делитель отвалился - искать заново
-            st.pin = -2;
-            st.badReads = 0;
-            st.rawMv = st.battMv = st.percent = -1;
-        }
-        return;
-    }
-    st.badReads = 0;
-    st.rawMv = mv;
-    if (scale < 800)
-        scale = 800;
-    if (scale > 1200)
-        scale = 1200;
-    st.battMv = (int)((int32_t)mv * 2 * scale / 1000);
-    st.percent = hzBatteryPercent(st.battMv);
 }
 
 #endif // HORIZON_UI

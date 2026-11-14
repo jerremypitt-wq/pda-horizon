@@ -169,10 +169,10 @@ class HorizonView : public MeshtasticView
     // Без этого индикатор MESH врёт при мёртвой линии панель-радио.
     bool radioConnected(void) const { return connected && ownNode != 0; }
     int myBattery(void) const { return battery; } // -1 - неизвестно
-    void pollBattery(uint32_t nowMs);             // опрос делителя (из task_handler)
+    void pollBattery(uint32_t nowMs);             // MAX17048 на J15 (из task_handler)
     int batteryMv(void) const { return vbat.battMv; }
-    int batteryRawMv(void) const { return vbat.rawMv; }
-    int batteryPin(void) const { return vbat.pin; }
+    bool batteryFound(void) const { return vbat.found; }
+    bool batteryCharging(void) const { return vbat.found && vbat.charging; }
 
     bool bootReady(void) const; // можно уходить с заставки
 

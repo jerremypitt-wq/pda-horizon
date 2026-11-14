@@ -87,6 +87,7 @@ void HorizonUI::clearScreen(Screen s)
     editName = editCall = editRank = editGroup = nullptr;
     setDetailCh = setDetailName = setDetailKey = nullptr;
     setRegion = setPreset = setHops = setRole = setTx = nullptr;
+    setBattInfo = nullptr;
     setBrightness = setBrightnessVal = setTimeout = setOrientation = setTheme = nullptr;
     pinOld = pinNew1 = pinNew2 = nullptr;
     timeHVal = timeMVal = timeDVal = timeMoVal = timeYVal = timeCur = nullptr;
@@ -172,7 +173,9 @@ void HorizonUI::refreshStatus(void)
     // батарея
     int b = view->myBattery();
     if (b >= 0)
-        lv_label_set_text_fmt(stBatt, "%d%%", b);
+        // '+' вместо FontAwesome-молнии: кириллический шрифт статусбара
+        // не обязан содержать глиф U+F0E7.
+        lv_label_set_text_fmt(stBatt, view->batteryCharging() ? "+%d%%" : "%d%%", b);
     else
         lv_label_set_text(stBatt, "--%");
     // связь
@@ -1315,6 +1318,8 @@ void HorizonUI::tick(void)
     if (now - lastSlowMs >= 1000) {
         lastSlowMs = now;
         refreshStatus();
+        if (current == Screen::SET_BATTERY)
+            refreshBatteryInfo();
         refreshMenuBadges();
         view->pollTools(now);
         refreshTools();
