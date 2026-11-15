@@ -252,6 +252,12 @@ void HorizonUI::cbRow(lv_event_t *e)
     case 3:
         self->buildSetAbout();
         break;
+    case 4:
+        self->buildSetTools();
+        break;
+    case 6:
+        self->buildSetSecurity();
+        break;
     case 5:
         // Вложенный раздел мастера: единственный PIN-гейт в настройках.
         self->askPin("Мастер-PIN:", [self]() { self->showMaster(); });
@@ -561,6 +567,7 @@ void HorizonUI::buildSettings(void)
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_row(body, 6, LV_PART_MAIN);
+    lv_obj_set_scroll_dir(body, LV_DIR_VER); // семь строк: скролл в альбомной ориентации
 
     HorizonConfig &cfg = HorizonConfig::instance();
     rowButton(body, "Экран и тема", kThemes[cfg.theme], 0);
@@ -568,7 +575,9 @@ void HorizonUI::buildSettings(void)
     fmtTime(view->getActTime(), timesub, sizeof(timesub));
     rowButton(body, "Время", timesub, 1);
     rowButton(body, "Звук", cfg.silent ? "Бесшумный режим" : "Звук включён", 2);
+    rowButton(body, "Инструменты Mesh", "Детектор, сканер, маршрут", 4);
     rowButton(body, "О ПДА", "Версия и состояние", 3);
+    rowButton(body, "Безопасность", cfg.lockEnabled ? "PIN включён" : "Блокировка выключена", 6);
     rowButton(body, "Мастер", "Каналы, радио, сброс (PIN)", 5);
 }
 
@@ -591,9 +600,6 @@ void HorizonUI::cbMasterRow(lv_event_t *e)
         break;
     case 1:
         self->buildSetDevice();
-        break;
-    case 2:
-        self->buildSetTools();
         break;
     case 3:
         self->buildSetPin();
@@ -650,16 +656,15 @@ void HorizonUI::buildSetMaster(void)
         snprintf(vbsub, sizeof(vbsub), "%d.%02d В", view->batteryMv() / 1000, (view->batteryMv() % 1000) / 10);
     else
         strcpy(vbsub, "замер не найден");
-    MRow rows[7] = {
+    MRow rows[6] = {
         {"Каналы чатов", chsub, 0},
         {"Устройство (LoRa)", "Регион, пресет, роль, радиомолчание", 1},
         {"Батарея", vbsub, 6},
-        {"Инструменты Mesh", "Детектор, сканер, маршрут", 2},
         {"Мастер-пароль", "Смена PIN", 3},
         {"Синхронизация времени", "Разослать дату/время всем", 4},
         {"Сброс", "ПДА, NodeDB, заводской", 5},
     };
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 6; i++) {
         lv_obj_t *b = rowButton(body, rows[i].t, rows[i].s, rows[i].id);
         // rowButton вешает cbRow (работает только на экране SETTINGS) -
         // переназначить на обработчик раздела.
@@ -1427,15 +1432,39 @@ void HorizonUI::refreshBatteryInfo(void)
 {
     if (!setBattInfo || !lv_obj_is_valid(setBattInfo))
         return;
-    char text[120];
+    char text[560];
+    const HzBatteryStats &stats = view->batteryStats();
+    char present[120];
     if (view->batteryFound()) {
         int mv = view->batteryMv();
-        snprintf(text, sizeof(text), "%d%% · %d.%02d В%s", view->myBattery(),
-                 mv / 1000, (mv % 1000) / 10,
-                 view->batteryCharging() ? " · Зарядка" : "");
+        if (view->batteryRateValid()) {
+            int rate = view->batteryRateMilliPctHour();
+            int mag = rate < 0 ? -rate : rate;
+            snprintf(present, sizeof(present), "%d%% · %d.%02d В · %c%d.%d%%/ч",
+                     view->myBattery(), mv / 1000, (mv % 1000) / 10,
+                     rate < 0 ? '-' : '+', mag / 1000, (mag % 1000) / 100);
+        } else {
+            snprintf(present, sizeof(present), "%d%% · %d.%02d В · темп неизвестен",
+                     view->myBattery(), mv / 1000, (mv % 1000) / 10);
+        }
     } else {
-        snprintf(text, sizeof(text), "MAX17048 не найден.\nПроверьте J15 и питание модуля.");
+        snprintf(present, sizeof(present), "MAX17048 не найден. Проверьте J15.");
     }
+    char voltage[96];
+    if (stats.minMv)
+        snprintf(voltage, sizeof(voltage), "Мин %d.%02d В · макс %d.%02d В",
+                 stats.minMv / 1000, (stats.minMv % 1000) / 10,
+                 stats.maxMv / 1000, (stats.maxMv % 1000) / 10);
+    else
+        snprintf(voltage, sizeof(voltage), "Мин/макс напряжение: нет замеров");
+    snprintf(text, sizeof(text),
+             "%s\nЗарядок: %lu · Разрядок: %lu\nВремя: заряд %lu ч %lu мин · разряд %lu ч %lu мин\n"
+             "%s\nНабрано: %lu.%02lu экв. цикла*",
+             present, (unsigned long)stats.chargeStarts, (unsigned long)stats.dischargeStarts,
+             (unsigned long)(stats.chargeSeconds / 3600), (unsigned long)(stats.chargeSeconds / 60 % 60),
+             (unsigned long)(stats.dischargeSeconds / 3600), (unsigned long)(stats.dischargeSeconds / 60 % 60),
+             voltage, (unsigned long)(stats.charged256 / 25600),
+             (unsigned long)((stats.charged256 % 25600) * 100 / 25600));
     if (strcmp(lv_label_get_text(setBattInfo), text) != 0)
         lv_label_set_text(setBattInfo, text);
 }
@@ -1459,11 +1488,11 @@ void HorizonUI::buildSetBattery(void)
     setBattInfo = lv_label_create(body);
     lv_label_set_long_mode(setBattInfo, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(setBattInfo, lv_pct(100));
-    lv_obj_set_style_text_font(setBattInfo, HorizonTheme::fontMedium(), LV_PART_MAIN);
+    lv_obj_set_style_text_font(setBattInfo, HorizonTheme::fontSmall(), LV_PART_MAIN);
     refreshBatteryInfo();
 
     lv_obj_t *hint = lv_label_create(body);
-    lv_label_set_text(hint, "Проценты считает MAX17048. Калибровка не нужна; данные обновляются каждые 30 секунд.");
+    lv_label_set_text(hint, "*Оценка по наблюдаемому приросту %. Не реальный счётчик циклов: MAX17048 не измеряет ток и мА·ч. Во время выключения ПДА время не учитывается; данные сохраняются раз в 10 минут.");
     lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(hint, lv_pct(100));
     lv_obj_set_style_text_font(hint, HorizonTheme::fontSmall(), LV_PART_MAIN);
@@ -1478,104 +1507,141 @@ void HorizonUI::cbRebootNow(lv_event_t *e)
 #endif
 }
 
-// ---------------- настройки: PIN ----------------
+// ---------------- настройки: PIN и безопасность ----------------
 
 void HorizonUI::buildSetPin(void)
 {
     clearScreen(Screen::SET_PIN);
     addStatusBar(scr);
-    addNavHeader(scr, "Мастер-пароль", "PIN для досье и сброса");
-
+    addNavHeader(scr, "Мастер-пароль", "Только цифровая клавиатура");
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
-    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 56);
+    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 2);
     lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(body, 4, LV_PART_MAIN);
-
-    sectionLabel(body, "Старый PIN");
-    pinOld = lv_textarea_create(body);
-    HorizonTheme::styleField(pinOld);
-    lv_textarea_set_one_line(pinOld, true);
-    lv_textarea_set_password_mode(pinOld, true);
-    lv_textarea_set_max_length(pinOld, 8);
-    lv_textarea_set_accepted_chars(pinOld, "0123456789");
-    lv_obj_set_width(pinOld, lv_pct(100));
-    lv_obj_set_height(pinOld, 40);
-    lv_obj_add_event_cb(pinOld, cbInputFocus, LV_EVENT_FOCUSED, this);
-    lv_obj_add_event_cb(pinOld, cbInputFocus, LV_EVENT_DEFOCUSED, this);
-
-    sectionLabel(body, "Новый PIN (4-8 цифр)");
-    pinNew1 = lv_textarea_create(body);
-    HorizonTheme::styleField(pinNew1);
-    lv_textarea_set_one_line(pinNew1, true);
-    lv_textarea_set_password_mode(pinNew1, true);
-    lv_textarea_set_max_length(pinNew1, 8);
-    lv_textarea_set_accepted_chars(pinNew1, "0123456789");
-    lv_obj_set_width(pinNew1, lv_pct(100));
-    lv_obj_set_height(pinNew1, 40);
-    lv_obj_add_event_cb(pinNew1, cbInputFocus, LV_EVENT_FOCUSED, this);
-    lv_obj_add_event_cb(pinNew1, cbInputFocus, LV_EVENT_DEFOCUSED, this);
-
-    sectionLabel(body, "Новый PIN ещё раз");
-    pinNew2 = lv_textarea_create(body);
-    HorizonTheme::styleField(pinNew2);
-    lv_textarea_set_one_line(pinNew2, true);
-    lv_textarea_set_password_mode(pinNew2, true);
-    lv_textarea_set_max_length(pinNew2, 8);
-    lv_textarea_set_accepted_chars(pinNew2, "0123456789");
-    lv_obj_set_width(pinNew2, lv_pct(100));
-    lv_obj_set_height(pinNew2, 40);
-    lv_obj_add_event_cb(pinNew2, cbInputFocus, LV_EVENT_FOCUSED, this);
-    lv_obj_add_event_cb(pinNew2, cbInputFocus, LV_EVENT_DEFOCUSED, this);
-
+    lv_obj_set_style_pad_row(body, 10, LV_PART_MAIN);
     lv_obj_t *hint = lv_label_create(body);
-    lv_label_set_text(hint, "Заводской PIN: 0000.\nНе забудь новый PIN!");
-    lv_obj_set_style_text_font(hint, HorizonTheme::fontSmall(), LV_PART_MAIN);
-    lv_obj_set_style_text_color(hint, hzColor(HorizonTheme::current().textDim), LV_PART_MAIN);
-
-    lv_obj_t *apply = lv_btn_create(scr);
-    HorizonTheme::styleButton(apply, true);
-    lv_obj_set_size(apply, lv_pct(70), 40);
-    lv_obj_align(apply, LV_ALIGN_BOTTOM_MID, 0, -8);
-    lv_obj_t *al = lv_label_create(apply);
-    lv_label_set_text(al, "Сменить PIN");
-    lv_obj_center(al);
-    lv_obj_add_event_cb(apply, cbSetApplyPin, LV_EVENT_CLICKED, this);
+    lv_label_set_text(hint, "Новый мастер-PIN — ровно 4 цифры.\nЗаводской: 0000. Не забудьте новый код.");
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(hint, lv_pct(100));
+    lv_obj_t *button = rowButton(body, "Сменить мастер-PIN", "Старый, новый, подтверждение", 0);
+    // rowButton использует cbRow только в главном списке настроек.
+    lv_obj_remove_event_cb(button, cbRow);
+    lv_obj_add_event_cb(button, cbSetApplyPin, LV_EVENT_CLICKED, this);
 }
 
 void HorizonUI::cbSetApplyPin(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    const char *o = self->pinOld ? lv_textarea_get_text(self->pinOld) : "";
-    const char *n1 = self->pinNew1 ? lv_textarea_get_text(self->pinNew1) : "";
-    const char *n2 = self->pinNew2 ? lv_textarea_get_text(self->pinNew2) : "";
+    self->askPin("Старый мастер-PIN:", [self]() {
+        self->askPinEntry("Новый PIN (4 цифры):", [self](std::string next) {
+            self->askPinEntry("Повторите новый PIN:", [self, next](std::string repeat) {
+                if (repeat != next) {
+                    self->toast("PIN не совпадают");
+                    return;
+                }
+                HorizonConfig &cfg = HorizonConfig::instance();
+                cfg.setPin(next.c_str());
+                cfg.save();
+                self->showMaster();
+                self->toast("Мастер-PIN изменён");
+            });
+        });
+    });
+}
+
+void HorizonUI::buildSetSecurity(void)
+{
+    clearScreen(Screen::SET_SECURITY);
+    addStatusBar(scr);
+    addNavHeader(scr, "Безопасность", "Блокировка ПДА");
+    lv_obj_t *body = lv_obj_create(scr);
+    lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
+    lv_obj_set_size(body, lv_pct(100), H() - (kStatusH + kHeaderH + 2) - 2);
+    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(body, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(body, 6, LV_PART_MAIN);
+    lv_obj_set_scroll_dir(body, LV_DIR_VER);
+
+    const HorizonConfig &cfg = HorizonConfig::instance();
+    char period[44];
+    snprintf(period, sizeof(period), "После %u мин без касаний", (unsigned)cfg.lockTimeoutSec / 60);
+    const char *titles[] = {"Блокировка", "PIN пользователя", "Таймер блокировки"};
+    const char *subs[] = {cfg.lockEnabled ? "Включена · нажать для отключения" : "Выключена · нажать для включения",
+                          cfg.userPin[0] ? "Поменять PIN" : "Установить PIN (4 цифры)", period};
+    for (int i = 0; i < 3; ++i) {
+        lv_obj_t *row = rowButton(body, titles[i], subs[i], i);
+        lv_obj_remove_event_cb(row, cbRow);
+        lv_obj_add_event_cb(row, cbSecurityRow, LV_EVENT_CLICKED, this);
+    }
+    if (cfg.lockEnabled) {
+        lv_obj_t *row = rowButton(body, "Заблокировать сейчас", "Проверить экран PIN", 3);
+        lv_obj_remove_event_cb(row, cbRow);
+        lv_obj_add_event_cb(row, cbSecurityRow, LV_EVENT_CLICKED, this);
+    }
+    lv_obj_t *note = lv_label_create(body);
+    lv_label_set_text(note, "Разблокировка: PIN пользователя ИЛИ мастер-PIN.\nТаймер подсветки на это не влияет.");
+    lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(note, lv_pct(100));
+    lv_obj_set_style_text_font(note, HorizonTheme::fontSmall(), LV_PART_MAIN);
+}
+
+void HorizonUI::requestUserPin(void)
+{
+    askPinEntry("Новый PIN (4 цифры):", [this](std::string next) {
+        askPinEntry("Повторите PIN:", [this, next](std::string repeat) {
+            if (repeat != next) {
+                toast("PIN не совпадают");
+                return;
+            }
+            HorizonConfig &cfg = HorizonConfig::instance();
+            cfg.setUserPin(next.c_str());
+            cfg.lockEnabled = true;
+            cfg.save();
+            buildSetSecurity();
+            toast("Блокировка включена");
+        });
+    });
+}
+
+void HorizonUI::cbSecurityRow(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    if (self->current != Screen::SET_SECURITY)
+        return;
+    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
     HorizonConfig &cfg = HorizonConfig::instance();
-    if (!cfg.checkPin(o)) {
-        self->toast("Старый PIN неверный");
-        return;
-    }
-    size_t len = strlen(n1);
-    if (len < 4 || len > 8) {
-        self->toast("PIN: 4-8 цифр");
-        return;
-    }
-    for (size_t i = 0; i < len; i++) {
-        if (!isdigit((unsigned char)n1[i])) {
-            self->toast("PIN: только цифры");
-            return;
+    if (id == 3 && cfg.lockEnabled) {
+        self->showLock();
+    } else if (id == 2) {
+        static const uint16_t times[] = {60, 120, 300, 600, 1800};
+        size_t i = 0;
+        while (i < 5 && times[i] != cfg.lockTimeoutSec)
+            ++i;
+        cfg.lockTimeoutSec = times[(i + 1) % 5];
+        cfg.save();
+        self->buildSetSecurity();
+    } else if (id == 1) {
+        if (!cfg.userPin[0])
+            self->requestUserPin();
+        else
+            self->askPin("Текущий PIN:", [self]() { self->requestUserPin(); }, true);
+    } else if (id == 0) {
+        if (!cfg.lockEnabled && !cfg.userPin[0]) {
+            self->requestUserPin(); // без PIN включать блокировку нельзя
+        } else {
+            self->askPin("Текущий PIN:", [self]() {
+                HorizonConfig &c = HorizonConfig::instance();
+                c.lockEnabled = !c.lockEnabled;
+                c.save();
+                self->buildSetSecurity();
+            }, true);
         }
     }
-    if (strcmp(n1, n2)) {
-        self->toast("PIN не совпадают");
-        return;
-    }
-    cfg.setPin(n1);
-    cfg.save();
-    self->toast("PIN изменён");
-    self->showMaster();
 }
 
 // ---------------- настройки: сброс ----------------

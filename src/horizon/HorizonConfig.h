@@ -18,7 +18,10 @@ class HorizonConfig
     uint8_t announceCh = 2; // объявления
 
     // --- Мастер-пароль (PIN для редактирования досье и опасных действий) ---
-    char masterPin[9] = "0000"; // до 8 цифр
+    char masterPin[9] = "0000"; // новые PIN = 4 цифры; старые 5–8 читаем для миграции
+    char userPin[5] = "";     // PIN разблокировки, пустой = не задан
+    bool lockEnabled = false;
+    uint16_t lockTimeoutSec = 300; // независимо от таймаута подсветки
 
     // --- Экран ---
     uint8_t brightness = 180; // 20..255
@@ -66,7 +69,9 @@ class HorizonConfig
     void resetToDefaults(void);
 
     bool checkPin(const char *pin) const;
+    bool checkUnlockPin(const char *pin) const; // PIN пользователя или мастер-PIN
     void setPin(const char *pin);
+    void setUserPin(const char *pin);
 
     // Имя узла в mesh-сети, видимое другим игрокам: "Позывной [ТЕГ]"
     std::string meshLongName(void) const;

@@ -12,6 +12,7 @@
 #include "graphics/common/MeshtasticView.h"
 #include "graphics/common/NodeStore.h"
 #include "horizon/HorizonBattery.h"
+#include "horizon/HorizonBatteryStats.h"
 #include "horizon/HorizonConfig.h"
 #include "horizon/HorizonMap.h"
 #include "horizon/HorizonStore.h"
@@ -173,6 +174,9 @@ class HorizonView : public MeshtasticView
     int batteryMv(void) const { return vbat.battMv; }
     bool batteryFound(void) const { return vbat.found; }
     bool batteryCharging(void) const { return vbat.found && vbat.charging; }
+    bool batteryRateValid(void) const { return vbat.found && vbat.rateValid; }
+    int batteryRateMilliPctHour(void) const { return vbat.rateRaw * 208; } // CRATE: 0,208%/ч на единицу
+    const HzBatteryStats &batteryStats(void) const { return batStats; }
 
     bool bootReady(void) const; // можно уходить с заставки
 
@@ -262,6 +266,8 @@ class HorizonView : public MeshtasticView
     bool ownerPushed = false;    // владельца уже толкали в радио в этой загрузке
     int battery = -1;
     HzBatteryState vbat;
+    HzBatteryStats batStats;
+    uint32_t lastBatterySaveMs = 0;
     uint32_t lastBatteryMs = 0;
     bool batteryProbed = false;
     time_t bootTime = 0;

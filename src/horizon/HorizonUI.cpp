@@ -6,6 +6,7 @@
 #include "horizon/HorizonConfig.h"
 #include "horizon/HorizonDisplay.h"
 #include "horizon/HorizonLogo.h"
+#include "horizon/HorizonSecurity.h"
 #include "horizon/HorizonStrings.h"
 #include "horizon/HorizonTheme.h"
 #include "horizon/HorizonView.h"
@@ -59,6 +60,7 @@ bool HorizonUI::isPortrait(void)
 void HorizonUI::init(void)
 {
     lastTickMs = nowMs();
+    lastTouchMs = lastTickMs;
     lastSlowMs = lastTickMs;
     showBoot();
 }
@@ -89,7 +91,6 @@ void HorizonUI::clearScreen(Screen s)
     setRegion = setPreset = setHops = setRole = setTx = nullptr;
     setBattInfo = nullptr;
     setBrightness = setBrightnessVal = setTimeout = setOrientation = setTheme = nullptr;
-    pinOld = pinNew1 = pinNew2 = nullptr;
     timeHVal = timeMVal = timeDVal = timeMoVal = timeYVal = timeCur = nullptr;
     detList = detSub = nullptr;
     scanBig = scanPct = scanProg = nullptr;
@@ -240,6 +241,8 @@ lv_obj_t *HorizonUI::addFooterHint(lv_obj_t *parent, const char *text)
 
 void HorizonUI::toast(const char *fmt, ...)
 {
+    if (current == Screen::LOCK)
+        return; // никаких текстов сообщений поверх экрана разблокировки
     char buf[220];
     va_list ap;
     va_start(ap, fmt);
@@ -319,20 +322,28 @@ void HorizonUI::closeModal(void)
     }
     pinDots = nullptr;
     pinOk = nullptr;
+    pinSubmit = nullptr;
+    pinAllowUser = false;
     confirmOk = nullptr;
+    confirmCancel = nullptr;
 }
 
-void HorizonUI::askPin(const char *prompt, std::function<void(void)> onOk)
+void HorizonUI::askPin(const char *prompt, std::function<void(void)> onOk, bool allowUser)
 {
     closeModal();
     pinEntry.clear();
     pinOk = onOk;
+    pinAllowUser = allowUser;
+    // Для старого сохранённого 5–8-значного мастер-PIN оставляем вход,
+    // иначе до его смены владелец потерял бы доступ к Мастеру и разблокировке.
+    size_t legacy = strlen(HorizonConfig::instance().masterPin);
+    pinMaxLength = (uint8_t)(legacy > 4 && legacy <= 8 ? legacy : 4);
     const HorizonPalette &p = HorizonTheme::current();
 
     modal = lv_obj_create(lv_layer_top());
     lv_obj_set_size(modal, lv_pct(100), lv_pct(100));
-    lv_obj_set_style_bg_color(modal, lv_color_black(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(modal, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(modal, current == Screen::LOCK ? hzColor(p.bg) : lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(modal, current == Screen::LOCK ? LV_OPA_COVER : LV_OPA_70, LV_PART_MAIN);
     lv_obj_set_style_border_width(modal, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(modal, 0, LV_PART_MAIN);
 
@@ -389,13 +400,15 @@ void HorizonUI::askPin(const char *prompt, std::function<void(void)> onOk)
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    lv_obj_t *cancel = lv_btn_create(row);
-    HorizonTheme::styleButton(cancel, false);
-    lv_obj_set_size(cancel, 110, 40);
-    lv_obj_t *cl = lv_label_create(cancel);
-    lv_label_set_text(cl, "Отмена");
-    lv_obj_center(cl);
-    lv_obj_add_event_cb(cancel, cbConfirmCancel, LV_EVENT_CLICKED, this);
+    if (current != Screen::LOCK) {
+        lv_obj_t *cancel = lv_btn_create(row);
+        HorizonTheme::styleButton(cancel, false);
+        lv_obj_set_size(cancel, 110, 40);
+        lv_obj_t *cl = lv_label_create(cancel);
+        lv_label_set_text(cl, "Отмена");
+        lv_obj_center(cl);
+        lv_obj_add_event_cb(cancel, cbConfirmCancel, LV_EVENT_CLICKED, this);
+    }
 
     lv_obj_t *ok = lv_btn_create(row);
     HorizonTheme::styleButton(ok, true);
@@ -405,6 +418,13 @@ void HorizonUI::askPin(const char *prompt, std::function<void(void)> onOk)
     lv_obj_center(ol);
     lv_obj_set_user_data(ok, (void *)"OK");
     lv_obj_add_event_cb(ok, cbPinBtn, LV_EVENT_CLICKED, this);
+}
+
+void HorizonUI::askPinEntry(const char *prompt, std::function<void(std::string)> onSubmit)
+{
+    askPin(prompt, nullptr);
+    pinSubmit = onSubmit;
+    pinMaxLength = 4; // новые PIN всегда ровно четыре цифры
 }
 
 void HorizonUI::pinPress(const char *key)
@@ -417,26 +437,57 @@ void HorizonUI::pinPress(const char *key)
         if (!pinEntry.empty())
             pinEntry.pop_back();
     } else if (!strcmp(key, "OK")) {
-        if (HorizonConfig::instance().checkPin(pinEntry.c_str())) {
+        if (pinSubmit) {
+            if (!hzValidFourDigitPin(pinEntry.c_str())) {
+                toast("Нужно 4 цифры");
+                return;
+            }
+            auto cb = pinSubmit;
+            std::string value = pinEntry;
+            pinEntry.clear();
+            closeModal();
+            cb(value);
+            return;
+        }
+        if (pinBlockedUntil && (int32_t)(nowMs() - pinBlockedUntil) < 0) {
+            pinEntry.clear();
+            if (current == Screen::LOCK && pinDots)
+                lv_label_set_text(pinDots, "Подождите 30 с");
+            else
+                toast("Подождите 30 с");
+            return;
+        }
+        pinBlockedUntil = 0;
+        bool valid = pinAllowUser ? HorizonConfig::instance().checkUnlockPin(pinEntry.c_str())
+                                  : HorizonConfig::instance().checkPin(pinEntry.c_str());
+        if (valid) {
+            pinFailures = 0;
+            lastTouchMs = nowMs(); // разблокировка/ввод PIN сбрасывают отсчёт простоя
             auto cb = pinOk;
+            pinEntry.clear();
             closeModal();
             if (cb)
                 cb();
-        } else {
-            pinEntry.clear();
-            toast("Неверный PIN");
+            return;
         }
-    } else if (pinEntry.size() < 8) {
+        pinEntry.clear();
+        bool cooldown = ++pinFailures >= 5;
+        if (cooldown) {
+            pinFailures = 0;
+            pinBlockedUntil = nowMs() + 30000;
+        }
+        if (current == Screen::LOCK && pinDots)
+            lv_label_set_text(pinDots, cooldown ? "Подождите 30 с" : "Неверный PIN");
+        else
+            toast(cooldown ? "Подождите 30 с" : "Неверный PIN");
+        return;
+    } else if (key[0] >= '0' && key[0] <= '9' && key[1] == '\0' && pinEntry.size() < pinMaxLength) {
         pinEntry += key;
     }
     if (pinDots && lv_obj_is_valid(pinDots)) {
-        // Маска: ---- -> *--- -> **-- -> ***- -> ****. PIN длиннее 4 цифр
-        // (до 8) - слоты дорастают до длины ввода.
         char dots[10];
         size_t n = pinEntry.size();
         size_t slots = n > 4 ? n : 4;
-        if (slots > 8)
-            slots = 8;
         for (size_t i = 0; i < slots; i++)
             dots[i] = (i < n) ? '*' : '-';
         dots[slots] = '\0';
@@ -908,6 +959,14 @@ void HorizonUI::showBoot(void)
 
 // ---------------- меню ----------------
 
+void HorizonUI::showLock(void)
+{
+    clearScreen(Screen::LOCK); // уничтожить чат, карту, тосты и все поля ввода
+    toastHasTarget = false;
+    pendingMapId[0] = '\0';
+    askPin("Введите PIN:", [this]() { showMenu(); }, true);
+}
+
 void HorizonUI::showMenu(void)
 {
     buildMenu();
@@ -1141,8 +1200,11 @@ void HorizonUI::cbBack(lv_event_t *e)
     case Screen::SET_DEVICE:
     case Screen::SET_PIN:
     case Screen::SET_RESET:
-    case Screen::SET_TOOLS:
         self->showMaster();
+        break;
+    case Screen::SET_TOOLS:
+    case Screen::SET_SECURITY:
+        self->showSettings();
         break;
     case Screen::SET_BATTERY:
         self->showMaster();
@@ -1207,6 +1269,8 @@ static bool isMappedChannel(uint8_t ch)
 
 void HorizonUI::onMessage(uint32_t from, uint32_t to, uint8_t ch, const char *text, uint32_t msgtime)
 {
+    if (current == Screen::LOCK)
+        return; // View уже сохранил сообщение, но содержимое на экране не показываем
     bool isBroadcast = (to == 0xFFFFFFFFu);
     // Шум с непривязанных каналов - тихо в хранилище, без тостов
     if (isBroadcast && !isMappedChannel(ch))
@@ -1294,18 +1358,39 @@ void HorizonUI::tick(void)
                 lv_label_set_text(bootStatus, "Ожидание радиомодуля...");
 #endif
         }
-        if (now - bootMs > 1500 && view->bootReady())
-            showMenu();
+        if (now - bootMs > 1500 && view->bootReady()) {
+            if (HorizonConfig::instance().lockEnabled)
+                showLock();
+            else
+                showMenu();
+        }
         return;
     }
 
-    // Охранник сна: показывать поверх всего, когда дисплей уснул по таймауту.
-    // Первое нажатие попадёт в него (и разбудит подсветку), а не в меню.
+    // Таймер блокировки не связан с таймером подсветки. Используем
+    // активность LVGL (касания), а не nowMs последнего открытия экрана.
+    // При удерживаемом пальце не блокировать даже после истечения срока.
+    bool pressed = fingerDown();
+    if (pressed)
+        lastTouchMs = now; // долгое удержание не превращать в мгновенную блокировку при отпускании
+    uint32_t displayInact = lv_display_get_inactive_time(lv_display_get_default());
+    uint32_t inact = displayInact;
+    uint32_t sinceHeld = now - lastTouchMs;
+    if (sinceHeld < inact)
+        inact = sinceHeld;
+    const HorizonConfig &cfg = HorizonConfig::instance();
+    if (current != Screen::LOCK && hzShouldLock(cfg.lockEnabled, cfg.lockTimeoutSec, inact, pressed)) {
+        showLock();
+        return;
+    }
+
+    // Охранник сна: первое нажатие только будит подсветку.
     {
-        uint16_t t = HorizonConfig::instance().timeoutSec;
+        uint16_t t = cfg.timeoutSec;
         if (t > 0) {
-            uint32_t inact = lv_display_get_inactive_time(lv_display_get_default());
-            if (inact >= (uint32_t)t * 1000)
+            // Сон сохраняет исходный таймер дисплея: удержание пальца не
+            // должно снять guard посреди жеста и нажать скрытую кнопку.
+            if (displayInact >= (uint32_t)t * 1000)
                 showSleepGuard();
             else
                 hideSleepGuard();

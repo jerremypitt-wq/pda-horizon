@@ -29,7 +29,7 @@ pio run -e elecrow-adv-35-horizon -t upload   # прошивка через J2 (
 - [docs/FIRST_BOOT.md](docs/FIRST_BOOT.md) — инструкция по первому включению
 - [docs/POWER_SUPPLY.md](docs/POWER_SUPPLY.md) — цепь питания: батарея,
   тумблер и USB-C; раздел делителя относится только к старой прошивке
-- [docs/MAX17048.md](docs/MAX17048.md) — новый датчик заряда на J15 (1.10.0.ZI);
+- [docs/MAX17048.md](docs/MAX17048.md) — датчик заряда на J15 (с 1.10.0.ZI);
   до подключения необходимо проверить конкретный модуль мультиметром
 - [docs/patches/](docs/patches/) — патчи к форку device-ui
 

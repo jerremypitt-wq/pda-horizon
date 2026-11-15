@@ -47,6 +47,7 @@ class HorizonUI
   private:
     enum class Screen : uint8_t {
         BOOT,
+        LOCK,
         MENU,
         CHAT,
         CONTACTS,
@@ -64,6 +65,7 @@ class HorizonUI
         SET_ABOUT,
         SET_TIME,
         SET_SOUND,
+        SET_SECURITY,
         SET_BATTERY,
         SET_TOOLS,
         SET_MASTER,
@@ -101,6 +103,7 @@ class HorizonUI
 
     // --- Заставка ---
     void showBoot(void);
+    void showLock(void); // полный экран без статуса/уведомлений
     lv_obj_t *bootBar = nullptr;
     lv_obj_t *bootStatus = nullptr;
     uint32_t bootMs = 0;
@@ -156,6 +159,8 @@ class HorizonUI
     void buildSetDevice(void);
     void buildSetDisplay(void);
     void buildSetPin(void);
+    void buildSetSecurity(void);
+    void requestUserPin(void);
     void buildSetReset(void);
     void wipeLocalData(bool full); // сброс локального: конфиг+чаты (+досье при full)
     void buildSetAbout(void);
@@ -209,9 +214,6 @@ class HorizonUI
     // Каналы: были ли реальные изменения имени/ключа на радио с момента
     // последнего вопроса про перезагрузку (спрашиваем только на выходе).
     bool channelsDirty = false;
-    lv_obj_t *pinOld = nullptr;
-    lv_obj_t *pinNew1 = nullptr;
-    lv_obj_t *pinNew2 = nullptr;
     // Время: черновик часов/минут + указатели экрана
     int timeH = 12;
     int timeM = 0;
@@ -272,7 +274,13 @@ class HorizonUI
     std::string pinEntry;
     lv_obj_t *pinDots = nullptr;
     std::function<void(void)> pinOk;
-    void askPin(const char *prompt, std::function<void(void)> onOk);
+    std::function<void(std::string)> pinSubmit; // установка нового PIN, без проверки старого
+    bool pinAllowUser = false;
+    uint8_t pinMaxLength = 4;
+    uint8_t pinFailures = 0;
+    uint32_t pinBlockedUntil = 0; // локальная задержка после пяти ошибочных попыток
+    void askPin(const char *prompt, std::function<void(void)> onOk, bool allowUser = false);
+    void askPinEntry(const char *prompt, std::function<void(std::string)> onSubmit);
     void pinPress(const char *key);
     // Подтверждение
     std::function<void(void)> confirmOk;
@@ -309,6 +317,7 @@ class HorizonUI
 
     // tick-состояние
     uint32_t lastTickMs = 0;
+    uint32_t lastTouchMs = 0; // также обновляется при удержании; после отпускания таймер начинается заново
     uint32_t lastSlowMs = 0;
     uint32_t lastContactsMs = 0;
     uint32_t lastDetectorMs = 0;
@@ -342,6 +351,7 @@ class HorizonUI
     static void cbSetApplyDevice(lv_event_t *e);
     static void cbSetApplyDisplay(lv_event_t *e);
     static void cbSetApplyPin(lv_event_t *e);
+    static void cbSecurityRow(lv_event_t *e);
     static void cbSetReset(lv_event_t *e);
     static void cbBrightness(lv_event_t *e);
     static void cbThemeChanged(lv_event_t *e);

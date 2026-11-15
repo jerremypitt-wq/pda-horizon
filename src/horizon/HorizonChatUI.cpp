@@ -174,10 +174,11 @@ void HorizonUI::appendChatBubble(uint32_t from, const char *text, uint32_t time,
                           LV_FLEX_ALIGN_CENTER);
 
     // Недоставленное исходящее - красным.
+    bool cyber = HorizonConfig::instance().theme == 5;
     lv_color_t bg = hzColor(failed ? p.danger : (outgoing ? p.outgoing : p.incoming));
-    lv_color_t bd = hzColor(failed ? p.danger : (outgoing ? p.accent : p.border));
-    lv_color_t fg = failed ? lv_color_white() : hzColor(outgoing ? p.accentText : p.text);
-    lv_color_t mg = failed ? lv_color_white() : hzColor(outgoing ? p.accentText : p.textDim);
+    lv_color_t bd = hzColor(failed ? p.danger : (outgoing && !cyber ? p.accent : p.border));
+    lv_color_t fg = failed ? lv_color_white() : hzColor(outgoing && !cyber ? p.accentText : p.text);
+    lv_color_t mg = failed ? lv_color_white() : hzColor(outgoing && !cyber ? p.accentText : p.textDim);
 
     lv_obj_t *b = lv_obj_create(row);
     lv_obj_set_width(b, lv_pct(86));

@@ -162,12 +162,16 @@ bool hzBatteryPoll(HzBatteryState &st)
         return false;
     st.found = true;
     st.battMv = mv;
+    st.socRaw = soc;
     int pct = (soc + 128) / 256; // SOC: 1/256 процента на LSB
     st.percent = pct > 100 ? 100 : pct;
 
     uint16_t crate = 0;
-    if (readReg(kCrate, crate))
-        st.charging = (int16_t)crate >= 4; // ~0.8 %/ч; отсекаем шум
+    if (readReg(kCrate, crate)) {
+        st.rateValid = true;
+        st.rateRaw = (int16_t)crate;
+        st.charging = st.rateRaw >= 4; // ~0.8 %/ч; отсекаем шум
+    }
     return true;
 #endif
 }

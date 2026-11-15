@@ -92,8 +92,8 @@ const HorizonPalette kPalettes[] = {
      .text = 0x09B80F,
      .textDim = 0x07940B,
      .incoming = 0x031704,
-     .outgoing = 0x062409,
-     .danger = 0xEF5360,
+     .outgoing = 0x031704,
+     .danger = 0xFF2020,
      .ok = 0x09B80F,
      .headerBg = 0x000000,
      .tileEnd = 0x000000},
@@ -179,10 +179,20 @@ void HorizonTheme::styleButton(lv_obj_t *obj, bool accent)
 void HorizonTheme::styleDangerButton(lv_obj_t *obj)
 {
     const HorizonPalette &p = current();
-    lv_obj_set_style_bg_color(obj, hzColor(p.danger), LV_PART_MAIN);
+    if (HorizonConfig::instance().theme == 5) { // Киберпанк: красный контур на чёрном
+        lv_obj_set_style_bg_color(obj, lv_color_black(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(obj, hzColor(p.danger), LV_PART_MAIN);
+        lv_obj_set_style_border_color(obj, hzColor(p.danger), LV_PART_MAIN);
+        lv_obj_set_style_border_width(obj, 2, LV_PART_MAIN);
+        lv_style_selector_t pressed = (lv_style_selector_t)LV_PART_MAIN | LV_STATE_PRESSED;
+        lv_obj_set_style_bg_color(obj, hzColor(p.danger), pressed);
+        lv_obj_set_style_text_color(obj, lv_color_black(), pressed);
+    } else {
+        lv_obj_set_style_bg_color(obj, hzColor(p.danger), LV_PART_MAIN);
+        lv_obj_set_style_text_color(obj, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
+    }
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_text_color(obj, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(obj, 4, LV_PART_MAIN);
     lv_obj_set_style_text_font(obj, fontNormal(), LV_PART_MAIN);
 }

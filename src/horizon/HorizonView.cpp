@@ -163,6 +163,7 @@ void HorizonView::init(IClientBase *client)
     // (в журнале есть и свои сообщения; кратные копии давит дедуп в addMessage)
     store.loadDossier();  // справочник досье (имена свои сразу, не «Meshtastic ****»)
     mapStore.loadAll();     // точки карты /hzmap
+    batStats.load();        // наблюдения батареи из отдельного файла, без форматирования ФС
     ui = new HorizonUI(this);
     ui->init();
 #ifdef HORIZON_PACKET_LINK
@@ -199,6 +200,10 @@ void HorizonView::pollBattery(uint32_t nowMs)
     lastBatteryMs = nowMs;
     hzBatteryPoll(vbat);
     battery = vbat.percent; // -1 при обрыве; не подменять показаниями радио
+    bool phaseStarted = batStats.observe(vbat, nowMs);
+    // LittleFS не писать каждые 30 с: переход фазы и раз в 10 минут.
+    if (batStats.dirty && (phaseStarted || nowMs - lastBatterySaveMs >= 600000) && batStats.save())
+        lastBatterySaveMs = nowMs;
 }
 
 bool HorizonView::bootReady(void) const

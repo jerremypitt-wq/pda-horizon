@@ -685,6 +685,8 @@ void HorizonUI::mapRefreshMarkers(void)
 
 void HorizonUI::onMapPoint(const char *id, const char *name)
 {
+    if (current == Screen::LOCK)
+        return; // точка хранится в View, но уведомление не раскрывает содержимое
     if (!id || !hzPoiIdOk(id))
         return;
     if (pendingMapId[0]) {
@@ -705,6 +707,8 @@ void HorizonUI::onMapPoint(const char *id, const char *name)
 
 void HorizonUI::mapOpenPoint(const char *id)
 {
+    if (current == Screen::LOCK)
+        return;
     if (!id || !hzPoiIdOk(id))
         return;
     const HzMapStore &st = view->getMapStore();

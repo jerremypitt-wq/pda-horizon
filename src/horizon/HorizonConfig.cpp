@@ -4,6 +4,7 @@
 
 #include "horizon/HorizonConfig.h"
 #include "horizon/HorizonStrings.h"
+#include "horizon/HorizonSecurity.h"
 #include "util/ILog.h"
 #include <stdio.h>
 #include <stdlib.h> // atoi
@@ -68,6 +69,9 @@ void HorizonConfig::resetToDefaults(void)
     groupCh = 1;
     announceCh = 2;
     strcpy(masterPin, "0000");
+    userPin[0] = '\0';
+    lockEnabled = false;
+    lockTimeoutSec = 300;
     brightness = 180;
     timeoutSec = 60;
     orientation = 0;
@@ -135,8 +139,27 @@ void HorizonConfig::load(void)
             groupCh = (uint8_t)parseInt(val, 1, 0, 7);
         else if (!strcmp(key, "announceCh"))
             announceCh = (uint8_t)parseInt(val, 2, 0, 7);
-        else if (!strcmp(key, "masterPin"))
-            copyField(masterPin, sizeof(masterPin), val);
+        else if (!strcmp(key, "masterPin")) {
+            // Сохранённые PIN длиной 5–8 доступны до смены на новый 4-значный.
+            if (strlen(val) >= 4 && strlen(val) <= 8) {
+                bool digits = true;
+                for (const char *p = val; *p; ++p)
+                    digits &= *p >= '0' && *p <= '9';
+                if (digits)
+                    copyField(masterPin, sizeof(masterPin), val);
+            }
+        }
+        else if (!strcmp(key, "userPin")) {
+            if (hzValidFourDigitPin(val))
+                memcpy(userPin, val, 5);
+        }
+        else if (!strcmp(key, "lockEnabled"))
+            lockEnabled = parseInt(val, 0, 0, 1) != 0;
+        else if (!strcmp(key, "lockTimeoutSec")) {
+            int t = parseInt(val, 300, 60, 1800);
+            if (t == 60 || t == 120 || t == 300 || t == 600 || t == 1800)
+                lockTimeoutSec = (uint16_t)t;
+        }
         else if (!strcmp(key, "brightness"))
             brightness = (uint8_t)parseInt(val, 180, 20, 255);
         else if (!strcmp(key, "timeoutSec"))
@@ -204,6 +227,9 @@ void HorizonConfig::save(void) const
     f.printf("groupCh=%u\n", groupCh);
     f.printf("announceCh=%u\n", announceCh);
     f.printf("masterPin=%s\n", masterPin);
+    f.printf("userPin=%s\n", userPin);
+    f.printf("lockEnabled=%u\n", lockEnabled ? 1 : 0);
+    f.printf("lockTimeoutSec=%u\n", lockTimeoutSec);
     f.printf("brightness=%u\n", brightness);
     f.printf("timeoutSec=%u\n", timeoutSec);
     f.printf("orientation=%u\n", orientation);
@@ -262,9 +288,21 @@ bool HorizonConfig::checkPin(const char *pin) const
     return pin && !strcmp(pin, masterPin);
 }
 
+bool HorizonConfig::checkUnlockPin(const char *pin) const
+{
+    return checkPin(pin) || (pin && hzValidFourDigitPin(userPin) && !strcmp(pin, userPin));
+}
+
 void HorizonConfig::setPin(const char *pin)
 {
-    copyField(masterPin, sizeof(masterPin), pin && *pin ? pin : "0000");
+    if (hzValidFourDigitPin(pin))
+        memcpy(masterPin, pin, 5);
+}
+
+void HorizonConfig::setUserPin(const char *pin)
+{
+    if (hzValidFourDigitPin(pin))
+        memcpy(userPin, pin, 5);
 }
 
 std::string HorizonConfig::meshLongName(void) const
