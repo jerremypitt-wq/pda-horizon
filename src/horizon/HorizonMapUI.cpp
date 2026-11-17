@@ -145,6 +145,7 @@ struct HzMapUi {
     lv_obj_t *filterRows[7] = {nullptr}; // только галочки, без заголовков разделов
     bool filterOpen = false;
     uint8_t tab = 0;
+    lv_obj_t *tabBtn = nullptr;   // маленькая кнопка ^, скрывается на время выбора
     lv_obj_t *tabPanel = nullptr;
     bool fType[5] = {true, true, true, true, true};
     bool fShared = true;
@@ -446,6 +447,7 @@ void HorizonUI::mapDropWidgets(void)
     mapUi->formPeerLabel = nullptr;
     mapUi->tag = nullptr;
     mapUi->filterPanel = nullptr;
+    mapUi->tabBtn = nullptr;
     mapUi->tabPanel = nullptr;
     for (lv_obj_t *&row : mapUi->filterRows)
         row = nullptr;
@@ -673,19 +675,16 @@ void HorizonUI::buildMap(void)
     lv_obj_add_event_cb(m->zout, cbMapZoom, LV_EVENT_CLICKED, this);
 
     if (st.tabs().size() > 1) {
-        // Вкладки доступны снизу слева; меню идёт вверх и не перекрывает статус.
-        lv_obj_t *tabBtn = lv_btn_create(box);
-        HorizonTheme::styleButton(tabBtn, true);
-        lv_obj_set_size(tabBtn, 170, 38);
-        lv_obj_align(tabBtn, LV_ALIGN_BOTTOM_LEFT, 4, -4);
-        lv_obj_t *title = lv_label_create(tabBtn);
-        for (const HzMapTab &t : st.tabs())
-            if (t.id == m->tab) lv_label_set_text(title, t.name.c_str());
-        lv_obj_set_style_text_font(title, HorizonTheme::fontSmall(), LV_PART_MAIN);
-        lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-        lv_obj_set_width(title, 154);
-        lv_obj_center(title);
-        lv_obj_add_event_cb(tabBtn, cbMapTabs, LV_EVENT_CLICKED, this);
+        // Снизу слева только маленькая кнопка ^. Вместо неё открывается список.
+        m->tabBtn = lv_btn_create(box);
+        HorizonTheme::styleButton(m->tabBtn, true);
+        lv_obj_set_size(m->tabBtn, 44, 38);
+        lv_obj_align(m->tabBtn, LV_ALIGN_BOTTOM_LEFT, 4, -4);
+        lv_obj_t *arrow = lv_label_create(m->tabBtn);
+        lv_label_set_text(arrow, "^");
+        lv_obj_set_style_text_font(arrow, HorizonTheme::fontBig(), LV_PART_MAIN);
+        lv_obj_center(arrow);
+        lv_obj_add_event_cb(m->tabBtn, cbMapTabs, LV_EVENT_CLICKED, this);
     }
 
     // Бар поверх картинки: тёмная полупрозрачная подложка только под белым текстом.
@@ -1413,10 +1412,9 @@ void HorizonUI::cbMapTabs(lv_event_t *e)
     HzMapUi *m = self->mapUi;
     if (!m) return;
     if (m->tabPanel && lv_obj_is_valid(m->tabPanel)) {
-        if (lv_obj_has_flag(m->tabPanel, LV_OBJ_FLAG_HIDDEN))
-            lv_obj_remove_flag(m->tabPanel, LV_OBJ_FLAG_HIDDEN);
-        else
-            lv_obj_add_flag(m->tabPanel, LV_OBJ_FLAG_HIDDEN);
+        // Не удалять объекты в их callback: только переключать видимость.
+        lv_obj_remove_flag(m->tabPanel, LV_OBJ_FLAG_HIDDEN);
+        if (m->tabBtn) lv_obj_add_flag(m->tabBtn, LV_OBJ_FLAG_HIDDEN);
         return;
     }
     const auto &tabs = self->view->getMapStore().tabs();
@@ -1424,7 +1422,8 @@ void HorizonUI::cbMapTabs(lv_event_t *e)
     m->tabPanel = panel;
     HorizonTheme::stylePanel(panel);
     lv_obj_set_size(panel, 190, (int)tabs.size() * 42 + 12);
-    lv_obj_align(panel, LV_ALIGN_BOTTOM_LEFT, 4, -46);
+    lv_obj_align(panel, LV_ALIGN_BOTTOM_LEFT, 4, -4); // список вместо кнопки
+    if (m->tabBtn) lv_obj_add_flag(m->tabBtn, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(panel, 4, LV_PART_MAIN);
     lv_obj_set_style_pad_row(panel, 2, LV_PART_MAIN);
@@ -1453,6 +1452,7 @@ void HorizonUI::cbMapTabSelect(lv_event_t *e)
     if (id == m->tab) {
         // Callback выполняется на дочерней кнопке панели: не удалять её синхронно.
         lv_obj_add_flag(m->tabPanel, LV_OBJ_FLAG_HIDDEN);
+        if (m->tabBtn) lv_obj_remove_flag(m->tabBtn, LV_OBJ_FLAG_HIDDEN);
         return;
     }
     if (!self->view->getMapStore().hasTab(id)) return;

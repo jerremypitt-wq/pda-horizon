@@ -84,13 +84,20 @@ class MapUiContracts(unittest.TestCase):
         self.assertNotIn("mapRefreshMarkers", pressing)
         self.assertIn("clampView(m)", pressing)
 
-    def test_floor_labels_are_small_and_have_no_caret(self):
+    def test_compact_floor_button_replaced_by_selected_tab_list(self):
         build = UI.split("void HorizonUI::buildMap(void)", 1)[1].split("void HorizonUI::mapRefreshMarkers(void)", 1)[0]
         tabs = UI.split("void HorizonUI::cbMapTabs(lv_event_t *e)", 1)[1].split("void HorizonUI::cbMapTabSelect", 1)[0]
-        self.assertIn('lv_label_set_text(title, t.name.c_str());', build)
-        self.assertNotIn('"%s  ^"', build)
-        self.assertIn('lv_obj_set_style_text_font(title, HorizonTheme::fontSmall(), LV_PART_MAIN);', build)
+        select = UI.split("void HorizonUI::cbMapTabSelect(lv_event_t *e)", 1)[1].split("void HorizonUI::cbMapZoom", 1)[0]
+        self.assertIn('lv_obj_set_size(m->tabBtn, 44, 38);', build)
+        self.assertIn('lv_label_set_text(arrow, "^");', build)
+        self.assertNotIn('lv_label_set_text(title, t.name.c_str());', build)
+        self.assertIn('lv_obj_align(panel, LV_ALIGN_BOTTOM_LEFT, 4, -4)', tabs)
+        self.assertIn('lv_obj_add_flag(m->tabBtn, LV_OBJ_FLAG_HIDDEN);', tabs)
+        self.assertIn('HorizonTheme::styleButton(btn, tab.id == m->tab);', tabs)
         self.assertIn('lv_obj_set_style_text_font(label, HorizonTheme::fontSmall(), LV_PART_MAIN);', tabs)
+        self.assertIn('lv_obj_add_flag(m->tabPanel, LV_OBJ_FLAG_HIDDEN);', select)
+        self.assertIn('lv_obj_remove_flag(m->tabBtn, LV_OBJ_FLAG_HIDDEN);', select)
+        self.assertLess(select.index('if (id == m->tab)'), select.index('self->showMap();'))
 
     def test_floor_tabs_point_links_and_radio_contract(self):
         self.assertIn('if (p.tab != m->tab ||', UI)
