@@ -84,6 +84,14 @@ class MapUiContracts(unittest.TestCase):
         self.assertNotIn("mapRefreshMarkers", pressing)
         self.assertIn("clampView(m)", pressing)
 
+    def test_floor_labels_are_small_and_have_no_caret(self):
+        build = UI.split("void HorizonUI::buildMap(void)", 1)[1].split("void HorizonUI::mapRefreshMarkers(void)", 1)[0]
+        tabs = UI.split("void HorizonUI::cbMapTabs(lv_event_t *e)", 1)[1].split("void HorizonUI::cbMapTabSelect", 1)[0]
+        self.assertIn('lv_label_set_text(title, t.name.c_str());', build)
+        self.assertNotIn('"%s  ^"', build)
+        self.assertIn('lv_obj_set_style_text_font(title, HorizonTheme::fontSmall(), LV_PART_MAIN);', build)
+        self.assertIn('lv_obj_set_style_text_font(label, HorizonTheme::fontSmall(), LV_PART_MAIN);', tabs)
+
     def test_floor_tabs_point_links_and_radio_contract(self):
         self.assertIn('if (p.tab != m->tab ||', UI)
         self.assertIn('if (st.tabs().size() > 1)', UI)
@@ -154,10 +162,21 @@ class MapUiContracts(unittest.TestCase):
 
     def test_filter_bitmap_descriptor_compiles_as_cpp17(self):
         """The firmware compiles MapUI.cpp as C++17, unlike HorizonLogo.c."""
-        bitmap = UI.split("// 20x20 alpha-mask funnel", 1)[1].split("constexpr int16_t kHeaderH", 1)[0]
+        bitmap = UI.split("// 20x20 A8: ровный треугольник вниз", 1)[1].split("constexpr int16_t kHeaderH", 1)[0]
         self.assertNotIn("\n    .header.magic =", bitmap)  # not a C++17 initializer
         self.assertIn("icon.header.magic = LV_IMAGE_HEADER_MAGIC;", bitmap)
         self.assertIn("icon.data = kFilterPixels;", bitmap)
+        pixels = UI.split("kFilterPixels[] = {", 1)[1].split("};", 1)[0]
+        values = [int(x, 16) for x in re.findall(r"0x([0-9A-F]{2})", pixels)]
+        self.assertEqual(len(values), 20 * 20)
+        rows = [values[i:i + 20] for i in range(0, len(values), 20)]
+        self.assertTrue(all(row == row[::-1] for row in rows))  # ровно по центру
+        widths = [sum(v > 0 for v in row) for row in rows]
+        self.assertEqual(widths[:4], [0] * 4)
+        self.assertEqual(widths[17:], [0] * 3)
+        self.assertEqual(widths[4], 16)
+        self.assertEqual(widths[16], 2)
+        self.assertTrue(all(a >= b for a, b in zip(widths[4:16], widths[5:17])))
         compiler = shutil.which("g++")
         if not compiler:
             self.skipTest("g++ is not installed; run the firmware compiler too")
@@ -167,7 +186,7 @@ class MapUiContracts(unittest.TestCase):
 #define LV_COLOR_FORMAT_A8 1
 struct image_header { unsigned magic, cf, flags, w, h, stride; };
 struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *data; };
-// 20x20 alpha-mask funnel""" + bitmap
+// 20x20 A8: ровный треугольник вниз""" + bitmap
         result = subprocess.run([compiler, "-std=gnu++17", "-fsyntax-only", "-x", "c++", "-"],
                                 input=stub, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
