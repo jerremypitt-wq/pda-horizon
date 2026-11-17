@@ -15,6 +15,9 @@ pio run -e elecrow-adv-35-horizon -t upload  # прошивка
 
 Версия исходников Horizon: `1.12.0.ZI` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
 
+В HorizonMapStudio 1.12.2 при записи проекта открывается консоль с
+этапами и выводом esptool; флешер и прошивка не менялись.
+
 В HorizonMapStudio 1.12.1 исправлено чтение таблицы разделов из оконного EXE
 без консоли. Это версия программы на ПК, а не новая прошивка. Если на ПДА
 уже стоит 1.12.0.ZI, пересобери только HorizonMapStudio.exe.

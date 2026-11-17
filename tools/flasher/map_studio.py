@@ -13,6 +13,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 import editor_data
 import flasher
 import map_editor
+import map_studio_console
 import multi_map
 
 
@@ -22,8 +23,9 @@ class MapStudio(map_editor.MapEditor):
         self.active = 0
         self.next_id = 1
         self.events = queue.Queue()
+        self.console = map_studio_console.ProjectConsole()
         super().__init__(parent, self._upload_project)
-        self.title('HorizonMapStudio 1.12.1 — карты и этажи')
+        self.title('HorizonMapStudio 1.12.2 — карты и этажи')
         self.after(100, self._poll)
 
     def _build(self):
@@ -252,13 +254,16 @@ class MapStudio(map_editor.MapEditor):
                 messagebox.showerror('Порт', 'Выбери порт J2 вручную (найдено: %d).' % len(devices), parent=self)
                 return
             choice = devices[0].device
+        baud = int(self.baud.get())  # Tkinter-поля читать только из GUI-потока
         self.set_busy(True)
         def job():
             try:
-                result = multi_map.upload_project(project, choice, int(self.baud.get()),
-                                                   progress=lambda msg: self.events.put(('status', msg)))
+                # До любого доступа к ПДА: на Windows открыть видимую консоль.
+                result = map_studio_console.run_project_upload(
+                    self.console, multi_map.upload_project, project, choice, baud,
+                    lambda msg: self.events.put(('status', msg)))
                 self.events.put(('ok', result))
-            except Exception as exc:  # отображаем ошибку вместе с путём резервной копии
+            except Exception as exc:
                 self.events.put(('error', str(exc)))
         threading.Thread(target=job, daemon=True).start()
 
