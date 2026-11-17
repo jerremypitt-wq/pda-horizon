@@ -107,6 +107,15 @@ void styleDropdownListLocal(lv_obj_t *dd)
     }
 }
 
+// Имена файлов зависят только от постоянного ID, а не от порядка вкладок.
+void mapFilePath(char *out, size_t size, uint8_t tab, bool preview)
+{
+    if (tab)
+        snprintf(out, size, "/hzmap/map%u%s.rgb565", (unsigned)tab, preview ? "_preview" : "");
+    else
+        snprintf(out, size, "/hzmap/map%s.rgb565", preview ? "_preview" : "");
+}
+
 bool readMapFile(const char *path, uint8_t *dst, size_t len)
 {
     File f = mapFs.open(path, "r");
@@ -135,6 +144,8 @@ struct HzMapUi {
     lv_obj_t *filterPanel = nullptr; // панель фильтров справа
     lv_obj_t *filterRows[7] = {nullptr}; // только галочки, без заголовков разделов
     bool filterOpen = false;
+    uint8_t tab = 0;
+    lv_obj_t *tabPanel = nullptr;
     bool fType[5] = {true, true, true, true, true};
     bool fShared = true;
     bool fPriv = true;
@@ -236,7 +247,7 @@ void screenToPm(const HzMapUi *m, int lx, int ly, int *xPm, int *yPm)
 // Видна ли точка с учётом фильтров (запечённые - общие).
 bool mapShown(const HzMapUi *m, const HzPoi &p)
 {
-    if (p.type >= HZ_POI_COUNT || !m->fType[p.type])
+    if (p.tab != m->tab || p.type >= HZ_POI_COUNT || !m->fType[p.type])
         return false;
     // Лично отправленная точка хранится с shared=true (нужен send), но на
     // карте по доступу она личная, как и полученная независимая копия.
@@ -280,7 +291,9 @@ bool renderView(HzMapUi *m)
     if (!preview && !m->mapBuf && !m->mapLoadTried) {
         m->mapLoadTried = true;
         uint8_t *buf = (uint8_t *)HZMAP_ALLOC(mapBytes);
-        if (buf && readMapFile("/hzmap/map.rgb565", buf, mapBytes))
+        char path[48];
+        mapFilePath(path, sizeof(path), m->tab, false);
+        if (buf && readMapFile(path, buf, mapBytes))
             m->mapBuf = buf;
         else {
             if (buf)
@@ -291,7 +304,9 @@ bool renderView(HzMapUi *m)
     File file;
     bool stream = !preview && !m->mapBuf;
     if (stream) {
-        file = mapFs.open("/hzmap/map.rgb565", "r");
+        char path[48];
+        mapFilePath(path, sizeof(path), m->tab, false);
+        file = mapFs.open(path, "r");
         if (!file || file.size() != mapBytes) {
             if (file)
                 file.close();
@@ -431,6 +446,7 @@ void HorizonUI::mapDropWidgets(void)
     mapUi->formPeerLabel = nullptr;
     mapUi->tag = nullptr;
     mapUi->filterPanel = nullptr;
+    mapUi->tabPanel = nullptr;
     for (lv_obj_t *&row : mapUi->filterRows)
         row = nullptr;
     mapUi->filterOpen = false;
@@ -469,10 +485,13 @@ void HorizonUI::buildMap(void)
     if (!mapUi)
         mapUi = new HzMapUi();
     HzMapUi *m = mapUi;
+    if (!st.hasTab(m->tab)) m->tab = st.tabs().front().id;
     m->formDraft = false; // черновик жил только для выбора контакта
     // Пока не трогать ориентацию: ошибка файла не должна мигать экраном.
     if (!m->mapReady) {
-        File mf = mapFs.open("/hzmap/map.rgb565", "r");
+        char path[48];
+        mapFilePath(path, sizeof(path), m->tab, false);
+        File mf = mapFs.open(path, "r");
         size_t bytes = mf ? mf.size() : 0;
         if (mf)
             mf.close();
@@ -493,7 +512,8 @@ void HorizonUI::buildMap(void)
             // Обзор всего 300 КБ: на обычном масштабе крупный буфер не нужен.
             size_t n = (size_t)kOldMapW * kOldMapH * 2;
             m->previewBuf = (uint8_t *)HZMAP_ALLOC(n);
-            if (m->previewBuf && !readMapFile("/hzmap/map_preview.rgb565", m->previewBuf, n)) {
+            mapFilePath(path, sizeof(path), m->tab, true);
+            if (m->previewBuf && !readMapFile(path, m->previewBuf, n)) {
                 free(m->previewBuf);
                 m->previewBuf = nullptr; // обзор необязателен: запасной путь — строки карты
             }
@@ -503,7 +523,8 @@ void HorizonUI::buildMap(void)
         if (m->mapW == kOldMapW) {
             m->mapLoadTried = true;
             m->mapBuf = (uint8_t *)HZMAP_ALLOC(bytes);
-            if (m->mapBuf && !readMapFile("/hzmap/map.rgb565", m->mapBuf, bytes)) {
+            mapFilePath(path, sizeof(path), m->tab, false);
+            if (m->mapBuf && !readMapFile(path, m->mapBuf, bytes)) {
                 free(m->mapBuf);
                 m->mapBuf = nullptr;
             }
@@ -651,6 +672,21 @@ void HorizonUI::buildMap(void)
     lv_obj_set_user_data(m->zout, (void *)(intptr_t)(-1));
     lv_obj_add_event_cb(m->zout, cbMapZoom, LV_EVENT_CLICKED, this);
 
+    if (st.tabs().size() > 1) {
+        // Вкладки доступны снизу слева; меню идёт вверх и не перекрывает статус.
+        lv_obj_t *tabBtn = lv_btn_create(box);
+        HorizonTheme::styleButton(tabBtn, true);
+        lv_obj_set_size(tabBtn, 170, 38);
+        lv_obj_align(tabBtn, LV_ALIGN_BOTTOM_LEFT, 4, -4);
+        lv_obj_t *title = lv_label_create(tabBtn);
+        for (const HzMapTab &t : st.tabs())
+            if (t.id == m->tab) lv_label_set_text_fmt(title, "%s  ^", t.name.c_str());
+        lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(title, 154);
+        lv_obj_center(title);
+        lv_obj_add_event_cb(tabBtn, cbMapTabs, LV_EVENT_CLICKED, this);
+    }
+
     // Бар поверх картинки: тёмная полупрозрачная подложка только под белым текстом.
     // Карта по-прежнему заполняет весь экран, включая область под баром.
     lv_obj_t *bar = addStatusBar(scr);
@@ -718,7 +754,9 @@ void HorizonUI::mapOpenPoint(const char *id)
     if (!point)
         point = st.find(id);
     if (!point) {
-        if (st.directDismissed(id) || hzPoiAuthorNode(id) == view->getMyNodeNum()) {
+        if (st.directDismissed(id) || id[0] == 'B' ||
+            id[0] == 'F' ||
+            hzPoiAuthorNode(id) == view->getMyNodeNum()) {
             toast("Точка удалена"); // ссылка осталась в истории, но копии уже нет
             return;
         }
@@ -728,9 +766,24 @@ void HorizonUI::mapOpenPoint(const char *id)
         toast("Точка ещё принимается");
         return;
     }
+    if (!st.hasTab(point->tab)) {
+        toast("Вкладка точки удалена или недоступна");
+        return;
+    }
     char localId[28];
     strncpy(localId, point->id, sizeof(localId) - 1);
     localId[sizeof(localId) - 1] = '\0';
+    if (!mapUi) mapUi = new HzMapUi();
+    if (mapUi->tab != point->tab) {
+        mapUi->tab = point->tab;
+        mapUi->mapReady = false;
+        mapUi->mapW = mapUi->mapH = 0;
+        if (mapUi->mapBuf) { free(mapUi->mapBuf); mapUi->mapBuf = nullptr; }
+        if (mapUi->previewBuf) { free(mapUi->previewBuf); mapUi->previewBuf = nullptr; }
+        mapUi->mapLoadTried = false;
+        mapUi->zoomIdx = 0;
+        if (mapUi->viewBuf) { free(mapUi->viewBuf); mapUi->viewBuf = nullptr; }
+    }
     showMap();
     if (current != Screen::MAP || !mapUi)
         return;
@@ -1274,6 +1327,7 @@ void HorizonUI::mapSaveForm(void)
         return;
     }
     p.type = type;
+    p.tab = m->tab;
     p.name = name;
     p.x = (uint16_t)m->formX;
     p.y = (uint16_t)m->formY;
@@ -1350,6 +1404,66 @@ void HorizonUI::cbMapTouch(lv_event_t *e)
         if (tap)
             self->mapTap(lx, ly);
     }
+}
+
+void HorizonUI::cbMapTabs(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    HzMapUi *m = self->mapUi;
+    if (!m) return;
+    if (m->tabPanel && lv_obj_is_valid(m->tabPanel)) {
+        if (lv_obj_has_flag(m->tabPanel, LV_OBJ_FLAG_HIDDEN))
+            lv_obj_remove_flag(m->tabPanel, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(m->tabPanel, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    const auto &tabs = self->view->getMapStore().tabs();
+    lv_obj_t *panel = lv_obj_create(self->scr);
+    m->tabPanel = panel;
+    HorizonTheme::stylePanel(panel);
+    lv_obj_set_size(panel, 190, (int)tabs.size() * 42 + 12);
+    lv_obj_align(panel, LV_ALIGN_BOTTOM_LEFT, 4, -46);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(panel, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(panel, 2, LV_PART_MAIN);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    for (const HzMapTab &tab : tabs) {
+        lv_obj_t *btn = lv_btn_create(panel);
+        HorizonTheme::styleButton(btn, tab.id == m->tab);
+        lv_obj_set_size(btn, lv_pct(100), 38);
+        lv_obj_t *label = lv_label_create(btn);
+        lv_label_set_text(label, tab.name.c_str());
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(label, 165);
+        lv_obj_center(label);
+        lv_obj_set_user_data(btn, (void *)(intptr_t)(tab.id + 1));
+        lv_obj_add_event_cb(btn, cbMapTabSelect, LV_EVENT_CLICKED, self);
+    }
+}
+
+void HorizonUI::cbMapTabSelect(lv_event_t *e)
+{
+    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
+    if (!self->mapUi) return;
+    uint8_t id = (uint8_t)((intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e)) - 1);
+    HzMapUi *m = self->mapUi;
+    if (id == m->tab) {
+        // Callback выполняется на дочерней кнопке панели: не удалять её синхронно.
+        lv_obj_add_flag(m->tabPanel, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (!self->view->getMapStore().hasTab(id)) return;
+    if (m->mapBuf) { free(m->mapBuf); m->mapBuf = nullptr; }
+    if (m->previewBuf) { free(m->previewBuf); m->previewBuf = nullptr; }
+    if (m->viewBuf) { free(m->viewBuf); m->viewBuf = nullptr; }
+    m->mapReady = m->mapLoadTried = false;
+    m->mapW = m->mapH = 0;
+    m->tab = id;
+    m->zoomIdx = 0;
+    m->ox = m->oy = 0;
+    m->selId[0] = m->pulseId[0] = '\0';
+    self->showMap();
 }
 
 void HorizonUI::cbMapZoom(lv_event_t *e)
@@ -1484,7 +1598,7 @@ void HorizonUI::mapBuildFilterPanel(void)
     const std::vector<HzPoi> *pools[3] = {&st.baked(), &st.net(), &st.my()};
     for (int i = 0; i < 3; i++) {
         for (const HzPoi &p : *pools[i]) {
-            if (i == 0 && st.isTombstoned(p.id))
+            if (p.tab != m->tab || (i == 0 && st.isTombstoned(p.id)))
                 continue;
             if (p.type < HZ_POI_COUNT)
                 cntType[p.type]++;
@@ -1579,7 +1693,7 @@ void HorizonUI::cbMapFilterRow(lv_event_t *e)
         const std::vector<HzPoi> *pools[3] = {&st.baked(), &st.net(), &st.my()};
         for (int i = 0; i < 3; i++)
             for (const HzPoi &p : *pools[i])
-                if (!(i == 0 && st.isTombstoned(p.id)) &&
+                if (p.tab == m->tab && !(i == 0 && st.isTombstoned(p.id)) &&
                     (id < 5 ? p.type == id : (id == 6) == hzPoiIsPrivateOnMap(p)))
                     count++;
         lv_label_set_text_fmt(label, "%s %s (%d)", on ? "[x]" : "[ ]",

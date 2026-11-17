@@ -60,7 +60,7 @@ class MapUiContracts(unittest.TestCase):
         self.assertIn("preview ? kOldMapW / (float)m->mapW : 1.0f", UI)
         self.assertIn("constexpr int kOldMapW = 480", UI)
         self.assertIn("m->mapW == kOldMapW", UI)
-        self.assertIn("map_preview.rgb565", UI)
+        self.assertIn("mapFilePath(path, sizeof(path), m->tab, true)", UI)
         self.assertIn("m->sampleX.resize(m->viewW)", UI)
         self.assertIn("m->mapReady = true;", UI)
         self.assertIn("m->mapLoadTried = true;", UI)
@@ -69,7 +69,7 @@ class MapUiContracts(unittest.TestCase):
         self.assertIn("file.seek(offset)", UI)
         build = UI.split("void HorizonUI::buildMap(void)", 1)[1].split("void HorizonUI::mapRefreshMarkers(void)", 1)[0]
         start = build.split("if (m->mapW > kOldMapW)", 1)[1].split("// Старый файл маленький", 1)[0]
-        self.assertIn("map_preview.rgb565", start)
+        self.assertIn("mapFilePath(path, sizeof(path), m->tab, true)", start)
         self.assertNotIn("HZMAP_ALLOC(bytes)", start)  # не просить 1.2 МБ для открытия
         self.assertLess(build.index("if (!m->mapReady)"), build.index("horizonSetMapLandscape"))
         self.assertIn('showMenu();\n            toast("Карта: неверный размер файла', build)
@@ -83,6 +83,22 @@ class MapUiContracts(unittest.TestCase):
         pressing = UI.split("} else if (code == LV_EVENT_PRESSING)", 1)[1].split("} else if (code == LV_EVENT_RELEASED)", 1)[0]
         self.assertNotIn("mapRefreshMarkers", pressing)
         self.assertIn("clampView(m)", pressing)
+
+    def test_floor_tabs_point_links_and_radio_contract(self):
+        self.assertIn('if (p.tab != m->tab ||', UI)
+        self.assertIn('if (st.tabs().size() > 1)', UI)
+        self.assertIn('LV_ALIGN_BOTTOM_LEFT, 4, -4', UI)
+        self.assertIn('void HorizonUI::cbMapTabSelect', UI)
+        self.assertIn('if (!st.hasTab(point->tab))', UI)
+        self.assertLess(UI.index('if (!st.hasTab(point->tab))'), UI.index('strncpy(localId, point->id'))
+        self.assertIn('mapUi->tab = point->tab;', UI)
+        self.assertIn('m->pulseStartedMs = nowMs();', UI)
+        self.assertIn('constexpr const char *kPoi2Prefix = "HZ:POI2:"', VIEW)
+        self.assertIn('if (!mapStore.hasTab(tab)) return;', VIEW)
+        self.assertIn('nr.head.tab = tab;', VIEW)
+        self.assertIn('p.tab = m->tab;', UI)
+        self.assertIn('p.tab = (uint8_t)tab;', STORE)
+        self.assertIn('if (tabs_.empty()) tabs_.push_back({0, "Карта"});', STORE)
 
     def test_fs_mount_must_not_format_user_data_on_error(self):
         main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
@@ -229,7 +245,7 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         self.assertIn('char sourceId[28]', header)
         self.assertIn('kHzPoiLinkPrefix = "HZ:MAPLINK:"', header)
         self.assertIn('kDirectDelPath = "/hzmap/dm_del.csv"', STORE)
-        self.assertIn('nf != 9 && nf != 10 && nf != 11', STORE)
+        self.assertIn('nf < 9 || nf > 12', STORE)
         self.assertIn('saveDirectDismissed();', STORE)
         self.assertIn('findBySource', STORE)
         self.assertIn('const bool direct = ownNode && to == ownNode;', VIEW)
@@ -251,7 +267,8 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         self.assertIn('self->mapOpenPoint(copy);', chat)
         self.assertIn('onMapPoint(poi.id, poi.name.c_str());', VIEW)
         self.assertIn('self->mapOpenPoint(mapId);', CORE)
-        self.assertIn('st.directDismissed(id) || hzPoiAuthorNode(id) == view->getMyNodeNum()', UI)
+        self.assertIn("st.directDismissed(id) || id[0] == 'B'", UI)
+        self.assertIn('hzPoiAuthorNode(id) == view->getMyNodeNum()', UI)
         self.assertIn('uint32_t phase = elapsed % 500;', UI)
         self.assertIn('elapsed >= 2500', UI)
         self.assertIn('mapPulseTick(now);', CORE)
@@ -274,9 +291,9 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         self.assertNotIn('sendChannelRaw', store_reset)
 
     def test_own_points_older_csv_and_direct_delivery(self):
-        self.assertIn("nf != 9 && nf != 10", STORE)
+        self.assertIn("nf < 9 || nf > 12", STORE)
         self.assertIn("p.dmPeer = mode == 1 ? peer : 0", STORE)
-        self.assertIn('f.printf("|%u|%u|%u|%s"', STORE)
+        self.assertIn('f.printf("|%u|%u|%u|%s|%u"', STORE)
         self.assertIn("mapSendDmRaw(to, ch, buf)", VIEW)
         self.assertIn("mapSendDeleteDm(id, peer)", VIEW)
         self.assertIn("p.ch = ch", UI)

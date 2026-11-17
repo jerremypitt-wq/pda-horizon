@@ -371,6 +371,8 @@ class HorizonUI
     static void cbStatsClear(lv_event_t *e);
     static void cbLogClear(lv_event_t *e);
     static void cbMapTouch(lv_event_t *e);
+    static void cbMapTabs(lv_event_t *e);
+    static void cbMapTabSelect(lv_event_t *e);
     static void cbMapZoom(lv_event_t *e);
     static void cbMapPopup(lv_event_t *e);
     static void cbMapFormSave(lv_event_t *e);

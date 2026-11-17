@@ -18,6 +18,7 @@ static fs::FS &mapFs = LittleFS;
 namespace {
 constexpr const char *kDir = "/hzmap";
 constexpr const char *kBakedPath = "/hzmap/pois.csv";
+constexpr const char *kTabsPath = "/hzmap/tabs.csv";
 constexpr const char *kMyPath = "/hzmap/my.csv";
 constexpr const char *kNetPath = "/hzmap/net.csv";
 constexpr const char *kDelPath = "/hzmap/del.csv";
@@ -53,15 +54,15 @@ bool parseU(const char *s, uint32_t &out)
     return true;
 }
 
-// mode: 0 - запечённые (7 полей), 1 - свои (11: +shared|ch|peer|sourceId;
-// старые 9 и 10 полей читаются), 2 - принятые (8: +ch).
+// mode: 0 - запечённые (7 старых или 8 с tab), 1 - свои (9/10/11 старых
+// или 12 с tab), 2 - принятые (8 старых или 9 с tab).
 bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
 {
     File f = mapFs.open(path, "r");
     if (!f)
         return false;
     char line[1024]; // своя строка: коммент 600 + имя/позывной + поля
-    size_t want = mode == 1 ? 11 : (mode == 2 ? 8 : 7);
+    size_t want = mode == 1 ? 12 : (mode == 2 ? 9 : 8);
     size_t bad = 0;
     while (f.available()) {
         size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
@@ -70,14 +71,14 @@ bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
             line[--n] = '\0';
         if (!line[0])
             continue;
-        char *fld[11] = {nullptr};
+        char *fld[12] = {nullptr};
         size_t nf = splitFields(line, fld, want);
-        // Свои: 9/10 полей из прежних прошивок либо 11 (+sourceId).
-        if (mode == 1 ? (nf != 9 && nf != 10 && nf != 11) : nf != want) {
+        // Свои: 9/10/11 полей из прежних прошивок либо 12 (+tab).
+        if (mode == 1 ? (nf < 9 || nf > 12) : (nf != want && nf != want - 1)) {
             bad++;
             continue;
         }
-        uint32_t type = 0, x = 0, y = 0, shared = 1, ch = 0, peer = 0;
+        uint32_t type = 0, x = 0, y = 0, shared = 1, ch = 0, peer = 0, tab = 0;
         if (!hzPoiIdOk(fld[0]) || !parseU(fld[1], type) || type > 4 || !parseU(fld[3], x) || x > 1000 ||
             !parseU(fld[4], y) || y > 1000 || strlen(fld[2]) == 0 || strlen(fld[2]) > 128 ||
             strlen(fld[5]) > 96 || strlen(fld[6]) > 768) {
@@ -86,7 +87,7 @@ bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
         }
         if (mode == 1 && (!parseU(fld[7], shared) || shared > 1 || !parseU(fld[8], ch) || ch > 7 ||
                           (nf >= 10 && !parseU(fld[9], peer)) ||
-                          (nf == 11 && *fld[10] && (!hzPoiIdOk(fld[10]) || !strcmp(fld[10], fld[0]))))) {
+                          (nf >= 11 && *fld[10] && (!hzPoiIdOk(fld[10]) || !strcmp(fld[10], fld[0]))))) {
             bad++;
             continue;
         }
@@ -94,7 +95,14 @@ bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
             bad++;
             continue;
         }
+        if ((mode == 0 && nf == 8 && (!parseU(fld[7], tab) || tab > 255)) ||
+            (mode == 1 && nf == 12 && (!parseU(fld[11], tab) || tab > 255)) ||
+            (mode == 2 && nf == 9 && (!parseU(fld[8], tab) || tab > 255))) {
+            bad++;
+            continue;
+        }
         HzPoi p;
+        p.tab = (uint8_t)tab;
         strcpy(p.id, fld[0]); // hzPoiIdOk гарантирует ≤27
         p.type = (uint8_t)type;
         p.name = fld[2];
@@ -105,7 +113,7 @@ bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
         p.shared = mode == 1 ? (shared != 0) : true;
         p.ch = mode == 0 ? 0xFF : (uint8_t)ch; // у запечённых канала нет (удаление - в общий)
         p.dmPeer = mode == 1 ? peer : 0;
-        if (mode == 1 && nf == 11 && *fld[10])
+        if (mode == 1 && nf >= 11 && *fld[10])
             strcpy(p.sourceId, fld[10]); // проверено выше
         out.push_back(p);
     }
@@ -127,9 +135,9 @@ void saveCsv(const char *path, const std::vector<HzPoi> &v, int mode)
         f.printf("%s|%u|%s|%u|%u|%s|%s", p.id, p.type, p.name.c_str(), p.x, p.y, p.sender.c_str(),
                  p.comment.c_str());
         if (mode == 1)
-            f.printf("|%u|%u|%u|%s", p.shared ? 1 : 0, p.ch, (unsigned)p.dmPeer, p.sourceId);
+            f.printf("|%u|%u|%u|%s|%u", p.shared ? 1 : 0, p.ch, (unsigned)p.dmPeer, p.sourceId, p.tab);
         else if (mode == 2)
-            f.printf("|%u", p.ch);
+            f.printf("|%u|%u", p.ch, p.tab);
         f.printf("\n");
     }
     f.close();
@@ -138,6 +146,30 @@ void saveCsv(const char *path, const std::vector<HzPoi> &v, int mode)
 
 void HzMapStore::loadAll(void)
 {
+    tabs_.clear();
+    // Нет манифеста — старые проекты по-прежнему имеют одну карту id=0.
+    File tf = mapFs.open(kTabsPath, "r");
+    if (tf) {
+        char line[96];
+        while (tf.available() && tabs_.size() < 4) {
+            size_t n = tf.readBytesUntil('\n', line, sizeof(line) - 1);
+            line[n] = '\0';
+            if (n && line[n - 1] == '\r') line[--n] = '\0';
+            char *sep = strchr(line, '|');
+            uint32_t tabId = 0;
+            if (!sep || sep == line || !sep[1] || strchr(sep + 1, '|') ||
+                strlen(sep + 1) > 64)
+                continue;
+            *sep = '\0';
+            if (!parseU(line, tabId) || tabId > 255) continue;
+            bool duplicate = false;
+            for (const HzMapTab &t : tabs_)
+                if (t.id == (uint8_t)tabId) duplicate = true;
+            if (!duplicate) tabs_.push_back({(uint8_t)tabId, sep + 1});
+        }
+        tf.close();
+    }
+    if (tabs_.empty()) tabs_.push_back({0, "Карта"});
     baked_.clear();
     net_.clear();
     my_.clear();
@@ -176,6 +208,13 @@ void HzMapStore::loadAll(void)
     loaded = true;
     ILOG_INFO("Horizon: map loaded (baked %u, net %u, my %u, del %u)", (unsigned)baked_.size(),
               (unsigned)net_.size(), (unsigned)my_.size(), (unsigned)del_.size());
+}
+
+bool HzMapStore::hasTab(uint8_t id) const
+{
+    for (const HzMapTab &t : tabs_)
+        if (t.id == id) return true;
+    return false;
 }
 
 bool HzMapStore::resetToBaked(void)

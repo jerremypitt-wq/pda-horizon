@@ -50,6 +50,7 @@ constexpr uint32_t kTimeSyncMaxEpoch = 2082758400; // 2036-01-01 UTC
 // HZ:POI:<id>|<total>|<idx>|<type>|<name>|<x>|<y>|<sender>|<chunk>
 // HZ:POID:<id>|<node>|<rank>
 constexpr const char *kPoiPrefix = "HZ:POI:";
+constexpr const char *kPoi2Prefix = "HZ:POI2:";
 constexpr size_t kPoiPrefixLen = sizeof("HZ:POI:") - 1;
 constexpr const char *kPoiDelPrefix = "HZ:POID:";
 constexpr size_t kPoiDelPrefixLen = sizeof("HZ:POID:") - 1;
@@ -396,7 +397,7 @@ void HorizonView::newMessage(uint32_t from, uint32_t to, uint8_t ch, const char 
         handlePoiDelete(from, to, msg, !restore);
         return;
     }
-    if (!strncmp(msg, kPoiPrefix, kPoiPrefixLen)) {
+    if (!strncmp(msg, kPoiPrefix, kPoiPrefixLen) || !strncmp(msg, kPoi2Prefix, strlen(kPoi2Prefix))) {
         // Точка карты: собрать, в историю/тосты не идёт (тост - только по факту).
         handlePoiBeacon(from, to, ch, msg, !restore);
         return;
@@ -906,12 +907,17 @@ bool HorizonView::mapSendPoint(const HzPoi &p, uint32_t to)
     // Бюджет части - 220 байт: чанк подгоняем под шапку (имена - до 80 байт
     // каждое при эмодзи, поэтому фиксированные 96 годятся не всегда).
     // total/idx всегда одна цифра (≤8) - длина шапки точная заранее.
+    const char *prefix = p.tab ? kPoi2Prefix : kPoiPrefix;
     char head[256];
-    int headLen = snprintf(head, sizeof(head), "%s%s|1|1|%u|%s|%u|%u|%s|", kPoiPrefix, p.id, p.type,
-                           p.name.c_str(), p.x, p.y, p.sender.c_str());
-    if (headLen < 0)
-        headLen = 0;
-    size_t chunkMax = headLen < 204 ? (size_t)(220 - headLen) : 16;
+    int headLen = p.tab ? snprintf(head, sizeof(head), "%s%s|1|1|%u|%s|%u|%u|%s|%u|",
+                                    prefix, p.id, p.type, p.name.c_str(), p.x, p.y, p.sender.c_str(), p.tab)
+                        : snprintf(head, sizeof(head), "%s%s|1|1|%u|%s|%u|%u|%s|",
+                                   prefix, p.id, p.type, p.name.c_str(), p.x, p.y, p.sender.c_str());
+    // Новая шапка с ID этажа длиннее. Не отправлять кадр, если вместе с
+    // минимальным UTF-8 чанком он нарушил бы лимит радиосообщения.
+    if (headLen < 0 || headLen > 216)
+        return false;
+    size_t chunkMax = (size_t)(220 - headLen);
     if (chunkMax > kPoiChunkMax)
         chunkMax = kPoiChunkMax;
     // Нарезать комментарий (хвост за 8 частями - отбросить, залогировать).
@@ -940,8 +946,12 @@ bool HorizonView::mapSendPoint(const HzPoi &p, uint32_t to)
         memcpy(chunk, cm + start, cl);
         chunk[cl] = '\0';
         char buf[256];
-        snprintf(buf, sizeof(buf), "%s%s|%u|%u|%u|%s|%u|%u|%s|%s", kPoiPrefix, p.id, total, i + 1,
-                 p.type, p.name.c_str(), p.x, p.y, p.sender.c_str(), chunk);
+        if (p.tab)
+            snprintf(buf, sizeof(buf), "%s%s|%u|%u|%u|%s|%u|%u|%s|%u|%s", prefix, p.id, total, i + 1,
+                     p.type, p.name.c_str(), p.x, p.y, p.sender.c_str(), p.tab, chunk);
+        else
+            snprintf(buf, sizeof(buf), "%s%s|%u|%u|%u|%s|%u|%u|%s|%s", prefix, p.id, total, i + 1,
+                     p.type, p.name.c_str(), p.x, p.y, p.sender.c_str(), chunk);
         if (to == 0xFFFFFFFFu)
             sendChannelRaw(ch, buf);
         else
@@ -1036,7 +1046,8 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint32_t to, uint8_t ch, const 
     if (from == 0 || from == ownNode || !msg)
         return;
     // HZ:POI:<id>|<total>|<idx>|<type>|<name>|<x>|<y>|<sender>|<chunk>
-    const char *p = msg + kPoiPrefixLen;
+    bool v2 = !strncmp(msg, kPoi2Prefix, strlen(kPoi2Prefix));
+    const char *p = msg + (v2 ? strlen(kPoi2Prefix) : kPoiPrefixLen);
     const char *sep = strchr(p, '|');
     if (!sep || sep == p || (size_t)(sep - p) > 27)
         return;
@@ -1078,7 +1089,21 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint32_t to, uint8_t ch, const 
     const char *s6 = strchr(sender, '|');
     if (!s6 || s6 == sender || (size_t)(s6 - sender) > 128)
         return;
+    uint8_t tab = 0;
     const char *chunk = s6 + 1;
+    if (v2) {
+        uint32_t id = 0;
+        const char *sep = strchr(chunk, '|');
+        if (!sep || sep == chunk || sep - chunk > 3) return;
+        for (const char *digit = chunk; digit < sep; ++digit) {
+            if (*digit < '0' || *digit > '9') return;
+            id = id * 10 + (uint32_t)(*digit - '0');
+        }
+        if (id == 0 || id > 255) return;
+        tab = (uint8_t)id;
+        chunk = sep + 1;
+    }
+    if (!mapStore.hasTab(tab)) return; // удалённый этаж не воскресает из эфира
     if (total < 1 || total > kPoiTotalMax || idx < 1 || idx > total || type > 4 || x > 1000 || y > 1000)
         return;
     if (strchr(chunk, '\n') || strchr(chunk, '\r'))
@@ -1104,6 +1129,7 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint32_t to, uint8_t ch, const 
         nr.ch = ch > 7 ? 0 : ch;
         nr.direct = direct;
         nr.head.type = (uint8_t)type;
+        nr.head.tab = tab;
         nr.head.name.assign(name, (size_t)(s4 - name));
         nr.head.x = (uint16_t)x;
         nr.head.y = (uint16_t)y;
@@ -1112,7 +1138,7 @@ void HorizonView::handlePoiBeacon(uint32_t from, uint32_t to, uint8_t ch, const 
         nr.head.ch = nr.ch;
         poiRx_.push_back(nr);
         rx = &poiRx_.back();
-    } else if (rx->total != (uint8_t)total) {
+    } else if (rx->total != (uint8_t)total || rx->head.tab != tab) {
         return; // часть от другой версии точки - мимо
     }
     size_t ci = (size_t)(idx - 1);

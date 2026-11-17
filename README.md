@@ -39,3 +39,5 @@ pio run -e elecrow-adv-35-horizon -t upload   # прошивка через J2 (
 (MUI) и использует форк [jerremypitt-wq/device-ui](https://github.com/jerremypitt-wq/device-ui).
 Штатные окружения MUI под другие платы из `platformio.ini` удалены —
 осталось только `elecrow-adv-35-horizon`.
+
+**Отдельный редактор карт с вкладками** (v1.12.0.ZI): сборка Windows `tools\flasher\build_map_studio.bat`, инструкция — [`tools/flasher/README-MAP-STUDIO.md`](tools/flasher/README-MAP-STUDIO.md). Существующий флешер и его редактор одной карты сохранены.

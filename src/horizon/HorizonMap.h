@@ -21,6 +21,7 @@ enum HzPoiType : uint8_t {
 struct HzPoi {
     char id[28] = "";
     uint8_t type = 0;
+    uint8_t tab = 0; // постоянный ID вкладки (0 = прежняя одиночная карта)
     std::string name;
     uint16_t x = 0;
     uint16_t y = 0;
@@ -30,6 +31,11 @@ struct HzPoi {
     uint8_t ch = 0;       // канал, куда слалась точка (для удаления)
     uint32_t dmPeer = 0;  // получатель-узел (0 = всем в канал)
     char sourceId[28] = ""; // личная копия чужой точки: исходный ID, свой id независим
+};
+
+struct HzMapTab {
+    uint8_t id;
+    std::string name;
 };
 
 // Три пула точек: запечённые (RO из прошивки), принятые из эфира, свои.
@@ -52,6 +58,8 @@ class HzMapStore
     void saveDirectDismissed(void); // не восстанавливать локально удалённую личную копию
     bool resetToBaked(void); // явный локальный сброс: только исходные pois.csv, не трогает карту/чаты
 
+    const std::vector<HzMapTab> &tabs(void) const { return tabs_; }
+    bool hasTab(uint8_t id) const;
     const std::vector<HzPoi> &baked(void) const { return baked_; }
     const std::vector<HzPoi> &net(void) const { return net_; }
     const std::vector<HzPoi> &my(void) const { return my_; }
@@ -70,6 +78,7 @@ class HzMapStore
     bool removeEverywhere(const char *id); // стереть отовсюду (+могила для запечённой)
 
   private:
+    std::vector<HzMapTab> tabs_;
     std::vector<HzPoi> baked_;
     std::vector<HzPoi> net_;
     std::vector<HzPoi> my_;

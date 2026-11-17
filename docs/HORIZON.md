@@ -13,7 +13,11 @@ pio run -e elecrow-adv-35-horizon        # сборка
 pio run -e elecrow-adv-35-horizon -t upload  # прошивка
 ```
 
-Версия исходников Horizon: `1.11.0.ZI` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
+Версия исходников Horizon: `1.12.0.ZI` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
+
+В 1.12.0.ZI появился отдельный редактор карт HorizonMapStudio с четырьмя
+вкладками и точками по этажам. См. `tools/flasher/README-MAP-STUDIO.md`.
+Флешер с прежним редактором одной карты оставлен без изменений.
 
 В 1.11.0.ZI «Инструменты Mesh» находятся в Настройках между «Звук» и
 «О ПДА», а не в «Мастере». В «Киберпанке» отправленные сообщения теперь

@@ -98,6 +98,23 @@ int main() {
     HzMapStore afterReset;
     afterReset.loadAll(); // reboot must preserve the reset state
     assert(afterReset.find("B001") && afterReset.my().empty() && afterReset.net().empty());
+    PortduinoFS.seed("/hzmap/tabs.csv", "12|Второй этаж\n0|Улица\n");
+    PortduinoFS.seed("/hzmap/pois.csv", "B001|0|Start|100|200|Maker|base|0\n"
+                                      "F12-01|1|Hall|500|500|Maker||12\n");
+    PortduinoFS.seed("/hzmap/my.csv", "200-4|0|My floor|100|200|Me||0|1|0||12\n");
+    PortduinoFS.seed("/hzmap/net.csv", "100-9|0|Net floor|100|200|Peer||0|12\n");
+    HzMapStore floors;
+    floors.loadAll();
+    assert(floors.tabs().size() == 2 && floors.tabs().front().id == 12);
+    assert(floors.hasTab(0) && floors.hasTab(12) && !floors.hasTab(1));
+    assert(floors.find("F12-01") && floors.find("F12-01")->tab == 12);
+    assert(floors.find("200-4") && floors.find("200-4")->tab == 12);
+    assert(floors.find("100-9") && floors.find("100-9")->tab == 12);
+    floors.saveMy();
+    floors.saveNet();
+    HzMapStore rebooted;
+    rebooted.loadAll();
+    assert(rebooted.find("200-4")->tab == 12 && rebooted.find("100-9")->tab == 12);
     PortduinoFS.files.erase("/hzmap/pois.csv");
     PortduinoFS.seed("/hzmap/my.csv", "200-1|0|Old|100|200|Me|a|0|1\n");
     assert(!afterReset.resetToBaked()); // without initial POIs do not erase user points

@@ -29,7 +29,7 @@ inline HzPoiAccess hzPoiAccess(const HzPoi &p, uint8_t generalCh, uint8_t groupC
 // перезапускать мелодию; содержательная правка точки, наоборот, уведомляет.
 inline bool hzPoiSameContent(const HzPoi &a, const HzPoi &b)
 {
-    return !strcmp(a.id, b.id) && a.type == b.type && a.name == b.name && a.x == b.x && a.y == b.y &&
+    return !strcmp(a.id, b.id) && a.type == b.type && a.tab == b.tab && a.name == b.name && a.x == b.x && a.y == b.y &&
            a.sender == b.sender && a.comment == b.comment && a.shared == b.shared && a.ch == b.ch &&
            a.dmPeer == b.dmPeer && !strcmp(a.sourceId, b.sourceId);
 }
