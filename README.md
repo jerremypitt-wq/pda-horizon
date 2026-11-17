@@ -40,4 +40,4 @@ pio run -e elecrow-adv-35-horizon -t upload   # прошивка через J2 (
 Штатные окружения MUI под другие платы из `platformio.ini` удалены —
 осталось только `elecrow-adv-35-horizon`.
 
-**Отдельный редактор карт с вкладками** (HorizonMapStudio 1.12.2; прошивка от 1.12.0.ZI, текущая 1.12.2.ZI): сборка Windows `tools\flasher\build_map_studio.bat`, инструкция — [`tools/flasher/README-MAP-STUDIO.md`](tools/flasher/README-MAP-STUDIO.md). Существующий флешер и его редактор одной карты сохранены.
+**Отдельный редактор карт с вкладками** (HorizonMapStudio 1.12.2; прошивка от 1.12.0.ZI, текущая 1.13.0.ZI): сборка Windows `tools\flasher\build_map_studio.bat`, инструкция — [`tools/flasher/README-MAP-STUDIO.md`](tools/flasher/README-MAP-STUDIO.md). Существующий флешер и его редактор одной карты сохранены.

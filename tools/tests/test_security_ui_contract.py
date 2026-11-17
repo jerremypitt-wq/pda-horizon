@@ -35,5 +35,5 @@ assert '"userPin=%s' in config and '"lockTimeoutSec=%u' in config
 assert "outgoing && !cyber ? p.accentText : p.text" in chat
 assert ".outgoing = 0x031704" in theme and ".danger = 0xFF2020" in theme
 assert "styleDangerButton" in theme and "lv_color_black(), LV_PART_MAIN" in theme
-assert 'kFirmwareVersion = "1.12.2.ZI"' in (ROOT / "src/horizon/HorizonStrings.h").read_text()
+assert 'kFirmwareVersion = "1.13.0.ZI"' in (ROOT / "src/horizon/HorizonStrings.h").read_text()
 print("Security/settings/theme integration: PASS")

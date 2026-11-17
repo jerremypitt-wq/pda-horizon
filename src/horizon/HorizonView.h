@@ -14,6 +14,7 @@
 #include "horizon/HorizonBattery.h"
 #include "horizon/HorizonBatteryStats.h"
 #include "horizon/HorizonConfig.h"
+#include "horizon/HorizonGroupContacts.h"
 #include "horizon/HorizonMap.h"
 #include "horizon/HorizonStore.h"
 #include <string>
@@ -68,6 +69,8 @@ class HorizonView : public MeshtasticView
     void restoreMessage(const LogMessage &msg) override;
 
     void removeNode(uint32_t nodeNum) override;
+    void refreshGroupContacts(void); // синхронизировать с текущими настройками чата
+    bool isGroupContact(uint32_t node) const { return groupContacts.contains(node); }
 #ifndef HORIZON_PACKET_LINK
     // Только форк: апстримный базовый класс этого метода не объявляет.
     bool hasKnownNodeForPacket(uint32_t nodeNum) const override;
@@ -249,6 +252,8 @@ class HorizonView : public MeshtasticView
     HorizonUI *ui = nullptr;
     NodeStore nodeStore;
     HorizonStore store;
+    HzGroupContacts groupContacts;
+    void syncGroupContacts(void);
 
     meshtastic_Channel radioCh[c_max_channels];
     bool radioChKnown[c_max_channels] = {false};

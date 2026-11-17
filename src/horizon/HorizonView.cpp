@@ -242,9 +242,10 @@ void HorizonView::upsertNodeUser(uint32_t nodeNum, uint8_t channel, uint32_t las
 {
     if (!nodeStore.find(nodeNum) && nodeStore.size() >= MAX_NUM_NODES_VIEW) {
         uint32_t purge = nodeStore.selectPurgeCandidate(nodeNum, ownNode, (uint32_t)curtime);
-        if (purge)
+        if (purge) {
+            groupContacts.remove(purge);
             nodeStore.remove(purge);
-        else
+        } else
             return;
     }
     uint32_t lh = lastHeard ? lastHeard : (uint32_t)curtime;
@@ -259,9 +260,10 @@ void HorizonView::addOrUpdateNode(uint32_t nodeNum, uint8_t channel, uint32_t la
 {
     if (!nodeStore.find(nodeNum) && nodeStore.size() >= MAX_NUM_NODES_VIEW) {
         uint32_t purge = nodeStore.selectPurgeCandidate(nodeNum, ownNode, (uint32_t)curtime);
-        if (purge)
+        if (purge) {
+            groupContacts.remove(purge);
             nodeStore.remove(purge);
-        else
+        } else
             return;
     }
     uint32_t lh = lastHeard ? lastHeard : (uint32_t)curtime;
@@ -349,8 +351,33 @@ void HorizonView::updateLastHeard(uint32_t nodeNum)
     nodesDirty = true;
 }
 
+void HorizonView::syncGroupContacts(void)
+{
+    const HorizonConfig &cfg = HorizonConfig::instance();
+    const uint8_t ch = cfg.groupCh;
+    if (ch == 0 || ch >= c_max_channels || ch == cfg.generalCh || ch == cfg.announceCh || !radioChKnown[ch] ||
+        !radioCh[ch].has_settings || radioCh[ch].role == meshtastic_Channel_Role_DISABLED) {
+        groupContacts.clear();
+        return;
+    }
+    const meshtastic_Channel &c = radioCh[ch];
+    groupContacts.configure(true, ch, c.settings.name, c.settings.id, c.settings.psk.bytes, c.settings.psk.size);
+}
+
+void HorizonView::refreshGroupContacts(void)
+{
+    syncGroupContacts();
+}
+
 void HorizonView::packetReceived(const meshtastic_MeshPacket &p)
 {
+    syncGroupContacts();
+    // Только реально декодированный пакет на локальном групповом канале.
+    // Досье, имя узла и номер его последнего канала этого НЕ доказывают.
+    if (p.from != ownNode && p.channel < c_max_channels &&
+        groupContacts.observe(p.from, (uint8_t)p.channel,
+                              p.which_payload_variant == meshtastic_MeshPacket_decoded_tag))
+        nodesDirty = true;
     if (p.decoded.portnum == meshtastic_PortNum_PRIVATE_APP && handleTimeSync(p)) {
         notePacketTools(p); // в статистику пакет идёт, в чат/лог/звук - нет
         return;
@@ -369,6 +396,7 @@ void HorizonView::packetReceived(const meshtastic_MeshPacket &p)
 
 void HorizonView::removeNode(uint32_t nodeNum)
 {
+    groupContacts.remove(nodeNum);
     nodeStore.remove(nodeNum);
     nodesDirty = true;
 }
@@ -438,6 +466,7 @@ void HorizonView::updateChannelConfig(const meshtastic_Channel &ch)
         return;
     radioCh[ch.index] = ch;
     radioChKnown[ch.index] = true;
+    syncGroupContacts(); // имя/ключ сменились: старые наблюдения больше не действуют
 
     HorizonChannelInfo &ci = store.channels[ch.index];
     ci.known = true;
@@ -1497,6 +1526,7 @@ void HorizonView::resetNodeDb(void)
     }
     for (uint32_t n : drop)
         nodeStore.remove(n);
+    groupContacts.clear();
     nodesDirty = true;
     controller->requestReset(false, ownNode);
 }

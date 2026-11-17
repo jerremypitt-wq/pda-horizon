@@ -341,15 +341,17 @@ void HorizonUI::buildContacts(void)
     addStatusBar(scr);
     addNavHeader(scr, "Контакты", mapPickMode ? "Кому отправить точку" : "На связи (10 мин) · ★ всегда");
 
-    // Фильтр
+    // Четыре фильтра: в портрете переносим «Избранное» на вторую строку.
+    const int16_t filterH = W() < 400 ? 70 : 36;
     lv_obj_t *frow = lv_obj_create(scr);
-    lv_obj_set_size(frow, lv_pct(100), 36);
+    lv_obj_set_size(frow, lv_pct(100), filterH);
     lv_obj_set_pos(frow, 0, kStatusH + kHeaderH);
     lv_obj_set_style_bg_opa(frow, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(frow, 0, LV_PART_MAIN);
-    lv_obj_set_flex_flow(frow, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_flow(frow, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_flex_align(frow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(frow, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(frow, 6, LV_PART_MAIN);
     lv_obj_set_style_pad_hor(frow, 8, LV_PART_MAIN);
     lv_obj_remove_flag(frow, LV_OBJ_FLAG_SCROLLABLE); // фильтры всегда видны целиком
 
@@ -373,19 +375,28 @@ void HorizonUI::buildContacts(void)
     lv_obj_set_user_data(fOn, (void *)(intptr_t)1);
     lv_obj_add_event_cb(fOn, cbFilter, LV_EVENT_CLICKED, this);
 
+    lv_obj_t *fGroup = lv_btn_create(frow);
+    HorizonTheme::styleButton(fGroup, contactsFilter == 2);
+    lv_obj_set_size(fGroup, 118, 28);
+    lv_obj_t *fgl = lv_label_create(fGroup);
+    lv_obj_set_style_text_font(fgl, HorizonTheme::fontSmall(), LV_PART_MAIN);
+    lv_label_set_text(fgl, "Группировка");
+    lv_obj_center(fgl);
+    lv_obj_set_user_data(fGroup, (void *)(intptr_t)2);
+    lv_obj_add_event_cb(fGroup, cbFilter, LV_EVENT_CLICKED, this);
+
     lv_obj_t *fFav = lv_btn_create(frow);
-    HorizonTheme::styleButton(fFav, contactsFilter == 2);
+    HorizonTheme::styleButton(fFav, contactsFilter == 3);
     lv_obj_set_size(fFav, 112, 28);
     contactsFavLabel = lv_label_create(fFav);
     lv_obj_set_style_text_font(contactsFavLabel, HorizonTheme::fontSmall(), LV_PART_MAIN);
     lv_label_set_text_fmt(contactsFavLabel, "Избранные (%u)",
                            (unsigned)HorizonConfig::instance().favorites.size());
     lv_obj_center(contactsFavLabel);
-    lv_obj_set_user_data(fFav, (void *)(intptr_t)2);
+    lv_obj_set_user_data(fFav, (void *)(intptr_t)3);
     lv_obj_add_event_cb(fFav, cbFilter, LV_EVENT_CLICKED, this);
 
-
-    int16_t top = kStatusH + kHeaderH + 38;
+    int16_t top = kStatusH + kHeaderH + filterH + 2;
     contactsList = lv_obj_create(scr);
     HorizonTheme::styleList(contactsList);
     lv_obj_set_pos(contactsList, 0, top);
@@ -414,6 +425,8 @@ void HorizonUI::rebuildContactsList(void)
     static const uint32_t kContactFreshSec = 10 * 60;
     std::vector<Row> rows;
     HorizonConfig &cfg = HorizonConfig::instance();
+    if (contactsFilter == 2)
+        view->refreshGroupContacts();
     for (auto &kv : view->getNodes().records()) {
         if (kv.first == view->getMyNodeNum())
             continue;
@@ -427,7 +440,9 @@ void HorizonUI::rebuildContactsList(void)
         }
         if (contactsFilter == 1 && !view->isNodeHeardWithin(kv.first, kContactFreshSec))
             continue;
-        if (contactsFilter == 2 && !fav)
+        if (contactsFilter == 2 && !view->isGroupContact(kv.first))
+            continue;
+        if (contactsFilter == 3 && !fav)
             continue;
         rows.push_back({kv.first, kv.second.lastHeard, fav});
     }
@@ -444,7 +459,8 @@ void HorizonUI::rebuildContactsList(void)
     if (rows.empty()) {
         lv_obj_t *e = lv_label_create(contactsList);
         lv_label_set_text(e, contactsFilter == 1   ? "Никого нет в сети"
-                             : contactsFilter == 2 ? "Нет избранных контактов"
+                             : contactsFilter == 2 ? "Нет подтверждённых контактов\nв чате группировки"
+                             : contactsFilter == 3 ? "Нет избранных контактов"
                                                    : "Никого на связи\nСырые узлы - в детекторе");
         lv_obj_set_style_text_color(e, hzColor(p.textDim), LV_PART_MAIN);
         lv_obj_set_width(e, lv_pct(100));
@@ -541,7 +557,7 @@ void HorizonUI::cbFilter(lv_event_t *e)
 {
     HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
     int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
-    self->contactsFilter = (id >= 0 && id <= 2) ? (uint8_t)id : 0;
+    self->contactsFilter = (id >= 0 && id <= 3) ? (uint8_t)id : 0;
     self->buildContacts();
 }
 
