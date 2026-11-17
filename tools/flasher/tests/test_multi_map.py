@@ -2,6 +2,7 @@
 import io
 import struct
 import sys
+from unittest import mock
 import tempfile
 import unittest
 from pathlib import Path
@@ -156,6 +157,39 @@ class MultiMapTests(unittest.TestCase):
                     check.unmount()
         finally:
             flasher.run_esptool = old_run
+
+    def test_windowed_exe_without_stdout_or_stderr(self):
+        """PyInstaller --windowed даёт None; esptool всё равно должен писать лог."""
+        import esptool
+
+        def fake_esptool(argv):
+            print('Reading partition table...')
+            sys.stderr.write('esptool diagnostic\n')
+
+        def run_read(*_args):
+            return flasher.run_esptool(['read-flash'])
+
+        original_out, original_err = sys.stdout, sys.stderr
+        with mock.patch.object(esptool, 'main', fake_esptool), \
+             mock.patch.object(multi_map, '_upload_project', run_read):
+            with mock.patch.object(sys, 'stdout', None), mock.patch.object(sys, 'stderr', None):
+                self.assertEqual(multi_map.upload_project(None, 'COM8', 921600), (0, None))
+                self.assertIsNone(sys.stdout)
+                self.assertIsNone(sys.stderr)
+        self.assertIs(sys.stdout, original_out)
+        self.assertIs(sys.stderr, original_err)
+
+        def fail_after_log(*_args):
+            print('readback diagnostic')
+            raise ValueError('Тестовая ошибка')
+
+        with mock.patch.object(multi_map, '_upload_project', fail_after_log):
+            with mock.patch.object(sys, 'stdout', None), mock.patch.object(sys, 'stderr', None):
+                with self.assertRaisesRegex(RuntimeError, 'readback diagnostic') as ctx:
+                    multi_map.upload_project(None, 'COM8', 921600)
+                self.assertIn('Тестовая ошибка', str(ctx.exception))
+                self.assertIsNone(sys.stdout)
+                self.assertIsNone(sys.stderr)
 
     def test_legacy_project_and_corrupt_metadata(self):
         self.assertEqual(multi_map.tab_ids(None), {0})

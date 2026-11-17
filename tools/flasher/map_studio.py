@@ -23,7 +23,7 @@ class MapStudio(map_editor.MapEditor):
         self.next_id = 1
         self.events = queue.Queue()
         super().__init__(parent, self._upload_project)
-        self.title('HorizonMapStudio — карты и этажи')
+        self.title('HorizonMapStudio 1.12.1 — карты и этажи')
         self.after(100, self._poll)
 
     def _build(self):

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Отдельный редактор этажей: проект v2 и безопасная запись LittleFS.
 
-Флешер/его редактор остаются без изменений. Вкладки имеют постоянные ID 0..3;
+Флешер/его редактор остаются без изменений. Вкладки имеют постоянные ID 0..255;
 порядок — только порядок строк tabs.csv. Удаление вкладки удаляет её точки
 my/net на устройстве; чаты, настройки, точки остальных вкладок не меняются.
 """
@@ -11,6 +11,7 @@ import io
 import json
 import os
 import shutil
+import sys
 import tempfile
 import zipfile
 from datetime import datetime
@@ -254,6 +255,35 @@ def _preserved(original, size, touched):
 
 
 def upload_project(project, port, baud, progress=None, backup_dir=None):
+    """Запись из EXE без консоли: esptool всегда получает живые stdout/stderr.
+
+    PyInstaller --windowed выставляет оба потока в None. Общий flasher.py
+    менять не надо: на время записи только этого редактора направляем вывод
+    в временный текстовый файл (у него есть write/flush/fileno/encoding),
+    а при ошибке показываем хвост лога. Восстанавливаем потоки даже при сбое.
+    """
+    old_out, old_err = sys.stdout, sys.stderr
+    with tempfile.TemporaryFile(mode='w+t', encoding='utf-8', errors='replace') as log:
+        if old_out is None:
+            sys.stdout = log
+        if old_err is None:
+            sys.stderr = log
+        try:
+            return _upload_project(project, port, baud, progress, backup_dir)
+        except Exception as exc:
+            if old_out is None or old_err is None:
+                log.flush()
+                log.seek(0)
+                from collections import deque
+                tail = ''.join(deque(log, maxlen=12))[-1500:].strip()
+                if tail:
+                    raise RuntimeError(f'{exc}\nПоследний вывод esptool:\n{tail}') from exc
+            raise
+        finally:
+            sys.stdout, sys.stderr = old_out, old_err
+
+
+def _upload_project(project, port, baud, progress, backup_dir):
     """Раздел узнать с ПДА; backup ДО правки; перебор качества; запись ФС+readback."""
     project = project.snapshot()
     root = Path(backup_dir) if backup_dir else Path.home() / 'Documents' / 'HorizonBackups'
