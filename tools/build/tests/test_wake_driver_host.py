@@ -32,7 +32,9 @@ struct lv_display_t {};
 struct lv_indev_t {};
 struct lv_indev_data_t { int state = 0; lv_point_t point = {0, 0}; };
 constexpr int LV_INDEV_STATE_RELEASED = 0, LV_INDEV_STATE_PRESSED = 1;
+constexpr int LV_INDEV_MODE_TIMER = 0, LV_INDEV_MODE_EVENT = 1;
 using read_cb_t = void (*)(lv_indev_t *, lv_indev_data_t *);
+extern int indev_mode;
 extern read_cb_t read_callback;
 extern void *read_user_data;
 extern uint32_t tick_now, inactive_ms;
@@ -40,6 +42,7 @@ extern int activity_count;
 inline void lv_indev_set_user_data(lv_indev_t *, void *data) { read_user_data = data; }
 inline void *lv_indev_get_user_data(lv_indev_t *) { return read_user_data; }
 inline void lv_indev_set_read_cb(lv_indev_t *, read_cb_t fn) { read_callback = fn; }
+inline void lv_indev_set_mode(lv_indev_t *, int mode) { indev_mode = mode; }
 inline uint32_t lv_display_get_inactive_time(lv_display_t *) { return inactive_ms; }
 inline uint32_t lv_tick_get() { return tick_now; }
 inline void lv_display_trigger_activity(lv_display_t *) { inactive_ms = 0; ++activity_count; }
@@ -74,6 +77,7 @@ HARNESS = r'''#include "graphics/driver/LGFXDriver.h"
 #include "config.h"
 #include "horizon/HorizonDisplay.h"
 #include <cassert>
+int indev_mode = LV_INDEV_MODE_EVENT; // как при USE_TOUCH_EVENTS в базе
 read_cb_t read_callback = nullptr;
 void *read_user_data = nullptr;
 uint32_t tick_now = 0, inactive_ms = 0;
@@ -83,7 +87,7 @@ int main() {
     DeviceGUI gui;
     auto *driver = static_cast<LGFXDriver<LGFX_ELECROW_ADV_35> *>(horizonCreateDisplayDriver(480, 320));
     driver->init(&gui);
-    assert(read_callback);
+    assert(read_callback && indev_mode == LV_INDEV_MODE_TIMER);
     lv_indev_t touch;
     lv_indev_data_t data;
     auto read = [&](uint32_t now, uint8_t fingers) {

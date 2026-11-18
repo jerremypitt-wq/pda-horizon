@@ -173,6 +173,8 @@ class HorizonView : public MeshtasticView
     // Без этого индикатор MESH врёт при мёртвой линии панель-радио.
     bool radioConnected(void) const { return connected && ownNode != 0; }
     int myBattery(void) const { return battery; } // -1 - неизвестно
+    int resetReasonCode(void) const { return lastResetReason; }
+    const char *resetReasonName(void) const;
     void pollBattery(uint32_t nowMs);             // MAX17048 на J15 (из task_handler)
     int batteryMv(void) const { return vbat.battMv; }
     bool batteryFound(void) const { return vbat.found; }
@@ -270,6 +272,7 @@ class HorizonView : public MeshtasticView
     bool buzzerSilenced = false; // прошивочный зуммер уже гасили в этой загрузке
     bool ownerPushed = false;    // владельца уже толкали в радио в этой загрузке
     int battery = -1;
+    int lastResetReason = 0; // аппаратный код последнего сброса ESP32
     HzBatteryState vbat;
     HzBatteryStats batStats;
     uint32_t lastBatterySaveMs = 0;

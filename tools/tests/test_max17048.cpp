@@ -10,6 +10,9 @@
 namespace {
 std::deque<int> sdaReads;
 bool sclStuck = false;
+bool sdaStuck = false;
+unsigned releaseAfterClocks = 0; // имитация slave, ожидающего такты после сбоя ESP
+unsigned recoveryClocks = 0;
 unsigned delays = 0;
 uint8_t sdaMode = INPUT, sclMode = INPUT;
 
@@ -47,6 +50,8 @@ void pinMode(uint8_t pin, uint8_t mode)
 {
     assert(mode == INPUT || mode == OUTPUT);
     assert(pin == 17 || pin == 18); // no accidental access to GT911
+    if (pin == 18 && mode == INPUT && sclMode == OUTPUT && recoveryClocks < releaseAfterClocks)
+        ++recoveryClocks;
     (pin == 17 ? sdaMode : sclMode) = mode;
 }
 void digitalWrite(uint8_t pin, uint8_t value)
@@ -58,6 +63,8 @@ int digitalRead(uint8_t pin)
     assert(pin == 17 || pin == 18);
     if (pin == 18)
         return sclStuck ? LOW : HIGH;
+    if (sdaStuck || (releaseAfterClocks && recoveryClocks < releaseAfterClocks))
+        return LOW;
     assert(!sdaReads.empty());
     int value = sdaReads.front();
     sdaReads.pop_front();
@@ -116,12 +123,24 @@ int main(void)
     reg(0x0011); reg(0, false); // NACK during VCELL
     assert(!hzBatteryPoll(st) && st.percent == -1);
     drained();
-    sdaReads.push_back(LOW); // SDA held by a different device
+    // Сбой посреди чтения: MAX отпустит SDA только после трёх тактов.
+    // Первый START ещё не читает очередь; дополнительный HIGH — проба
+    // освобождения, затем обычный START и четыре регистра.
+    recoveryClocks = 0;
+    releaseAfterClocks = 3;
+    sdaReads.push_back(HIGH);
+    good();
+    assert(hzBatteryPoll(st) && st.found);
+    assert(recoveryClocks == 3);
+    releaseAfterClocks = 0;
+    drained();
+    sdaStuck = true; // короткое замыкание: 9 тактов, STOP, не зависать
     assert(!hzBatteryPoll(st) && !st.found);
+    sdaStuck = false;
     drained();
     sclStuck = true;
     assert(!hzBatteryPoll(st) && !st.found);
-    assert(delays <= 210); // bounded clock-stretch wait
+    assert(delays <= 430); // две ограниченные попытки SCL
     sclStuck = false;
     drained();
     std::puts("MAX17048 driver: PASS");

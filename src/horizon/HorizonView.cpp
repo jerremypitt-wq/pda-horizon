@@ -15,6 +15,9 @@
 #include <string.h>
 #include <time.h>
 #include <utility>
+#if defined(HORIZON_PACKET_LINK) || defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
+#include <esp_system.h> // причина прошлой перезагрузки, без записи во flash
+#endif
 
 // Тост при закрытом гейте radioConnected: в прошивке радиомодуль - это сам ПДА.
 #ifdef HORIZON_PACKET_LINK
@@ -116,7 +119,10 @@ HorizonView::HorizonView(const DisplayDriverConfig *cfg, DisplayDriver *driver)
 
 void HorizonView::init(IClientBase *client)
 {
-    ILOG_INFO("Horizon: v%s init...", HorizonStrings::kFirmwareVersion);
+#if defined(HORIZON_PACKET_LINK) || defined(ARCH_ESP32) || defined(ARDUINO_ARCH_ESP32)
+    lastResetReason = (int)esp_reset_reason();
+#endif
+    ILOG_INFO("Horizon: v%s init, reset reason=%d", HorizonStrings::kFirmwareVersion, lastResetReason);
     MeshtasticView::init(client);
 #ifdef HORIZON_PACKET_LINK
     // В дереве прошивки нет ARCH_ESP32, поэтому TFTDriver не ставит esp_timer
@@ -191,6 +197,23 @@ void HorizonView::task_handler(void)
         announceDossier();
     }
     pollBattery(nowMs);
+}
+
+const char *HorizonView::resetReasonName(void) const
+{
+    switch (lastResetReason) {
+    case 1: return "питание";
+    case 3: return "программный";
+    case 4: return "авария";
+    case 5: return "WDT прерываний";
+    case 6: return "WDT задачи";
+    case 7: return "WDT";
+    case 8: return "глубокий сон";
+    case 9: return "просадка питания";
+    case 14: return "сбой питания";
+    case 15: return "блокировка CPU";
+    default: return "другая причина";
+    }
 }
 
 void HorizonView::pollBattery(uint32_t nowMs)

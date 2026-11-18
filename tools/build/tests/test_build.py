@@ -272,6 +272,11 @@ with open(os.path.join(fwroot, "src", "FSCommon.h"), "wb") as f:
     f.write(b"// default FS\n#define FSBegin() FSCom.begin(true) // format on failure\n")
 with open(os.path.join(fwroot, "platformio.ini"), "w") as f:
     f.write("lib_deps = protocol://x#" + ovmod.DEVICEUI_PIN + "\n")
+variant = os.path.join(fwroot, "variants", "esp32s3", "elecrow_panel", "variant.h")
+os.makedirs(os.path.dirname(variant), exist_ok=True)
+with open(variant, "wb") as f:
+    f.write(b"#define GPS_DEFAULT_NOT_PRESENT 1\n#define HAS_GPS 1\n"
+            b"#define GPS_RX_PIN 18\n#define GPS_TX_PIN 17\n")
 OVP = os.path.join(REPO, "fw", "overlay.py")
 r = subprocess.run([sys.executable, OVP, "--fw", fwroot],
                    capture_output=True, text=True)
@@ -281,6 +286,8 @@ check("ov-marker", build.overlay_ok(fwroot))
 fs_header = os.path.join(fwroot, "src", "FSCommon.h")
 check("ov-fs-safe", ovmod.FS_SAFE in open(fs_header, "rb").read())
 check("ov-fs-backup", ovmod.FS_OLD in open(fs_header + ".stock-horizon", "rb").read())
+check("ov-gps-off", ovmod.GPS_SAFE in open(variant, "rb").read()
+      and ovmod.GPS_STOCK in open(variant + ".stock-horizon", "rb").read())
 check("ov-target", os.path.isfile(os.path.join(hzdst, "horizon_target.h")))
 with open(os.path.join(REPO, "src", "horizon", "HorizonStrings.h"), "rb") as f:
     real_hz = f.read()
@@ -295,6 +302,8 @@ r = subprocess.run([sys.executable, OVP, "--fw", fwroot],
 check("ov-exit2", r.returncode == 0, r.stdout + r.stderr)
 check("ov-stock-once", open(stock, encoding="utf-8").read() == "// stock tft\n")
 check("ov-fs-idempotent", ovmod.FS_SAFE in open(fs_header, "rb").read())
+check("ov-gps-backup-once", ovmod.GPS_STOCK in open(variant + ".stock-horizon", "rb").read()
+      and ovmod.GPS_SAFE in open(variant, "rb").read())
 # Регрессия «замороженный оверлей»: протухшая копия обязана затоптаться повтором.
 with open(os.path.join(hzdst, "HorizonStrings.h"), "w") as f:
     f.write('constexpr const char *kFirmwareVersion = "0.0.0";\n')
@@ -308,6 +317,13 @@ r = subprocess.run([sys.executable, OVP, "--fw", fwroot, "--revert"],
 check("ov-revert-exit", r.returncode == 0, r.stdout + r.stderr)
 check("ov-fs-revert", ovmod.FS_OLD in open(fs_header, "rb").read()
       and not os.path.exists(fs_header + ".stock-horizon"))
+check("ov-gps-revert", ovmod.GPS_STOCK in open(variant, "rb").read()
+      and not os.path.exists(variant + ".stock-horizon"))
+with open(variant, "wb") as f:
+    f.write(b"#define HAS_GPS 1\n#define GPS_RX_PIN 18\n#define GPS_TX_PIN 19\n")
+r = subprocess.run([sys.executable, OVP, "--fw", fwroot], capture_output=True, text=True)
+check("ov-gps-mismatch-abort", r.returncode != 0 and "GPIO17/18" in (r.stdout + r.stderr)
+      and not os.path.exists(os.path.join(fwroot, "src", "horizon")))
 
 print("== build.py: игровой пакет в data/hzmap ==")
 try:

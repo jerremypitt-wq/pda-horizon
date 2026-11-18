@@ -31,6 +31,11 @@ class HorizonElecrowDriver : public LGFXDriver<LGFX_ELECROW_ADV_35> {
         if (this->touch) {
             lv_indev_set_user_data(this->touch, this);
             lv_indev_set_read_cb(this->touch, readWakeTouch);
+            // WakeGate ждёт повторный опрос ПОСЛЕ отпускания (40 мс).
+            // В event-only режиме GT911 может не выдать второй IRQ, и
+            // экран останется тёмным до перезагрузки. Опрос по таймеру
+            // обязателен даже в сборке с USE_TOUCH_EVENTS.
+            lv_indev_set_mode(this->touch, LV_INDEV_MODE_TIMER);
         }
     }
 

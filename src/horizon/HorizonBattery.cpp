@@ -63,6 +63,26 @@ bool start(void)
     return true;
 }
 
+// Если ESP перезагрузился посередине чтения, MAX может ждать оставшиеся биты
+// и держать SDA низким. До 9 открыто-стоковых тактов и STOP освобождают шину;
+// при обрыве/коротком замыкании просто выходим по таймауту без HIGH на GPIO.
+bool recoverBus(void)
+{
+    release(kSda);
+    if (!highClock())
+        return false;
+    for (unsigned i = 0; i < 9; ++i) {
+        if (digitalRead(kSda) == HIGH)
+            break;
+        low(kScl);
+        pause();
+        if (!highClock())
+            return false;
+    }
+    stop();
+    return true; // start() ещё раз проверит обе линии
+}
+
 // Repeated START после отправки адреса регистра (SCL уже низкий).
 bool restart(void)
 {
@@ -124,7 +144,7 @@ bool readReg(uint8_t reg, uint16_t &value)
 {
     // Не делать Wire.begin/TwoWire(1): в single-MCU I2C0 занят firmware
     // на 15/16, а I2C1 напрямую занят LovyanGFX GT911 на тех же пинах.
-    if (!start()) {
+    if (!start() && (!recoverBus() || !start())) {
         release(kSda);
         release(kScl);
         return false;

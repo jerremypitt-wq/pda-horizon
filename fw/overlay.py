@@ -12,7 +12,8 @@
  4. fw/horizon_target_firmware.h      -> <fw>/src/horizon/horizon_target.h (вкус!)
  5. fw/tftSetup_horizon.cpp          -> <fw>/src/graphics/tftSetup.cpp (бекап .stock)
  6. FSCommon.h: не форматировать ФС при сбое монтирования (с бекапом).
- 7. Boot-заливка в установленном device-ui: зелёный -> чёрный (идемпотентно).
+ 7. variant.h: выключить UART-GPS на GPIO17/18 (MAX17048), с бекапом.
+ 8. Boot-заливка в установленном device-ui: зелёный -> чёрный (идемпотентно).
 
 Использование (Windows, PowerShell, из клона прошивки на теге v2.8.1):
   pio pkg install -e elecrow-adv-35-tft
@@ -36,6 +37,11 @@ BOOT_OLD = "color565(0x3D, 0xDA, 0x83)"
 BOOT_NEW = "color565(0x00, 0x00, 0x00)"
 FS_OLD = b"#define FSBegin() FSCom.begin(true) // format on failure"
 FS_SAFE = b"#define FSBegin() FSCom.begin(false) // Horizon: preserve user data on mount failure"
+# Сток CrowPanel small 3.5: GPS (если включён в сохранённом конфиге) запускает
+# UART1 на тех же GPIO17/18, где у нас программный I2C MAX17048.
+GPS_STOCK = b"#define HAS_GPS 1"
+GPS_SAFE = b"#define HAS_GPS 0 // Horizon: GPIO17/18 reserved for MAX17048"
+GPS_PINS = (b"#define GPS_RX_PIN 18", b"#define GPS_TX_PIN 17")
 
 
 def copy_tree(src, dst, dry):
@@ -71,6 +77,8 @@ def main():
     tft_stock = tft_dst + ".stock"
     fs_header = os.path.join(fw, "src", "FSCommon.h")
     fs_stock = fs_header + ".stock-horizon"
+    variant_header = os.path.join(fw, "variants", "esp32s3", "elecrow_panel", "variant.h")
+    variant_stock = variant_header + ".stock-horizon"
 
     if args.revert:
         if os.path.isfile(tft_stock):
@@ -85,6 +93,11 @@ def main():
                 shutil.copy2(fs_stock, fs_header)
                 os.remove(fs_stock)
             print("  revert src/FSCommon.h из .stock-horizon")
+        if os.path.isfile(variant_stock):
+            if not args.dry_run:
+                shutil.copy2(variant_stock, variant_header)
+                os.remove(variant_stock)
+            print("  revert variant.h (GPS штатный)")
         if os.path.isdir(horizon_dst):
             if not args.dry_run:
                 shutil.rmtree(horizon_dst)
@@ -115,6 +128,17 @@ def main():
         sys.exit(f"ОШИБКА: не найден {fs_header}: {e}")
     if FS_OLD not in fs_text and FS_SAFE not in fs_text:
         sys.exit("ОШИБКА: FSCommon.h изменён; не рискуем подменить логику ФС")
+    try:
+        with open(variant_header, "rb") as f:
+            variant_text = f.read()
+    except OSError as e:
+        sys.exit(f"ОШИБКА: не найден variant.h CrowPanel: {e}")
+    if (variant_text.count(GPS_STOCK) + variant_text.count(GPS_SAFE) != 1 or any(
+        variant_text.count(pin) != 1 for pin in GPS_PINS
+    )):
+        sys.exit("ОШИБКА: схема GPS CrowPanel изменилась; проверьте GPIO17/18 перед сборкой")
+    if GPS_SAFE in variant_text and not os.path.isfile(variant_stock):
+        sys.exit("ОШИБКА: GPS уже отключён, но нет backup variant.h.stock-horizon; проверьте вручную")
 
     total = 0
     print("1) src/horizon -> src/horizon:")
@@ -165,8 +189,20 @@ def main():
         print("  уже безопасно (FSBegin(false))")
     total += 1
 
+    print("7) GPS-UART на J15 выключен (GPIO17/18 заняты MAX17048):")
+    if GPS_STOCK in variant_text:
+        if not args.dry_run:
+            if not os.path.isfile(variant_stock):
+                shutil.copy2(variant_header, variant_stock)
+            with open(variant_header, "wb") as f:
+                f.write(variant_text.replace(GPS_STOCK, GPS_SAFE))
+        print("  patched variant.h (HAS_GPS=0), оригинал .stock-horizon")
+    else:
+        print("  уже выключен (HAS_GPS=0)")
+    total += 1
+
     if not args.no_bootpatch:
-        print("7) boot-заливка в установленном device-ui:")
+        print("8) boot-заливка в установленном device-ui:")
         cands = glob.glob(os.path.join(fw, ".pio", "libdeps", ENV, "*", "include", "graphics",
                                        "driver", "LGFXDriver.h"))
         if not cands:

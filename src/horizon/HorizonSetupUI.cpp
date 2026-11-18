@@ -1791,7 +1791,7 @@ void HorizonUI::buildSetAbout(void)
     lv_obj_set_style_pad_row(body, 4, LV_PART_MAIN);
 
     HorizonConfig &cfg = HorizonConfig::instance();
-    char lines[9][96];
+    char lines[10][96];
     snprintf(lines[0], sizeof(lines[0]), "ПДА «Горизонт», прошивка %s", kFirmwareVersion);
     snprintf(lines[1], sizeof(lines[1]), "Плата: Elecrow CrowPanel Advance 3.5\"");
     if (view->getMyNodeNum())
@@ -1845,9 +1845,11 @@ void HorizonUI::buildSetAbout(void)
 #else
     snprintf(lines[7], sizeof(lines[7]), "Связь с узлом: %s", view->radioConnected() ? "да" : "нет");
 #endif
-    snprintf(lines[8], sizeof(lines[8]), "Сделано для полевых игр по мотивам S.T.A.L.K.E.R.");
+    snprintf(lines[8], sizeof(lines[8]), "Перезапуск: %s (код %d)", view->resetReasonName(),
+             view->resetReasonCode());
+    snprintf(lines[9], sizeof(lines[9]), "Сделано для полевых игр по мотивам S.T.A.L.K.E.R.");
 
-    for (int i = 0; i < 9; i++) {
+    for (int i = 0; i < 10; i++) {
         lv_obj_t *l = lv_label_create(body);
         lv_label_set_text(l, lines[i]);
         lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);

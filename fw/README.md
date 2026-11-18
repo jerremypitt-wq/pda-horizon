@@ -8,6 +8,8 @@ PacketAPI (PacketServer + PacketClient) вместо UART-клиента.
 
 `fw/overlay.py` — инструмент переноса: копирует файлы и точечно меняет
 `src/FSCommon.h` (отключает автоформатирование при сбое ФС, оригинал сохраняет
+в `.stock-horizon`) и `variants/esp32s3/elecrow_panel/variant.h` (выключает
+штатный UART-GPS на GPIO17/18: пины заняты MAX17048; исходник также сохраняет
 в `.stock-horizon`). Без форка и без правок её `platformio.ini`. Вкус сборки
 переключается перезаписываемым `horizon_target.h` (флаг `HORIZON_PACKET_LINK`).
 Слот радиоплагина на плате — J9+J11 (распиновка и нюансы: ключ U8/IO45,
@@ -62,7 +64,8 @@ pio device monitor -b 115200
 
 Проверка без сборки: `overlay.py --fw . --dry-run`. Откат оверлея:
 `overlay.py --fw . --revert` (восстановит `tftSetup.cpp` из `.stock`,
-удалит `src/horizon`; boot-патч в `.pio` не откатывается — он безвреден
+`FSCommon.h` и `variant.h` из `.stock-horizon`, удалит `src/horizon`;
+boot-патч в `.pio` не откатывается — он безвреден
 и для стокового UI).
 
 ## Карта файлов
@@ -75,6 +78,7 @@ pio device monitor -b 115200
 | `fw/horizon_target_firmware.h` | `src/horizon/horizon_target.h` (флаг `HORIZON_PACKET_LINK`) |
 | `fw/tftSetup_horizon.cpp` | `src/graphics/tftSetup.cpp` (клей; оригинал → `.stock`) |
 | `src/FSCommon.h` апстрима | `FSBegin(false)` вместо автоформата (оригинал → `.stock-horizon`) |
+| `variants/esp32s3/elecrow_panel/variant.h` апстрима | `HAS_GPS=0`, чтобы GPS-UART не занял MAX17048 GPIO17/18 (оригинал → `.stock-horizon`) |
 
 Почему это работает без правок ini: `src/horizon/` компилируется общим
 `src_filter +<*>`; quoted-инклуды (`"config.h"`, `"horizon_target.h"`,
