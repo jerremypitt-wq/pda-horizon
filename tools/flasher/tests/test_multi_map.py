@@ -1,5 +1,7 @@
 """Вкладки: совместимость v1, стабильные ID, удаление и сохранность ФС."""
 import io
+import json
+import zipfile
 import struct
 import sys
 from unittest import mock
@@ -64,6 +66,79 @@ class MultiMapTests(unittest.TestCase):
                                            (1, 'B', editor_data.MapProject(image(), [point('x')] * 21))])
             with self.assertRaises(ValueError):
                 multi_map.MultiMapProject.load(Path(tmp) / 'absent.hzmap')
+
+    def test_geo_anchors_roundtrip_and_never_sent_to_device(self):
+        page = editor_data.MapProject(image(), [point('Game POI')])
+        anchors = {0: [{'name': 'Ратуша', 'x': 100, 'y': 40,
+                        'lat': 50.775345, 'lon': 6.083887},
+                       {'name': 'Юго-запад', 'x': 350, 'y': 220,
+                        'lat': -12.5, 'lon': -70.25}]}
+        project = multi_map.MultiMapProject([(0, 'Улица', page)], anchors=anchors)
+        reference_files = multi_map.prepare_files(multi_map.MultiMapProject([(0, 'Улица', page)]), 480)
+        self.assertEqual(multi_map.prepare_files(project, 480), reference_files)
+        self.assertNotIn('Ратуша'.encode(), b''.join(reference_files.values()))
+        anchors[0][0]['lat'] = 0  # constructor copies deeply
+        self.assertEqual(project.anchors[0][0]['lat'], 50.775345)
+        clone = project.snapshot()
+        clone.anchors[0][0]['name'] = 'Копия'
+        self.assertEqual(project.anchors[0][0]['name'], 'Ратуша')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'geo.hzmap'
+            project.save(path)
+            loaded = multi_map.MultiMapProject.load(path)
+            self.assertEqual(loaded.anchors, project.anchors)
+            self.assertEqual(loaded.tabs[0][2].points, page.points)
+            with zipfile.ZipFile(path) as zf:
+                manifest = json.loads(zf.read('project.json'))
+                self.assertEqual(manifest['format'], 2)
+                self.assertEqual(manifest['tabs'][0]['anchors'], project.anchors[0])
+            self.assertEqual(multi_map.prepare_files(loaded, 480), reference_files)
+            project.anchors[0][0]['lat'] = float('nan')
+            with self.assertRaises(ValueError):
+                project.save(path)
+            self.assertEqual(multi_map.MultiMapProject.load(path).anchors, loaded.anchors)
+            # Previous v2 projects (without anchors) and v1 remain readable.
+            legacy_v2 = multi_map.MultiMapProject([(0, 'Улица', page)])
+            legacy_v2.save(path)
+            with zipfile.ZipFile(path) as zf:
+                self.assertNotIn('anchors', json.loads(zf.read('project.json'))['tabs'][0])
+            self.assertEqual(multi_map.MultiMapProject.load(path).anchors, {0: []})
+            page.save(path)
+            self.assertEqual(multi_map.MultiMapProject.load(path).anchors, {0: []})
+
+    def test_geo_anchors_validate_and_per_tab_lifecycle(self):
+        page = editor_data.MapProject(image())
+        base = {'name': 'A', 'x': 0, 'y': 319, 'lat': 90.0, 'lon': -180.0}
+        for change in ({'x': True}, {'x': 480}, {'y': -1}, {'lat': 91},
+                       {'lon': -181}, {'lat': float('nan')}, {'lon': float('inf')},
+                       {'name': ''}, {'name': 'A|B'}, {'lat': '50.1'}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                multi_map.MultiMapProject([(0, 'A', page)], anchors={0: [dict(base, **change)]})
+        with self.assertRaisesRegex(ValueError, 'совпадать'):
+            multi_map.MultiMapProject([(0, 'A', page)], anchors={0: [base, base]})
+        with self.assertRaises(ValueError):
+            multi_map.MultiMapProject([(0, 'A', page)], anchors={5: []})
+        project = multi_map.MultiMapProject([(0, 'A', page), (3, 'B', page)], next_id=4,
+                                             anchors={3: [base]})
+        reordered = multi_map.MultiMapProject(list(reversed(project.tabs)), project.next_id,
+                                                project.anchors)
+        self.assertEqual(reordered.anchors[3], [base])
+        deleted = multi_map.MultiMapProject([project.tabs[0]], project.next_id,
+                                              {0: project.anchors[0]})
+        self.assertEqual(deleted.anchors, {0: []})
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'invalid.hzmap'
+            project.save(path)
+            with zipfile.ZipFile(path) as zf:
+                files = {name: zf.read(name) for name in zf.namelist()}
+            manifest = json.loads(files['project.json'])
+            manifest['tabs'][1]['anchors'][0]['lat'] = 'bad'
+            files['project.json'] = json.dumps(manifest).encode()
+            with zipfile.ZipFile(path, 'w') as zf:
+                for name, value in files.items():
+                    zf.writestr(name, value)
+            with self.assertRaisesRegex(ValueError, 'Широта'):
+                multi_map.MultiMapProject.load(path)
 
     def test_fs_delete_tab_and_preserve_other_data(self):
         ctx = UserContext(SIZE)

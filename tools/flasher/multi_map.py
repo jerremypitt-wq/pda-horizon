@@ -9,6 +9,7 @@ my/net на устройстве; чаты, настройки, точки ос�
 import hashlib
 import io
 import json
+import math
 import os
 import shutil
 import sys
@@ -28,6 +29,7 @@ from make_package import parse_partitions_bin
 MAX_TABS = 4
 MAX_TAB_ID = 255
 MAX_POINTS = 50
+MAX_ANCHORS = 20  # per tab; editor-only, never POI
 RESOLUTIONS = (720, 600, 480)
 RESERVE = 256 * 1024
 
@@ -39,13 +41,41 @@ def validate_name(name):
     return name.strip()
 
 
+def validate_anchors(anchors, width, height):
+    """Image pixels + WGS84 decimal degrees; no calibration inferred here."""
+    if not isinstance(anchors, list) or len(anchors) > MAX_ANCHORS:
+        raise ValueError('Привязок: не более 20 на вкладку')
+    result, pixels, coordinates = [], set(), set()
+    for anchor in anchors:
+        if not isinstance(anchor, dict) or set(anchor) != {'name', 'x', 'y', 'lat', 'lon'}:
+            raise ValueError('Неверный формат точки привязки')
+        name = anchor['name']
+        if (not isinstance(name, str) or not name.strip() or len(name) > 30 or
+                any(c in name for c in '|\r\n')):
+            raise ValueError('Имя привязки: от 1 до 30 символов, без | и переноса строки')
+        x, y = anchor['x'], anchor['y']
+        if type(x) is not int or type(y) is not int or not (0 <= x < width and 0 <= y < height):
+            raise ValueError('Пиксели привязки должны находиться внутри JPG')
+        lat, lon = anchor['lat'], anchor['lon']
+        if (type(lat) not in (int, float) or type(lon) not in (int, float) or
+                not math.isfinite(lat) or not math.isfinite(lon) or
+                not -90 <= lat <= 90 or not -180 <= lon <= 180):
+            raise ValueError('Широта: −90…90; долгота: −180…180 (десятичные градусы)')
+        if (x, y) in pixels or (lat, lon) in coordinates:
+            raise ValueError('Привязки не могут совпадать по пикселям или геокоординатам')
+        pixels.add((x, y))
+        coordinates.add((lat, lon))
+        result.append({'name': name.strip(), 'x': x, 'y': y, 'lat': float(lat), 'lon': float(lon)})
+    return result
+
+
 def names(tab):
     i = tab if tab else ''
     return f'map{i}.rgb565', f'map{i}_preview.rgb565'
 
 
 class MultiMapProject:
-    def __init__(self, tabs, next_id=None):
+    def __init__(self, tabs, next_id=None, anchors=None):
         # (id, title, MapProject), order is user-controlled and IDs never change on reorder
         if not isinstance(tabs, list) or not 1 <= len(tabs) <= MAX_TABS:
             raise ValueError('Нужно от 1 до 4 вкладок')
@@ -60,24 +90,34 @@ class MultiMapProject:
             self.tabs.append((id_, validate_name(title), page.snapshot()))
         if sum(len(page.points) for _, _, page in self.tabs) > MAX_POINTS:
             raise ValueError('Всего не более 50 стартовых точек')
+        if anchors is None:
+            anchors = {}
+        if not isinstance(anchors, dict) or set(anchors) - ids:
+            raise ValueError('Привязки ссылаются на неизвестную вкладку')
+        self.anchors = {id_: validate_anchors(anchors.get(id_, []), page.width, page.height)
+                        for id_, _, page in self.tabs}
         self.next_id = next_id if next_id is not None else max(ids) + 1
         if type(self.next_id) is not int or self.next_id <= max(ids) or self.next_id > MAX_TAB_ID + 1:
             raise ValueError('Неверный следующий ID вкладки')
 
     def snapshot(self):
-        return MultiMapProject(self.tabs, self.next_id)
+        return MultiMapProject(self.tabs, self.next_id, self.anchors)
 
     def save(self, path):
+        project = self.snapshot()  # validate public mutable lists again before writing
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         fd, temp = tempfile.mkstemp(prefix='.hzmap-', suffix='.tmp', dir=target.parent)
         os.close(fd)
         try:
             with zipfile.ZipFile(temp, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
-                manifest = {'format': 2, 'next_id': self.next_id, 'tabs': []}
-                for id_, title, page in self.tabs:
+                manifest = {'format': 2, 'next_id': project.next_id, 'tabs': []}
+                for id_, title, page in project.tabs:
                     zf.writestr(f'map{id_}.jpg', page.image)
-                    manifest['tabs'].append({'id': id_, 'name': title, 'points': page.points})
+                    tab = {'id': id_, 'name': title, 'points': page.points}
+                    if project.anchors[id_]:
+                        tab['anchors'] = project.anchors[id_]
+                    manifest['tabs'].append(tab)
                 zf.writestr('project.json', json.dumps(manifest, ensure_ascii=False))
             os.replace(temp, target)
         finally:
@@ -100,17 +140,19 @@ class MultiMapProject:
                     raise ValueError('Неизвестная версия проекта')
                 expected = {'project.json'}
                 tabs = []
+                anchors = {}
                 for tab in raw['tabs']:
-                    if not isinstance(tab, dict) or set(tab) != {'id', 'name', 'points'} or type(tab['id']) is not int or not 0 <= tab['id'] <= MAX_TAB_ID:
+                    if not isinstance(tab, dict) or set(tab) not in ({'id', 'name', 'points'}, {'id', 'name', 'points', 'anchors'}) or type(tab['id']) is not int or not 0 <= tab['id'] <= MAX_TAB_ID:
                         raise ValueError('Неверная вкладка')
                     name = f"map{tab['id']}.jpg"
                     if name not in entries or zf.getinfo(name).file_size > editor_data.MAX_IMAGE_BYTES:
                         raise ValueError('Карта отсутствует или слишком большая')
                     expected.add(name)
                     tabs.append((tab['id'], tab['name'], editor_data.MapProject(zf.read(name), tab['points'])))
+                    anchors[tab['id']] = tab.get('anchors', [])
                 if set(entries) != expected:
                     raise ValueError('Лишние файлы в проекте')
-                return cls(tabs, raw.get('next_id'))
+                return cls(tabs, raw.get('next_id'), anchors)
         except (OSError, zipfile.BadZipFile, UnicodeError, json.JSONDecodeError) as exc:
             raise ValueError(f'Проект повреждён: {exc}') from exc
 
