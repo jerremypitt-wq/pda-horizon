@@ -31,6 +31,7 @@ pio run -e elecrow-adv-35-horizon -t upload   # прошивка через J2 (
   тумблер и USB-C; раздел делителя относится только к старой прошивке
 - [docs/MAX17048.md](docs/MAX17048.md) — датчик заряда на J15 (с 1.10.0.ZI);
   до подключения необходимо проверить конкретный модуль мультиметром
+- [docs/GPS_PLAN.md](docs/GPS_PLAN.md) — согласованный план будущего GPS, пока без реализации
 - [docs/patches/](docs/patches/) — патчи к форку device-ui
 
 ## Основа
@@ -40,4 +41,4 @@ pio run -e elecrow-adv-35-horizon -t upload   # прошивка через J2 (
 Штатные окружения MUI под другие платы из `platformio.ini` удалены —
 осталось только `elecrow-adv-35-horizon`.
 
-**Отдельный редактор карт с вкладками** (HorizonMapStudio 1.13.0; прошивка от 1.12.0.ZI, текущая 1.13.1.ZI): сборка Windows `tools\flasher\build_map_studio.bat`, инструкция — [`tools/flasher/README-MAP-STUDIO.md`](tools/flasher/README-MAP-STUDIO.md). Существующий флешер и его редактор одной карты сохранены.
+**Отдельный редактор карт с вкладками** (HorizonMapStudio 1.13.0; прошивка от 1.12.0.ZI, текущая 1.14.0 без встроенной карты): сборка Windows `tools\flasher\build_map_studio.bat`, инструкция — [`tools/flasher/README-MAP-STUDIO.md`](tools/flasher/README-MAP-STUDIO.md). Существующий флешер и его редактор одной карты сохранены.

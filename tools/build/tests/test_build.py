@@ -54,6 +54,46 @@ with open(os.path.join(hdr, "HorizonStrings.h"), "w") as f:
     f.write('constexpr const char *kFirmwareVersion = "1.7.0";\n')
 check("version-read", build.read_version(TMP) == "1.7.0")
 check("version-missing", build.read_version(os.path.join(TMP, "nope")) is None)
+check("current-version-without-game-suffix", build.read_version(REPO) == "1.14.0")
+
+print("== build.py: чистая FS без игровой карты ==")
+neutral = os.path.join(TMP, "neutral-fw")
+map_dir = os.path.join(neutral, "data", "hzmap")
+os.makedirs(map_dir, exist_ok=True)
+with open(os.path.join(map_dir, "map.rgb565"), "wb") as f:
+    f.write(b"legacy map")
+with open(os.path.join(map_dir, "map_preview.rgb565"), "wb") as f:
+    f.write(b"legacy preview")
+with open(os.path.join(map_dir, "map2.rgb565"), "wb") as f:
+    f.write(b"another tab")
+with open(os.path.join(map_dir, "pois.csv"), "wb") as f:
+    f.write(b"baked points")
+with open(os.path.join(neutral, "data", "other.txt"), "wb") as f:
+    f.write(b"keep unrelated data")
+build.prepare_universal_fs(neutral)
+check("clean-old-game-and-tabs", not os.path.exists(map_dir))
+check("keep-other-data", os.path.isfile(os.path.join(neutral, "data", "other.txt")))
+build.prepare_universal_fs(neutral)
+check("clean-idempotent", not os.path.exists(map_dir))
+os.makedirs(map_dir)
+with open(os.path.join(map_dir, "my.csv"), "wb") as f:
+    f.write(b"user data")
+try:
+    build.prepare_universal_fs(neutral)
+    check("refuse-unknown-staging", False)
+except build.Fail:
+    check("refuse-unknown-staging", os.path.isfile(os.path.join(map_dir, "my.csv")))
+os.remove(os.path.join(map_dir, "my.csv"))
+os.rmdir(map_dir)
+images = os.path.join(neutral, ".pio", "build", build.ENV)
+os.makedirs(images)
+for name in ("littlefs.bin", "littlefs-elecrow-adv-35-tft-2.8.1.bin", "firmware.bin"):
+    with open(os.path.join(images, name), "wb") as f:
+        f.write(b"old")
+build.clear_stale_fs_images(neutral)
+check("no-stale-fs-images", not os.path.isfile(os.path.join(images, "littlefs.bin")) and
+      not os.path.isfile(os.path.join(images, "littlefs-elecrow-adv-35-tft-2.8.1.bin")))
+check("keep-firmware-image", os.path.isfile(os.path.join(images, "firmware.bin")))
 
 fw = os.path.join(TMP, "fw1")
 os.makedirs(os.path.join(fw, "src", "horizon"), exist_ok=True)
@@ -325,30 +365,8 @@ r = subprocess.run([sys.executable, OVP, "--fw", fwroot], capture_output=True, t
 check("ov-gps-mismatch-abort", r.returncode != 0 and "GPIO17/18" in (r.stdout + r.stderr)
       and not os.path.exists(os.path.join(fwroot, "src", "horizon")))
 
-print("== build.py: игровой пакет в data/hzmap ==")
-try:
-    from PIL import Image as _Im
-    _has_pil = True
-except ImportError:
-    _has_pil = False
-check("gp-pillow", _has_pil, "нужен Pillow: pip install pillow")
-groot = os.path.join(TMP, "gameroot")
-gdir = os.path.join(groot, "games", build.GAME_PACK)
-os.makedirs(gdir, exist_ok=True)
-_Im.new("RGB", (960, 640), (1, 2, 3)).save(os.path.join(gdir, "map.jpg"))
-with open(os.path.join(gdir, "pois.txt"), "w", encoding="utf-8") as f:
-    f.write("1. База, Тест, x10, y20, Мастер, Проверка.\n")
-fwdir = os.path.join(groot, "firmware-hz")
-os.makedirs(fwdir, exist_ok=True)
-build.ensure_gamepack(groot, fwdir)
-hz = os.path.join(fwdir, "data", "hzmap")
-check("gp-map", os.path.getsize(os.path.join(hz, "map.rgb565")) == 720 * 480 * 2)
-with open(os.path.join(hz, "pois.csv"), encoding="utf-8") as f:
-    check("gp-csv", f.read() == "B001|1|Тест|21|63|Мастер|Проверка.\n", f.read()[:60])
-try:
-    build.ensure_gamepack(os.path.join(TMP, "gameroot-nogame"), fwdir)
-    check("gp-missing", False, "no Fail raised")
-except build.Fail as e:
-    check("gp-missing", "игрового пакета" in str(e), str(e)[:60])
+print("== build.py: игровой пакет не включается автоматически ==")
+check("no-default-game", not hasattr(build, "GAME_PACK") and
+      not hasattr(build, "ensure_gamepack") and not hasattr(build, "ensure_pillow"))
 
 print(f"\nВСЕГО ПРОШЛО: {len(PASS)}")

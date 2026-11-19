@@ -72,6 +72,8 @@ class MapUiContracts(unittest.TestCase):
         self.assertIn("mapFilePath(path, sizeof(path), m->tab, true)", start)
         self.assertNotIn("HZMAP_ALLOC(bytes)", start)  # не просить 1.2 МБ для открытия
         self.assertLess(build.index("if (!m->mapReady)"), build.index("horizonSetMapLandscape"))
+        self.assertIn('if (!mf) {\n            showMenu();\n            toast("Карта не загружена.', build)
+        self.assertLess(build.index("if (!mf)"), build.index("if (!m->mapW)"))
         self.assertIn('showMenu();\n            toast("Карта: неверный размер файла', build)
         self.assertIn('showMenu(); // сам освободит карту и вернёт ориентацию\n            toast("Карта: не хватает памяти', build)
         self.assertIn('if (!renderView(m))', build)
@@ -255,8 +257,9 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         for field in ('accent', 'text', 'ok'):
             self.assertIn(f'.{field} = 0x09B80F', cyber)
         self.assertIn('.accentText = 0x000000', cyber)
-        version = re.search(r'kFirmwareVersion = "(\d+\.\d+\.\d+\.ZI)"', strings)
+        version = re.search(r'kFirmwareVersion = "(\d+\.\d+\.\d+)"', strings)
         self.assertIsNotNone(version)
+        self.assertEqual(version.group(1), "1.14.0")
         self.assertIn(f'Версия исходников Horizon: `{version.group(1)}`',
                       (ROOT / 'docs/HORIZON.md').read_text(encoding='utf-8'))
         self.assertIn('"ПДА «Горизонт» v.%s", kFirmwareVersion', CORE)

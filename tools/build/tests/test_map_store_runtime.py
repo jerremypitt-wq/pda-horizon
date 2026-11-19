@@ -62,6 +62,11 @@ HARNESS = r'''#include "PortduinoFS.h"
 #include <cstring>
 fs::FS PortduinoFS;
 int main() {
+    HzMapStore empty;
+    empty.loadAll(); // factory image has no game map or baked points
+    assert(empty.baked().empty() && empty.my().empty() && empty.net().empty());
+    assert(empty.tabs().size() == 1 && empty.tabs().front().id == 0);
+    assert(!empty.resetToBaked()); // no map project yet: never erase user points
     PortduinoFS.seed("/hzmap/pois.csv", "B001|0|Start|100|200|Maker|base\n");
     PortduinoFS.seed("/hzmap/del.csv", "B001\n");
     PortduinoFS.seed("/hzmap/map.rgb565", "image data");

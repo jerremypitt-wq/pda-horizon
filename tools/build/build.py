@@ -142,33 +142,45 @@ def ensure_overlay(root, fw, py):
     print("Оверлей синхронен (HORIZON_PACKET_LINK).")
 
 
-# Игровой пакет по умолчанию (каталог games/<имя>: map.jpg + pois.txt).
-# Пока игра одна - константа; вторую игру добавим флагом --game.
-GAME_PACK = "zabytye-istorii"
-
-
-def ensure_pillow(py):
-    """Pillow для конвертера карты (перекод JPG->RGB565). Ставит, если нет."""
-    code, _ = run_capture([py, "-c", "import PIL"])
-    if code == 0:
+def prepare_universal_fs(fw):
+    """Убрать старые игровые файлы из staging перед buildfs (не из ПДА)."""
+    staged = os.path.join(fw, "data", "hzmap")
+    if not os.path.lexists(staged):
         return
-    print("Pillow не найден - ставлю (pip install pillow)...")
-    code = run_stream([py, "-m", "pip", "install", "pillow"], None)
-    if code != 0:
-        raise Fail("pip не смог поставить Pillow (нет интернета? VPN мешает?).\n"
-                   "Что делать: выключи VPN и повтори команду.")
+    if os.path.islink(staged) or not os.path.isdir(staged):
+        raise Fail(f"{staged}: ожидается обычный каталог, а не ссылка/файл.")
+    # Повторная сборка в том же firmware-hz не должна вернуть прежнюю карту.
+    # Не удаляем незнакомые данные: они могут быть положены туда вручную.
+    allowed = re.compile(r"map(?:[0-9]+)?(?:_preview)?\.rgb565\Z")
+    entries = os.listdir(staged)
+    unexpected = [name for name in entries if
+                  (name not in ("pois.csv", "tabs.csv") and not allowed.fullmatch(name)) or
+                  not os.path.isfile(os.path.join(staged, name)) or
+                  os.path.islink(os.path.join(staged, name))]
+    if unexpected:
+        raise Fail(f"В {staged} есть посторонние файлы: {', '.join(sorted(unexpected))}. "
+                   "Убери их из staging вручную, чтобы ZIP не содержал чужую карту/данные.")
+    for name in entries:
+        os.unlink(os.path.join(staged, name))
+    os.rmdir(staged)
+    print(f"Файловая система без встроенной карты: удалено {len(entries)} прежних файлов из staging. "
+          "Карты загружаются отдельно через HorizonMapStudio.")
 
 
-def ensure_gamepack(root, fw):
-    """Сконвертировать игровой пакет в data/hzmap (до buildfs)."""
-    game = os.path.join(root, "games", GAME_PACK)
-    if not os.path.isfile(os.path.join(game, "map.jpg")):
-        raise Fail(f"Нет игрового пакета: {game} (нужны map.jpg + pois.txt).")
-    out = os.path.join(fw, "data", "hzmap")
-    tool = os.path.join(HERE, "poi_pack.py")
-    code = run_stream([sys.executable, tool, "--game", game, "--out", out], root)
-    if code != 0:
-        raise Fail("Конвертер игрового пакета упал (красное выше - причина).")
+def clear_stale_fs_images(fw):
+    """Не позволять package.py упаковать старый LittleFS, если buildfs сбоит."""
+    out = os.path.join(fw, ".pio", "build", ENV)
+    if not os.path.isdir(out):
+        return
+    allowed = re.compile(r"littlefs(?:-[A-Za-z0-9_.-]+)?\.bin\Z")
+    for name in os.listdir(out):
+        if not allowed.fullmatch(name):
+            continue
+        path = os.path.join(out, name)
+        if os.path.islink(path) or not os.path.isfile(path):
+            raise Fail(f"Не могу очистить прежний образ ФС: {path}")
+        os.unlink(path)
+        print(f"Удалён прежний образ ФС: {name}")
 
 
 def pio_build(fw, py):
@@ -178,6 +190,7 @@ def pio_build(fw, py):
                    "Что делать: если там про сеть - выключи VPN и повтори; "
                    "иначе пришли хвост вывода.")
     print("Сборка приложения: УСПЕХ.")
+    clear_stale_fs_images(fw)
     code = run_stream([py, "-m", "platformio", "run", "-e", ENV, "-t", "buildfs"], fw)
     if code != 0:
         raise Fail("Сборка файловой системы (buildfs) не удалась. Пришли хвост вывода.")
@@ -270,8 +283,7 @@ def main(argv=None, root=None):
         ensure_platformio(sys.executable)
         fw = ensure_tree(root)
         ensure_overlay(root, fw, sys.executable)
-        ensure_pillow(sys.executable)
-        ensure_gamepack(root, fw)
+        prepare_universal_fs(fw)
         pio_build(fw, sys.executable)
         verify_outputs(root)
         over_ver = read_overlay_version(fw)

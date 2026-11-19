@@ -494,9 +494,13 @@ void HorizonUI::buildMap(void)
         char path[48];
         mapFilePath(path, sizeof(path), m->tab, false);
         File mf = mapFs.open(path, "r");
-        size_t bytes = mf ? mf.size() : 0;
-        if (mf)
-            mf.close();
+        if (!mf) {
+            showMenu();
+            toast("Карта не загружена. Добавь её через HorizonMapStudio");
+            return;
+        }
+        size_t bytes = mf.size();
+        mf.close();
         for (int unit = kMinMapUnit; unit <= kMaxMapUnit; unit++) {
             if (bytes == (size_t)12 * unit * unit) {
                 m->mapW = 3 * unit;
