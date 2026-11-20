@@ -12,7 +12,7 @@
  4. fw/horizon_target_firmware.h      -> <fw>/src/horizon/horizon_target.h (вкус!)
  5. fw/tftSetup_horizon.cpp          -> <fw>/src/graphics/tftSetup.cpp (бекап .stock)
  6. FSCommon.h: не форматировать ФС при сбое монтирования (с бекапом).
- 7. variant.h: выключить UART-GPS на GPIO17/18 (MAX17048), с бекапом.
+ 7. variant.h: оставить UART-GPS выключенным (GPS ещё не реализован), с бекапом.
  8. Boot-заливка в установленном device-ui: зелёный -> чёрный (идемпотентно).
 
 Использование (Windows, PowerShell, из клона прошивки на теге v2.8.1):
@@ -37,10 +37,11 @@ BOOT_OLD = "color565(0x3D, 0xDA, 0x83)"
 BOOT_NEW = "color565(0x00, 0x00, 0x00)"
 FS_OLD = b"#define FSBegin() FSCom.begin(true) // format on failure"
 FS_SAFE = b"#define FSBegin() FSCom.begin(false) // Horizon: preserve user data on mount failure"
-# Сток CrowPanel small 3.5: GPS (если включён в сохранённом конфиге) запускает
-# UART1 на тех же GPIO17/18, где у нас программный I2C MAX17048.
+# UART1/GPS на J15 физически свободен после переноса MAX на J13, но GPS
+# остаётся выключенным: поддержки в интерфейсе и модели данных пока нет.
 GPS_STOCK = b"#define HAS_GPS 1"
-GPS_SAFE = b"#define HAS_GPS 0 // Horizon: GPIO17/18 reserved for MAX17048"
+GPS_SAFE_OLD = b"#define HAS_GPS 0 // Horizon: GPIO17/18 reserved for MAX17048"
+GPS_SAFE = b"#define HAS_GPS 0 // Horizon: GPS not implemented; J15 UART pins are free"
 GPS_PINS = (b"#define GPS_RX_PIN 18", b"#define GPS_TX_PIN 17")
 
 
@@ -133,11 +134,11 @@ def main():
             variant_text = f.read()
     except OSError as e:
         sys.exit(f"ОШИБКА: не найден variant.h CrowPanel: {e}")
-    if (variant_text.count(GPS_STOCK) + variant_text.count(GPS_SAFE) != 1 or any(
+    if (sum(variant_text.count(v) for v in (GPS_STOCK, GPS_SAFE_OLD, GPS_SAFE)) != 1 or any(
         variant_text.count(pin) != 1 for pin in GPS_PINS
     )):
         sys.exit("ОШИБКА: схема GPS CrowPanel изменилась; проверьте GPIO17/18 перед сборкой")
-    if GPS_SAFE in variant_text and not os.path.isfile(variant_stock):
+    if (GPS_SAFE_OLD in variant_text or GPS_SAFE in variant_text) and not os.path.isfile(variant_stock):
         sys.exit("ОШИБКА: GPS уже отключён, но нет backup variant.h.stock-horizon; проверьте вручную")
 
     total = 0
@@ -189,13 +190,13 @@ def main():
         print("  уже безопасно (FSBegin(false))")
     total += 1
 
-    print("7) GPS-UART на J15 выключен (GPIO17/18 заняты MAX17048):")
-    if GPS_STOCK in variant_text:
+    print("7) GPS-UART на J15 выключен (GPS ещё не реализован):")
+    if GPS_STOCK in variant_text or GPS_SAFE_OLD in variant_text:
         if not args.dry_run:
             if not os.path.isfile(variant_stock):
                 shutil.copy2(variant_header, variant_stock)
             with open(variant_header, "wb") as f:
-                f.write(variant_text.replace(GPS_STOCK, GPS_SAFE))
+                f.write(variant_text.replace(GPS_STOCK if GPS_STOCK in variant_text else GPS_SAFE_OLD, GPS_SAFE))
         print("  patched variant.h (HAS_GPS=0), оригинал .stock-horizon")
     else:
         print("  уже выключен (HAS_GPS=0)")

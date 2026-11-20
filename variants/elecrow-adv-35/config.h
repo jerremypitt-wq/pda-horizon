@@ -22,6 +22,7 @@
 // and class declaration.
 #ifdef __cplusplus
 #include <LovyanGFX.hpp>
+#include "horizon/HorizonI2cBus.h"
 
 #if defined(HORIZON_UI)
 // Определена в src/horizon/HorizonView.cpp: возвращает orientation из уже
@@ -118,13 +119,13 @@ class LGFX_ELECROW_ADV_35 : public lgfx::LGFX_Device
             cfg.bus_shared = false;
             cfg.pin_int = 47;
             cfg.pin_rst = 48;
-            // У вендора i2c_port=0. У нас 1: шина 0 зарезервирована за Arduino
-            // Wire (хоть он у нас и не стартует — I2C_SDA не задан), а тач на
-            // отдельной шине гарантированно ни с чем не конфликтует.
-            cfg.i2c_port = 1;
+            // У вендора i2c_port=0; здесь LovyanGFX владеет портом 1.
+            // MAX17048 на J13 разделяет именно этот порт с тачем и RTC;
+            // отдельный Wire/программный I2C на GPIO15/16 недопустим.
+            cfg.i2c_port = HorizonI2cBus::kPort;
             cfg.i2c_addr = 0x14;
-            cfg.pin_sda = 15;
-            cfg.pin_scl = 16;
+            cfg.pin_sda = HorizonI2cBus::kSda;
+            cfg.pin_scl = HorizonI2cBus::kScl;
             cfg.freq = 400000;
             _touch.config(cfg);
             _panel.setTouch(&_touch);

@@ -239,6 +239,19 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
             self.assertEqual([i + first for i in range(len(options))],
                              [1] if first else [0, 1])
 
+    def test_max_and_touch_use_one_j13_lgfx_bus(self):
+        bus = (ROOT / "src/horizon/HorizonI2cBus.h").read_text(encoding="utf-8")
+        config = (ROOT / "variants/elecrow-adv-35/config.h").read_text(encoding="utf-8")
+        battery = (ROOT / "src/horizon/HorizonBattery.cpp").read_text(encoding="utf-8")
+        for pin in ("kPort = 1", "kSda = 15", "kScl = 16"):
+            self.assertIn(pin, bus)
+        for field, symbol in (("i2c_port", "kPort"), ("pin_sda", "kSda"), ("pin_scl", "kScl")):
+            self.assertIn(f"cfg.{field} = HorizonI2cBus::{symbol};", config)
+        self.assertIn("lgfx::i2c::transactionWriteRead(HorizonI2cBus::kPort", battery)
+        self.assertNotIn("lgfx::i2c::init(", battery)
+        self.assertNotIn("recoverBus(", battery)
+        self.assertNotIn("pinMode(", battery)
+
     def test_theme_version_battery_reboot_contract(self):
         setup = (ROOT / "src/horizon/HorizonSetupUI.cpp").read_text(encoding="utf-8")
         theme = (ROOT / "src/horizon/HorizonTheme.cpp").read_text(encoding="utf-8")
@@ -249,6 +262,8 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         self.assertIn('{"Батарея", vbsub, 6}', master)
         self.assertIn('case 6:\n        self->buildSetBattery();', setup)
         self.assertIn('case Screen::SET_BATTERY:\n        self->showMaster();', CORE)
+        self.assertIn('"MAX17048 не найден. Проверьте J13."', setup)
+        self.assertIn('addNavHeader(scr, "Батарея", "MAX17048 · J13")', setup)
         self.assertIn('"Киберпанк"', (ROOT / "src/horizon/HorizonStrings.cpp").read_text(encoding="utf-8"))
         self.assertIn('kThemeCount = 6', strings)
         cyber = theme.split('// CYBERPUNK', 1)[1].split('},', 1)[0]
@@ -259,7 +274,7 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         self.assertIn('.accentText = 0x000000', cyber)
         version = re.search(r'kFirmwareVersion = "(\d+\.\d+\.\d+)"', strings)
         self.assertIsNotNone(version)
-        self.assertEqual(version.group(1), "1.15.1")
+        self.assertEqual(version.group(1), "1.15.2")
         self.assertIn(f'Версия исходников Horizon: `{version.group(1)}`',
                       (ROOT / 'docs/HORIZON.md').read_text(encoding='utf-8'))
         self.assertIn('"ПДА «Горизонт» v.%s", kFirmwareVersion', CORE)

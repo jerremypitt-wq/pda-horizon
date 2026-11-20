@@ -55,7 +55,7 @@ with open(os.path.join(hdr, "HorizonStrings.h"), "w") as f:
     f.write('constexpr const char *kFirmwareVersion = "1.7.0";\n')
 check("version-read", build.read_version(TMP) == "1.7.0")
 check("version-missing", build.read_version(os.path.join(TMP, "nope")) is None)
-check("current-version-without-game-suffix", build.read_version(REPO) == "1.15.1")
+check("current-version-without-game-suffix", build.read_version(REPO) == "1.15.2")
 
 print("== build.py: чистая FS без игровой карты ==")
 neutral = os.path.join(TMP, "neutral-fw")
@@ -351,6 +351,16 @@ check("ov-stock-once", open(stock, encoding="utf-8").read() == "// stock tft\n")
 check("ov-fs-idempotent", ovmod.FS_SAFE in open(fs_header, "rb").read())
 check("ov-gps-backup-once", ovmod.GPS_STOCK in open(variant + ".stock-horizon", "rb").read()
       and ovmod.GPS_SAFE in open(variant, "rb").read())
+# Переход с оверлея 1.15.1: прежний комментарий о занятом J15 должен
+# обновиться без потери исходного variant.h в .stock-horizon.
+with open(variant, "rb") as f:
+    updated_variant = f.read()
+with open(variant, "wb") as f:
+    f.write(updated_variant.replace(ovmod.GPS_SAFE, ovmod.GPS_SAFE_OLD))
+r = subprocess.run([sys.executable, OVP, "--fw", fwroot],
+                   capture_output=True, text=True)
+check("ov-gps-migrate", r.returncode == 0 and ovmod.GPS_SAFE in open(variant, "rb").read()
+      and ovmod.GPS_STOCK in open(variant + ".stock-horizon", "rb").read())
 # Регрессия «замороженный оверлей»: протухшая копия обязана затоптаться повтором.
 with open(os.path.join(hzdst, "HorizonStrings.h"), "w") as f:
     f.write('constexpr const char *kFirmwareVersion = "0.0.0";\n')

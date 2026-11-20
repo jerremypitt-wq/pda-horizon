@@ -1,7 +1,7 @@
 #pragma once
 #include "horizon_target.h"
-// MAX17048 на J15: программная I2C-шина (GPIO17 SDA / GPIO18 SCL).
-// Аппаратные I2C0/I2C1 заняты прошивкой и тачем GT911.
+// MAX17048 на J13: общая шина LovyanGFX I2C1 с GT911/RTC
+// (GPIO15 SDA / GPIO16 SCL). Порт инициализирует тач.
 #ifdef HORIZON_UI
 
 #include <stdint.h>
@@ -19,7 +19,7 @@ struct HzBatteryState {
 // Возвращает false при NACK, обрыве, занятой шине или невалидных данных.
 // Опрос вызывается раз в 30 секунд из HorizonView; на следующем опросе
 // повторяется и обнаружение, и чтение (при возвращении модуля).
-// Не использует ADC, калибровку или контроллеры Wire/GT911.
+// Не использует ADC, калибровку или Wire; разделяет I2C-порт с GT911.
 bool hzBatteryPoll(HzBatteryState &st);
 
 #endif // HORIZON_UI

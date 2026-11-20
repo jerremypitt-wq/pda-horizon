@@ -2,165 +2,41 @@
 #ifdef HORIZON_UI
 
 #include "horizon/HorizonBattery.h"
-#include "Arduino.h"
+#include "horizon/HorizonI2cBus.h"
+
+#if !defined(ARCH_PORTDUINO)
+#include <LovyanGFX.hpp>
 
 namespace {
-#if !defined(ARCH_PORTDUINO)
-constexpr uint8_t kSda = 17; // J15.2
-constexpr uint8_t kScl = 18; // J15.1
-constexpr uint8_t kAddr = 0x36;
+// J13: SDA=GPIO15, SCL=GPIO16. GT911 уже инициализирует I2C-порт 1
+// LovyanGFX на этих пинах. Нельзя запускать Wire/TwoWire или битбэнг на
+// общей шине: транзакции MAX должны брать тот же lock, что и тач.
+constexpr int kAddr = 0x36;
+constexpr uint32_t kFreq = 100000; // тач использует 400 кГц; частота задаётся на транзакцию
 constexpr uint8_t kVcell = 0x02;
 constexpr uint8_t kSoc = 0x04;
 constexpr uint8_t kVersion = 0x08;
 constexpr uint8_t kCrate = 0x16;
-constexpr unsigned kHalfPeriodUs = 5;
-constexpr unsigned kStretchTimeoutUs = 1000;
-
-// Только открытый сток: никогда не выводить HIGH на GPIO, чтобы не подать
-// напряжение батареи/логики обратно в другую цепь. Подтяжки SDA/SCL модуля
-// должны идти к J15.3 (3V3), а не к BAT: это проверяют ДО подключения.
-void release(uint8_t pin) { pinMode(pin, INPUT); }
-void low(uint8_t pin)
-{
-    digitalWrite(pin, LOW);
-    pinMode(pin, OUTPUT);
-}
-void pause(void) { delayMicroseconds(kHalfPeriodUs); }
-
-bool highClock(void)
-{
-    release(kScl);
-    // Если slave держит SCL (clock stretching или неисправность) — не висеть.
-    for (unsigned i = 0; i < kStretchTimeoutUs / kHalfPeriodUs; ++i) {
-        if (digitalRead(kScl) == HIGH) {
-            pause();
-            return true;
-        }
-        pause();
-    }
-    return false;
-}
-
-void stop(void)
-{
-    low(kSda);
-    pause();
-    (void)highClock();
-    release(kSda);
-    pause();
-}
-
-bool start(void)
-{
-    release(kSda);
-    if (!highClock())
-        return false;
-    if (digitalRead(kSda) != HIGH) // шина занята / SDA застряла
-        return false;
-    low(kSda);
-    pause();
-    low(kScl);
-    return true;
-}
-
-// Если ESP перезагрузился посередине чтения, MAX может ждать оставшиеся биты
-// и держать SDA низким. До 9 открыто-стоковых тактов и STOP освобождают шину;
-// при обрыве/коротком замыкании просто выходим по таймауту без HIGH на GPIO.
-bool recoverBus(void)
-{
-    release(kSda);
-    if (!highClock())
-        return false;
-    for (unsigned i = 0; i < 9; ++i) {
-        if (digitalRead(kSda) == HIGH)
-            break;
-        low(kScl);
-        pause();
-        if (!highClock())
-            return false;
-    }
-    stop();
-    return true; // start() ещё раз проверит обе линии
-}
-
-// Repeated START после отправки адреса регистра (SCL уже низкий).
-bool restart(void)
-{
-    release(kSda);
-    pause();
-    if (!highClock() || digitalRead(kSda) != HIGH)
-        return false;
-    low(kSda);
-    pause();
-    low(kScl);
-    return true;
-}
-
-bool writeByte(uint8_t value)
-{
-    for (int i = 7; i >= 0; --i) {
-        if (value & (1u << i))
-            release(kSda);
-        else
-            low(kSda);
-        pause();
-        if (!highClock())
-            return false;
-        low(kScl);
-    }
-    release(kSda); // ACK передаёт slave, master никогда не ведёт SDA
-    pause();
-    if (!highClock())
-        return false;
-    bool ack = digitalRead(kSda) == LOW;
-    low(kScl);
-    return ack;
-}
-
-bool readByte(uint8_t &value, bool ack)
-{
-    value = 0;
-    release(kSda);
-    for (int i = 0; i < 8; ++i) {
-        pause();
-        if (!highClock())
-            return false;
-        value = (uint8_t)((value << 1) | (digitalRead(kSda) == HIGH ? 1 : 0));
-        low(kScl);
-    }
-    if (ack)
-        low(kSda);
-    else
-        release(kSda); // NACK после младшего байта
-    pause();
-    if (!highClock())
-        return false;
-    low(kScl);
-    release(kSda);
-    return true;
-}
 
 bool readReg(uint8_t reg, uint16_t &value)
 {
-    // Не делать Wire.begin/TwoWire(1): в single-MCU I2C0 занят firmware
-    // на 15/16, а I2C1 напрямую занят LovyanGFX GT911 на тех же пинах.
-    if (!start() && (!recoverBus() || !start())) {
-        release(kSda);
-        release(kScl);
+    uint8_t bytes[2] = {};
+    // На неисправной/неинициализированной конфигурации не переназначать
+    // GPIO и не трогать чужую шину. Порт GT911 инициализируется дисплеем.
+    auto sda = lgfx::i2c::getPinSDA(HorizonI2cBus::kPort);
+    auto scl = lgfx::i2c::getPinSCL(HorizonI2cBus::kPort);
+    if (!sda.has_value() || !scl.has_value() || sda.value() != HorizonI2cBus::kSda || scl.value() != HorizonI2cBus::kScl)
         return false;
-    }
-    bool ok = writeByte(kAddr << 1) && writeByte(reg) && restart() &&
-              writeByte((kAddr << 1) | 1);
-    uint8_t msb = 0, lsb = 0;
-    if (ok)
-        ok = readByte(msb, true) && readByte(lsb, false);
-    stop(); // отпустить шину и при NACK/таймауте
-    if (ok)
-        value = (uint16_t)((msb << 8) | lsb);
-    return ok;
+    // Тот же transactionWriteRead, что использует GT911: захват lock порта,
+    // repeated START, чтение двух байт и STOP даже при NACK/ошибке.
+    if (!lgfx::i2c::transactionWriteRead(HorizonI2cBus::kPort, kAddr, &reg, 1,
+                                         bytes, sizeof(bytes), kFreq).has_value())
+        return false;
+    value = (uint16_t)((bytes[0] << 8) | bytes[1]); // MSB первым
+    return true;
 }
-#endif // !ARCH_PORTDUINO
 } // namespace
+#endif
 
 bool hzBatteryPoll(HzBatteryState &st)
 {

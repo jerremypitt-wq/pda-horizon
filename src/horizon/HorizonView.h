@@ -175,7 +175,7 @@ class HorizonView : public MeshtasticView
     int myBattery(void) const { return battery; } // -1 - неизвестно
     int resetReasonCode(void) const { return lastResetReason; }
     const char *resetReasonName(void) const;
-    void pollBattery(uint32_t nowMs);             // MAX17048 на J15 (из task_handler)
+    void pollBattery(uint32_t nowMs);             // MAX17048 на J13 (из task_handler)
     int batteryMv(void) const { return vbat.battMv; }
     bool batteryFound(void) const { return vbat.found; }
     bool batteryCharging(void) const { return vbat.found && vbat.charging; }

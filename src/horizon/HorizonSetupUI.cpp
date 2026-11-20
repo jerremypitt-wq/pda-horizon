@@ -1465,7 +1465,7 @@ void HorizonUI::refreshBatteryInfo(void)
                      view->myBattery(), mv / 1000, (mv % 1000) / 10);
         }
     } else {
-        snprintf(present, sizeof(present), "MAX17048 не найден. Проверьте J15.");
+        snprintf(present, sizeof(present), "MAX17048 не найден. Проверьте J13.");
     }
     char voltage[96];
     if (stats.minMv)
@@ -1490,7 +1490,7 @@ void HorizonUI::buildSetBattery(void)
 {
     clearScreen(Screen::SET_BATTERY);
     addStatusBar(scr);
-    addNavHeader(scr, "Батарея", "MAX17048 · J15");
+    addNavHeader(scr, "Батарея", "MAX17048 · J13");
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_set_pos(body, 0, kStatusH + kHeaderH + 2);
