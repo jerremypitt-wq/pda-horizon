@@ -4,6 +4,7 @@
 
 Запуск: python tools/build/tests/test_build.py (чистый Python, ~секунда).
 """
+import atexit
 import importlib.util
 import json
 import os
@@ -18,9 +19,9 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 BUILD_DIR = os.path.abspath(os.path.join(TESTS, ".."))
 REPO = os.path.abspath(os.path.join(BUILD_DIR, "..", ".."))
 FLASHER_DIR = os.path.join(REPO, "tools", "flasher")
-TMP = os.path.join(tempfile.gettempdir(), "hztest-build")
-shutil.rmtree(TMP, ignore_errors=True)
-os.makedirs(TMP, exist_ok=True)
+# Уникальный каталог: параллельные запуски не удаляют файлы друг у друга.
+TMP = tempfile.mkdtemp(prefix="hztest-build-")
+atexit.register(shutil.rmtree, TMP, ignore_errors=True)
 PASS = []
 
 
@@ -54,7 +55,7 @@ with open(os.path.join(hdr, "HorizonStrings.h"), "w") as f:
     f.write('constexpr const char *kFirmwareVersion = "1.7.0";\n')
 check("version-read", build.read_version(TMP) == "1.7.0")
 check("version-missing", build.read_version(os.path.join(TMP, "nope")) is None)
-check("current-version-without-game-suffix", build.read_version(REPO) == "1.15.0")
+check("current-version-without-game-suffix", build.read_version(REPO) == "1.15.1")
 
 print("== build.py: чистая FS без игровой карты ==")
 neutral = os.path.join(TMP, "neutral-fw")
@@ -292,11 +293,17 @@ def boom():
     raise RuntimeError("трагедия в конструкторе")
 
 
+old_app = gui.App
 gui.App = boom
-import tempfile as _tf
+import tempfile as _tf  # noqa: E402 — подменяем mkstemp только для проверки GUI
 fixed = os.path.join(TMP, "fatal.txt")
-_tf.mkstemp = lambda prefix="", suffix="": (os.open(fixed, os.O_WRONLY | os.O_CREAT), fixed)
-code = gui.main()
+old_mkstemp = _tf.mkstemp
+try:
+    _tf.mkstemp = lambda prefix="", suffix="": (os.open(fixed, os.O_WRONLY | os.O_CREAT), fixed)
+    code = gui.main()
+finally:
+    _tf.mkstemp = old_mkstemp
+    gui.App = old_app
 check("fatal-code", code == 1)
 check("fatal-log", os.path.isfile(fixed)
       and "трагедия в конструкторе" in open(fixed, encoding="utf-8").read())

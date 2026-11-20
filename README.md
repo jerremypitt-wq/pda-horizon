@@ -32,7 +32,19 @@ pio run -e elecrow-adv-35-horizon -t upload   # прошивка через J2 (
 - [docs/MAX17048.md](docs/MAX17048.md) — датчик заряда на J15 (с 1.10.0.ZI);
   до подключения необходимо проверить конкретный модуль мультиметром
 - [docs/GPS_PLAN.md](docs/GPS_PLAN.md) — согласованный план будущего GPS, пока без реализации
+- [docs/CODE_AUDIT.md](docs/CODE_AUDIT.md) — ревизия, исправления и непроверенные риски
 - [docs/patches/](docs/patches/) — патчи к форку device-ui
+
+## Проверка исходников без платы
+
+После установки Python-зависимостей (`pillow`, `littlefs-python`, `pyserial`,
+`esptool`) и `g++` запусти из корня:
+
+```bash
+python tools/tests/run_all.py
+```
+
+Хост-проверки не заменяют сборку PlatformIO и испытания на CrowPanel.
 
 ## Основа
 
@@ -41,4 +53,4 @@ pio run -e elecrow-adv-35-horizon -t upload   # прошивка через J2 (
 Штатные окружения MUI под другие платы из `platformio.ini` удалены —
 осталось только `elecrow-adv-35-horizon`.
 
-**Отдельный редактор карт с вкладками** (HorizonMapStudio 1.13.0; прошивка от 1.12.0.ZI, текущая 1.14.0 без встроенной карты): сборка Windows `tools\flasher\build_map_studio.bat`, инструкция — [`tools/flasher/README-MAP-STUDIO.md`](tools/flasher/README-MAP-STUDIO.md). Существующий флешер и его редактор одной карты сохранены.
+**Отдельный редактор карт с вкладками** (HorizonMapStudio 1.13.0; прошивка от 1.12.0.ZI, текущая 1.15.1 без встроенной карты): сборка Windows `tools\flasher\build_map_studio.bat`, инструкция — [`tools/flasher/README-MAP-STUDIO.md`](tools/flasher/README-MAP-STUDIO.md). Существующий флешер и его редактор одной карты сохранены.

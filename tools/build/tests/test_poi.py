@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Проверки poi_pack.py (конвертер игрового пакета). Нужен Pillow."""
+import atexit
 import importlib.util
 import os
+import shutil
 import sys
 import tempfile
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 BUILD_DIR = os.path.abspath(os.path.join(TESTS, ".."))
 REPO = os.path.abspath(os.path.join(BUILD_DIR, "..", ".."))
-TMP = os.path.join(tempfile.gettempdir(), "hztest-poi")
+TMP = tempfile.mkdtemp(prefix="hztest-poi-")
+atexit.register(shutil.rmtree, TMP, ignore_errors=True)
 PASS = []
 
 

@@ -1,5 +1,6 @@
 """Static integration checks for the settings/lock flow (no LVGL toolchain needed)."""
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[2]
 setup = (ROOT / "src/horizon/HorizonSetupUI.cpp").read_text()
@@ -35,5 +36,8 @@ assert '"userPin=%s' in config and '"lockTimeoutSec=%u' in config
 assert "outgoing && !cyber ? p.accentText : p.text" in chat
 assert ".outgoing = 0x031704" in theme and ".danger = 0xFF2020" in theme
 assert "styleDangerButton" in theme and "lv_color_black(), LV_PART_MAIN" in theme
-assert 'kFirmwareVersion = "1.13.1.ZI"' in (ROOT / "src/horizon/HorizonStrings.h").read_text()
+strings = (ROOT / "src/horizon/HorizonStrings.h").read_text()
+version = re.search(r'kFirmwareVersion = "(\d+\.\d+\.\d+)"', strings)
+assert version and f'Версия исходников Horizon: `{version.group(1)}`' in (
+    ROOT / "docs/HORIZON.md").read_text()
 print("Security/settings/theme integration: PASS")

@@ -128,6 +128,35 @@ int main() {
     assert(hzPoiLinkId("HZ:MAPLINK:100-7|Точка", id) && !strcmp(id, "100-7"));
     assert(!hzPoiLinkId("HZ:MAPLINK:100-7|Точка|extra", id));
     assert(!hzPoiLinkId("HZ:MAPLINK:bad/id|Точка", id));
+
+    // Invalid uint32_t values must not wrap into plausible coordinates/types/tabs.
+    std::string csv = "B101|4294967296|Wrapped type|100|200|Peer||0\n"
+                      "B102|0|Wrapped x|4294967396|200|Peer||0\n"
+                      "B103|0|Wrapped tab|100|200|Peer||4294967296\n"
+                      "B104|+0|Signed type|100|200|Peer||0\n";
+    // First 1023 bytes fill the buffer; a valid-looking suffix is NOT a new POI.
+    csv += std::string(1023, 'X') + "B105|0|Ghost|100|200|Peer||0\n";
+    csv += "B106|0|Real|100|200|Peer||0\n";
+    PortduinoFS.seed("/hzmap/pois.csv", csv.c_str());
+    PortduinoFS.seed("/hzmap/tabs.csv", "0|Map\n");
+    HzMapStore strict;
+    strict.loadAll();
+    assert(strict.baked().size() == 1 && strict.find("B106"));
+    assert(!strict.find("B101") && !strict.find("B102") && !strict.find("B103"));
+    assert(!strict.find("B104") && !strict.find("B105"));
+
+    std::string tabs = std::string(95, 'X') + "9|Ghost tab\n0|Real map\n";
+    PortduinoFS.seed("/hzmap/tabs.csv", tabs.c_str());
+    HzMapStore tabCheck;
+    tabCheck.loadAll();
+    assert(tabCheck.tabs().size() == 1 && tabCheck.tabs().front().name == "Real map");
+    assert(!tabCheck.hasTab(9));
+    // Same guard for deleted point IDs: don't tombstone a point from a suffix.
+    std::string dels = std::string(47, 'X') + "B106\n";
+    PortduinoFS.seed("/hzmap/del.csv", dels.c_str());
+    HzMapStore delCheck;
+    delCheck.loadAll();
+    assert(delCheck.find("B106") && !delCheck.isTombstoned("B106"));
 }
 '''
 

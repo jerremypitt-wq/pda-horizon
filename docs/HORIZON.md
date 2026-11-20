@@ -13,7 +13,7 @@ pio run -e elecrow-adv-35-horizon        # сборка
 pio run -e elecrow-adv-35-horizon -t upload  # прошивка
 ```
 
-Версия исходников Horizon: `1.15.0` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
+Версия исходников Horizon: `1.15.1` (`kFirmwareVersion` в `src/horizon/HorizonStrings.h`).
 Начиная с 1.14.0 суффикса игры `.ZI` нет: код прошивки одинаков для всех игр.
 `build.bat` больше не добавляет карту и точки в файловую систему; после
 первой записи на чистый ПДА их нужно отдельно загрузить HorizonMapStudio.

@@ -41,16 +41,41 @@ size_t splitFields(char *line, char **f, size_t maxF)
     return n;
 }
 
-// Строгое число: только цифры, целиком (пустое и с хвостом - брак).
+// Число без знака/пробелов: проверять переполнение ДО приведения к uint32_t.
+// Иначе 4294967296 превращается в 0 на 64-битном хосте (и в ULONG_MAX на ESP).
 bool parseU(const char *s, uint32_t &out)
 {
     if (!s || !*s)
         return false;
-    char *e = nullptr;
-    unsigned long v = strtoul(s, &e, 10);
-    if (!e || e == s || *e)
+    uint32_t value = 0;
+    for (const char *p = s; *p; ++p) {
+        if (*p < '0' || *p > '9')
+            return false;
+        uint32_t digit = (uint32_t)(*p - '0');
+        if (value > (UINT32_MAX - digit) / 10)
+            return false;
+        value = value * 10 + digit;
+    }
+    out = value;
+    return true;
+}
+
+// Не считать остаток слишком длинной строки отдельной записью CSV.
+// Даже если остаток похож на корректную точку, он принадлежит битой строке.
+template <size_t N> bool readWholeLine(File &f, char (&line)[N], size_t &n)
+{
+    n = f.readBytesUntil('\n', line, N - 1);
+    line[n] = '\0';
+    if (n == N - 1) {
+        char discard[64];
+        size_t count;
+        do {
+            count = f.readBytesUntil('\n', discard, sizeof(discard));
+        } while (count == sizeof(discard) && f.available());
         return false;
-    out = (uint32_t)v;
+    }
+    while (n > 0 && line[n - 1] == '\r')
+        line[--n] = '\0';
     return true;
 }
 
@@ -65,10 +90,11 @@ bool loadCsv(const char *path, std::vector<HzPoi> &out, int mode)
     size_t want = mode == 1 ? 12 : (mode == 2 ? 9 : 8);
     size_t bad = 0;
     while (f.available()) {
-        size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
-        line[n] = '\0';
-        while (n > 0 && (line[n - 1] == '\r' || line[n - 1] == '\n'))
-            line[--n] = '\0';
+        size_t n = 0;
+        if (!readWholeLine(f, line, n)) {
+            bad++;
+            continue;
+        }
         if (!line[0])
             continue;
         char *fld[12] = {nullptr};
@@ -152,9 +178,8 @@ void HzMapStore::loadAll(void)
     if (tf) {
         char line[96];
         while (tf.available() && tabs_.size() < 4) {
-            size_t n = tf.readBytesUntil('\n', line, sizeof(line) - 1);
-            line[n] = '\0';
-            if (n && line[n - 1] == '\r') line[--n] = '\0';
+            size_t n = 0;
+            if (!readWholeLine(tf, line, n)) continue;
             char *sep = strchr(line, '|');
             uint32_t tabId = 0;
             if (!sep || sep == line || !sep[1] || strchr(sep + 1, '|') ||
@@ -183,10 +208,8 @@ void HzMapStore::loadAll(void)
     if (f) {
         char line[48];
         while (f.available()) {
-            size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
-            line[n] = '\0';
-            while (n > 0 && (line[n - 1] == '\r' || line[n - 1] == '\n'))
-                line[--n] = '\0';
+            size_t n = 0;
+            if (!readWholeLine(f, line, n)) continue;
             if (hzPoiIdOk(line))
                 del_.push_back(line);
         }
@@ -196,10 +219,8 @@ void HzMapStore::loadAll(void)
     if (dismissed) {
         char line[48];
         while (dismissed.available()) {
-            size_t n = dismissed.readBytesUntil('\n', line, sizeof(line) - 1);
-            line[n] = '\0';
-            while (n > 0 && (line[n - 1] == '\r' || line[n - 1] == '\n'))
-                line[--n] = '\0';
+            size_t n = 0;
+            if (!readWholeLine(dismissed, line, n)) continue;
             if (hzPoiIdOk(line))
                 directDismissed_.push_back(line);
         }

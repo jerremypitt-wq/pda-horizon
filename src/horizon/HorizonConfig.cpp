@@ -6,8 +6,9 @@
 #include "horizon/HorizonStrings.h"
 #include "horizon/HorizonSecurity.h"
 #include "util/ILog.h"
+#include <errno.h>
 #include <stdio.h>
-#include <stdlib.h> // atoi
+#include <stdlib.h> // strtol, strtoul
 #include <string.h>
 
 #if defined(ARCH_PORTDUINO)
@@ -37,12 +38,18 @@ int parseInt(const char *s, int fallback, int lo, int hi)
 {
     if (!s || !*s)
         return fallback;
-    int v = atoi(s);
+    char *end = nullptr;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (end == s || *end)
+        return fallback;
+    if (errno == ERANGE)
+        return v < 0 ? lo : hi;
     if (v < lo)
-        v = lo;
+        return lo;
     if (v > hi)
-        v = hi;
-    return v;
+        return hi;
+    return (int)v;
 }
 
 // Обрезать UTF-8 строку до maxBytes байт, не разрывая символ.
@@ -127,6 +134,16 @@ void HorizonConfig::load(void)
     char line[160]; // строка FAV с 16 узлами - самая длинная
     while (f.available()) {
         size_t n = f.readBytesUntil('\n', line, sizeof(line) - 1);
+        if (n == sizeof(line) - 1) {
+            // Полная строка не влезла: не применять её начало и не считать
+            // остаток отдельной настройкой (например, silent=0).
+            char discard[64];
+            size_t count;
+            do {
+                count = f.readBytesUntil('\n', discard, sizeof(discard));
+            } while (count == sizeof(discard) && f.available());
+            continue;
+        }
         line[n] = '\0';
         char *eq = strchr(line, '=');
         if (!eq)

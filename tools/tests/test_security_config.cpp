@@ -35,5 +35,14 @@ int main()
     assert(cfg.checkPin("4321") && !cfg.checkPin("123456"));
     cfg.resetToDefaults();
     assert(cfg.checkPin("0000") && !cfg.lockEnabled && !cfg.userPin[0]);
+
+    // Битая длинная строка не должна превращать её хвост в новую настройку.
+    LittleFS.files["/horizon.cfg"] = "silent=1\n" + std::string(159, 'X') +
+        "silent=0\nbrightness=99999999999999999999\nsoundVolume=bad\n";
+    cfg.load();
+    assert(cfg.silent && cfg.brightness == 255 && cfg.soundVolume == 1);
+    LittleFS.files["/horizon.cfg"] = "brightness=12oops\n";
+    cfg.load();
+    assert(cfg.brightness == 180); // значение с хвостом отвергнуто
     std::puts("Security config persistence: PASS");
 }

@@ -26,10 +26,12 @@ else:
     work = img.convert('L')
     mask = work.point(lambda v: 255 if v < 128 else 0)
     invert = True
-l, t, r, b = mask.getbbox()
-l = max(0, l - MARGIN); t = max(0, t - MARGIN)
-r = min(img.width, r + MARGIN); b = min(img.height, b + MARGIN)
-work = work.crop((l, t, r, b))
+left, top, right, bottom = mask.getbbox()
+left = max(0, left - MARGIN)
+top = max(0, top - MARGIN)
+right = min(img.width, right + MARGIN)
+bottom = min(img.height, bottom + MARGIN)
+work = work.crop((left, top, right, bottom))
 w = max(1, round(work.width * TARGET_H / work.height))
 work = work.resize((w, TARGET_H), Image.LANCZOS)
 px = bytearray(work.tobytes())
@@ -37,8 +39,6 @@ for i in range(len(px)):
     v = 255 - px[i] if invert else px[i]
     px[i] = min(255, int(v * GAIN))  # усиление тонких линий
 img_out = Image.frombytes('L', work.size, bytes(px))
-img_out.save('/tmp/hz_logo_preview.png')
-
 w, h = img_out.size
 raw = bytes(px)  # A8: один байт альфы на пиксель
 assert len(raw) == w * h
