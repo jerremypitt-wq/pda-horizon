@@ -31,7 +31,8 @@ class HorizonConfig
 
     // --- Звук ---
     bool silent = false;   // бесшумный режим (без бипов уведомлений)
-    uint8_t soundSet = 0;  // набор звуков 0..2 (см. HorizonSound)
+    uint8_t soundSet = 0;     // рингтон 0..2 (см. HorizonSound)
+    uint8_t soundVolume = 1;  // 0 = тихо, 1 = громко (старые настройки: громко)
     uint32_t dmsClearedAt = 0; // метка чистки личек: рестор старше отсекает (0 - не чистили)
 
     // Устаревшая калибровка делителя: оставлена для совместимости /horizon.cfg.

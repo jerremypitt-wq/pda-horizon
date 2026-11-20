@@ -16,7 +16,7 @@ constexpr const char *kAppSub = "MESH-СВЯЗЬ // STALKER NET";
 // Версия прошивки ПДА: MAJOR.MINOR.PATCH. Бампить КАЖДЫМ функциональным
 // изменением (MINOR - фича/партия, PATCH - хотфикс), чтобы по экрану «О ПДА»,
 // сплэшу и логу было видно, что зашито в устройство. Всё до ввода правила = 1.0.0.
-constexpr const char *kFirmwareVersion = "1.14.0";
+constexpr const char *kFirmwareVersion = "1.15.0";
 
 // Ранги персонажа
 constexpr uint8_t kRankCount = 4;

@@ -852,15 +852,23 @@ void HorizonUI::buildSetSound(void)
         lv_obj_add_state(sw, LV_STATE_CHECKED);
     lv_obj_add_event_cb(sw, cbSoundToggle, LV_EVENT_VALUE_CHANGED, this);
 
-    sectionLabel(body, "Набор звуков");
-    const char *sndNames[3] = {"Тройной", "Двойной", "Одиночный"};
-    for (int i = 0; i < 3; i++) {
-        char title[48];
-        snprintf(title, sizeof(title), "%s %s", cfg.soundSet == i ? "[x]" : "[ ]", sndNames[i]);
-        lv_obj_t *b = rowButton(body, title, nullptr, i);
-        lv_obj_remove_event_cb(b, cbRow);
-        lv_obj_add_event_cb(b, cbSoundSet, LV_EVENT_CLICKED, this);
-    }
+    sectionLabel(body, "Громкость");
+    lv_obj_t *volume = lv_dropdown_create(body);
+    HorizonTheme::styleField(volume);
+    lv_dropdown_set_options(volume, "Тихо\nГромко");
+    lv_dropdown_set_selected(volume, cfg.soundVolume == 0 ? 0 : 1);
+    lv_obj_set_width(volume, lv_pct(100));
+    styleDropdownList(volume);
+    lv_obj_add_event_cb(volume, cbSoundVolume, LV_EVENT_VALUE_CHANGED, this);
+
+    sectionLabel(body, "Рингтон");
+    lv_obj_t *ringtone = lv_dropdown_create(body);
+    HorizonTheme::styleField(ringtone);
+    lv_dropdown_set_options(ringtone, "Тройной\nДвойной\nОдиночный");
+    lv_dropdown_set_selected(ringtone, cfg.soundSet < HorizonSound::kSetCount ? cfg.soundSet : 0);
+    lv_obj_set_width(ringtone, lv_pct(100));
+    styleDropdownList(ringtone);
+    lv_obj_add_event_cb(ringtone, cbSoundSet, LV_EVENT_VALUE_CHANGED, this);
 
     sectionLabel(body, "Проверка");
     lv_obj_t *test = lv_btn_create(body);
@@ -886,21 +894,30 @@ void HorizonUI::cbSoundToggle(lv_event_t *e)
     lv_obj_t *sw = (lv_obj_t *)lv_event_get_current_target(e);
     bool on = lv_obj_has_state(sw, LV_STATE_CHECKED);
     HorizonConfig::instance().silent = on;
+    if (on)
+        HorizonSound::instance().stop();
     HorizonConfig::instance().save();
     self->toast(on ? "Бесшумный режим включён" : "Звук включён");
 }
 
+void HorizonUI::cbSoundVolume(lv_event_t *e)
+{
+    uint16_t id = lv_dropdown_get_selected((lv_obj_t *)lv_event_get_current_target(e));
+    if (id > 1)
+        return;
+    HorizonConfig::instance().soundVolume = (uint8_t)id;
+    HorizonConfig::instance().save();
+    HorizonSound::instance().play(HorizonSound::MESSAGE); // послушать новую громкость
+}
+
 void HorizonUI::cbSoundSet(lv_event_t *e)
 {
-    HorizonUI *self = (HorizonUI *)lv_event_get_user_data(e);
-    int id = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
-    if (id < 0 || id > 2)
+    uint16_t id = lv_dropdown_get_selected((lv_obj_t *)lv_event_get_current_target(e));
+    if (id >= HorizonSound::kSetCount)
         return;
     HorizonConfig::instance().soundSet = (uint8_t)id;
     HorizonConfig::instance().save();
-    if (!HorizonConfig::instance().silent)
-        HorizonSound::instance().play(HorizonSound::MESSAGE); // сразу послушать
-    self->buildSetSound(); // перерисовать галочки
+    HorizonSound::instance().play(HorizonSound::MESSAGE); // сразу послушать
 }
 
 void HorizonUI::cbSoundTest(lv_event_t *e)
