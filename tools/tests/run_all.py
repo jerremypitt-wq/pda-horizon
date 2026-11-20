@@ -27,7 +27,8 @@ def main():
     for folder in ("tools/build/tests", "tools/flasher/tests"):
         out = run(folder, [sys.executable, "-m", "unittest", "discover", "-s", folder, "-q"])
         print("  " + next((line for line in out.splitlines() if line.startswith("Ran ")), ""))
-    for name in ("test_group_contacts_ui_contract.py", "test_security_ui_contract.py"):
+    for name in ("test_group_contacts_ui_contract.py", "test_security_ui_contract.py",
+                 "test_firmware_changelog.py"):
         run(name, [sys.executable, str(HOST / name)])
 
     compiler = shutil.which("g++")

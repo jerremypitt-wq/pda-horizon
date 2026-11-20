@@ -24,6 +24,8 @@ pio run -e elecrow-adv-35-horizon -t upload   # прошивка через J2 (
 
 ## Документация
 
+- [docs/FIRMWARE_CHANGELOG.md](docs/FIRMWARE_CHANGELOG.md) — полный журнал версий прошивки:
+  даты фиксации в Git, краткие изменения и правило добавления новых версий
 - [docs/HORIZON.md](docs/HORIZON.md) — описание прошивки: экраны, настройки,
   мастер-пароль, интеграция с Meshtastic, хост-проверка синтаксиса
 - [docs/FIRST_BOOT.md](docs/FIRST_BOOT.md) — инструкция по первому включению
