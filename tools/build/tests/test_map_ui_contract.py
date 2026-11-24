@@ -274,7 +274,7 @@ struct lv_image_dsc_t { image_header header; unsigned data_size; const uint8_t *
         self.assertIn('.accentText = 0x000000', cyber)
         version = re.search(r'kFirmwareVersion = "(\d+\.\d+\.\d+)"', strings)
         self.assertIsNotNone(version)
-        self.assertEqual(version.group(1), "1.15.2")
+        self.assertEqual(version.group(1), "1.15.3")
         self.assertIn(f'Версия исходников Horizon: `{version.group(1)}`',
                       (ROOT / 'docs/HORIZON.md').read_text(encoding='utf-8'))
         self.assertIn('"ПДА «Горизонт» v.%s", kFirmwareVersion', CORE)

@@ -330,6 +330,23 @@ void HorizonUI::cbInputFocus(lv_event_t *e)
 
 // ---------------- контакты ----------------
 
+static void fmtContactStatus(HorizonView *view, uint32_t id, char *out, size_t cap)
+{
+    uint32_t age = 0;
+    if (!view->contactAge(id, age)) {
+        snprintf(out, cap, "не в сети · давность неизвестна");
+    } else if (view->contactOnline(id)) {
+        if (age < 90) snprintf(out, cap, "в сети · сейчас");
+        else snprintf(out, cap, "в сети · %u мин назад", (unsigned)(age / 60));
+    } else if (age > HzContacts::kKeepSec) {
+        snprintf(out, cap, "не в сети · давно не слышно");
+    } else if (age < 3600) {
+        snprintf(out, cap, "не в сети · %u мин назад", (unsigned)(age / 60));
+    } else {
+        snprintf(out, cap, "не в сети · %u ч назад", (unsigned)(age / 3600));
+    }
+}
+
 void HorizonUI::showContacts(void)
 {
     buildContacts();
@@ -339,7 +356,7 @@ void HorizonUI::buildContacts(void)
 {
     clearScreen(Screen::CONTACTS);
     addStatusBar(scr);
-    addNavHeader(scr, "Контакты", mapPickMode ? "Кому отправить точку" : "На связи (10 мин) · ★ всегда");
+    addNavHeader(scr, "Контакты", mapPickMode ? "Кому отправить точку" : "В сети (30 мин) · ★ сохраняются");
 
     // Четыре фильтра: в портрете переносим «Избранное» на вторую строку.
     const int16_t filterH = W() < 400 ? 70 : 36;
@@ -405,6 +422,8 @@ void HorizonUI::buildContacts(void)
     lv_obj_set_style_pad_row(contactsList, 4, LV_PART_MAIN);
 
     rebuildContactsList();
+    lastContactsMs = nowMs();
+    contactsRefreshPending = false;
 }
 
 void HorizonUI::rebuildContactsList(void)
@@ -416,41 +435,28 @@ void HorizonUI::rebuildContactsList(void)
 
     struct Row {
         uint32_t id;
-        uint32_t lh;
+        uint32_t age;
         bool fav;
     };
-    // В контактах - только живые: настоящее имя (не синтетика «Meshtastic ****»)
-    // и активность за последние 10 минут. Избранное - всегда, даже молчуны.
-    // Сырые/старые узлы смотрят в детекторе, история - в открытых чатах.
-    static const uint32_t kContactFreshSec = 10 * 60;
+    // Справочник, а не временная радиобаза: молчание и отсутствие NodeInfo
+    // не прячут игрока. Просроченные обычные записи удаляет HzContacts.
     std::vector<Row> rows;
     HorizonConfig &cfg = HorizonConfig::instance();
     if (contactsFilter == 2)
         view->refreshGroupContacts();
-    for (auto &kv : view->getNodes().records()) {
-        if (kv.first == view->getMyNodeNum())
-            continue;
+    for (const auto &kv : view->getContacts().records()) {
+        if (kv.first == view->getMyNodeNum()) continue;
         bool fav = cfg.isFavorite(kv.first);
-        if (!fav) {
-            const NodeRecord &nr = kv.second;
-            if (!nr.hasUser || nr.user.hw_model == meshtastic_HardwareModel_UNSET || !nr.user.long_name[0])
-                continue; // заглушка без настоящего имени
-            if (!view->isNodeHeardWithin(kv.first, kContactFreshSec))
-                continue; // молчит дольше 10 минут
-        }
-        if (contactsFilter == 1 && !view->isNodeHeardWithin(kv.first, kContactFreshSec))
-            continue;
-        if (contactsFilter == 2 && !view->isGroupContact(kv.first))
-            continue;
-        if (contactsFilter == 3 && !fav)
-            continue;
-        rows.push_back({kv.first, kv.second.lastHeard, fav});
+        if (contactsFilter == 1 && !view->contactOnline(kv.first)) continue;
+        if (contactsFilter == 2 && !view->isGroupContact(kv.first)) continue;
+        if (contactsFilter == 3 && !fav) continue;
+        uint32_t age;
+        if (!view->contactAge(kv.first, age)) age = UINT32_MAX;
+        rows.push_back({kv.first, age, fav});
     }
-    // избранное сверху, дальше свежие сверху
     std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
-        if (a.fav != b.fav)
-            return a.fav > b.fav;
-        return a.lh > b.lh;
+        if (a.fav != b.fav) return a.fav > b.fav;
+        return a.age < b.age;
     });
 
     if (contactsFavLabel && lv_obj_is_valid(contactsFavLabel))
@@ -461,7 +467,7 @@ void HorizonUI::rebuildContactsList(void)
         lv_label_set_text(e, contactsFilter == 1   ? "Никого нет в сети"
                              : contactsFilter == 2 ? "Нет подтверждённых контактов\nв чате группировки"
                              : contactsFilter == 3 ? "Нет избранных контактов"
-                                                   : "Никого на связи\nСырые узлы - в детекторе");
+                                                   : "Контактов пока нет\nНовые узлы появятся после приёма пакета");
         lv_obj_set_style_text_color(e, hzColor(p.textDim), LV_PART_MAIN);
         lv_obj_set_width(e, lv_pct(100));
         lv_obj_set_style_text_align(e, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -469,7 +475,6 @@ void HorizonUI::rebuildContactsList(void)
     }
 
     for (auto &r : rows) {
-        const NodeRecord *rec = view->getNodes().find(r.id);
         bool online = view->isNodeOnline(r.id);
 
         lv_obj_t *b = lv_btn_create(contactsList);
@@ -513,13 +518,8 @@ void HorizonUI::rebuildContactsList(void)
         }
         lv_obj_set_width(nm, lv_pct(100));
 
-        char sub[72];
-        char lh[24];
-        fmtLastHeard(view, rec ? rec->lastHeard : 0, lh, sizeof(lh));
-        if (rec && (rec->signalDisplay != NodeSignalDisplayKind::None || rec->rssi != 0))
-            snprintf(sub, sizeof(sub), "%s · SNR %.1f", lh, rec->snr);
-        else
-            snprintf(sub, sizeof(sub), "%s", lh);
+        char sub[96];
+        fmtContactStatus(view, r.id, sub, sizeof(sub));
         lv_obj_t *sb = lv_label_create(col);
         lv_label_set_text(sb, sub);
         lv_obj_set_style_text_font(sb, HorizonTheme::fontSmall(), LV_PART_MAIN);
@@ -602,12 +602,11 @@ void HorizonUI::buildContactCard(void)
     uint32_t id = cardNode;
     const NodeRecord *rec = view->getNodes().find(id);
     const HorizonDossierInfo *d = view->getStore().findDossier(id);
-    bool online = view->isNodeOnline(id);
 
-    char sub[48];
-    char lh[24];
-    fmtLastHeard(view, rec ? rec->lastHeard : 0, lh, sizeof(lh));
-    snprintf(sub, sizeof(sub), "0x%08X · %s", (unsigned)id, online ? "в сети" : lh);
+    char sub[128];
+    char status[96];
+    fmtContactStatus(view, id, status, sizeof(status));
+    snprintf(sub, sizeof(sub), "0x%08X · %s", (unsigned)id, status);
 
     addStatusBar(scr);
     addNavHeader(scr, view->displayName(id), sub);
@@ -710,7 +709,7 @@ void HorizonUI::buildContactCard(void)
     else
         snprintf(fields[3].v, sizeof(fields[3].v), "—");
     fields[4].k = "Слышен";
-    snprintf(fields[4].v, sizeof(fields[4].v), "%s", lh);
+    snprintf(fields[4].v, sizeof(fields[4].v), "%s", status);
     fields[5].k = "SNR";
     if (rec && (rec->signalDisplay != NodeSignalDisplayKind::None || rec->rssi != 0))
         snprintf(fields[5].v, sizeof(fields[5].v), "%.1f", rec->snr);

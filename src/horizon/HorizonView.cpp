@@ -169,6 +169,10 @@ void HorizonView::init(IClientBase *client)
     store.loadMessages(); // история с прошлого запуска: свой лог + штатный /messages
     // (в журнале есть и свои сообщения; кратные копии давит дедуп в addMessage)
     store.loadDossier();  // справочник досье (имена свои сразу, не «Meshtastic ****»)
+    contacts.load();      // контакты отдельно от временной радиобазы и истории чатов
+    for (uint32_t id : HorizonConfig::instance().favorites)
+        if (id != HorizonConfig::instance().meshNode && !contacts.find(id))
+            contacts.remember(id, 0, nullptr, 0, 0); // избранное переживает молчание/ребут
     mapStore.loadAll();     // точки карты /hzmap
     batStats.load();        // наблюдения батареи из отдельного файла, без форматирования ФС
     ui = new HorizonUI(this);
@@ -197,6 +201,15 @@ void HorizonView::task_handler(void)
         announceDossier();
     }
     pollBattery(nowMs);
+    if (nowMs - lastContactsPruneMs >= 60000u) {
+        lastContactsPruneMs = nowMs;
+        HorizonConfig &cfg = HorizonConfig::instance();
+        if (contacts.expire(nowMs, trustedContactTime(),
+                            [](uint32_t id, void *ctx) { return static_cast<HorizonConfig *>(ctx)->isFavorite(id); },
+                            &cfg)) nodesDirty = true;
+    }
+    if (contacts.changed() && (contacts.urgent() || nowMs - lastContactsSaveMs >= 10u * 60u * 1000u) &&
+        contacts.save()) lastContactsSaveMs = nowMs;
 }
 
 const char *HorizonView::resetReasonName(void) const
@@ -273,6 +286,10 @@ void HorizonView::upsertNodeUser(uint32_t nodeNum, uint8_t channel, uint32_t las
     }
     uint32_t lh = lastHeard ? lastHeard : (uint32_t)curtime;
     nodeStore.upsertUser(nodeNum, channel, lh, cfg, viaMqtt);
+    if (nodeNum != ownNode &&
+        !(cfg.hw_model == meshtastic_HardwareModel_UNSET && strncmp(cfg.long_name, "Meshtastic ", 11) == 0) &&
+        (contacts.find(nodeNum) || (lh >= HzContacts::kMinEpoch && lh < 2082758400u)))
+        contacts.remember(nodeNum, channel, cfg.long_name, lh, trustedContactTime());
     nodesDirty = true;
     if (nodeNum == ownNode)
         pushOwnerFromDossier(); // своя nodeinfo: дефолтное имя? - усыновить
@@ -291,6 +308,8 @@ void HorizonView::addOrUpdateNode(uint32_t nodeNum, uint8_t channel, uint32_t la
     }
     uint32_t lh = lastHeard ? lastHeard : (uint32_t)curtime;
     nodeStore.upsertUnknown(nodeNum, channel, lh, (uint8_t)role, hasKey, viaMqtt);
+    // Сырая радиозапись могла быть только ретрансляцией чужого шифротекста:
+    // контакт появится после декодированного пакета либо настоящего NodeInfo.
     nodesDirty = true;
 }
 
@@ -394,6 +413,16 @@ void HorizonView::refreshGroupContacts(void)
 
 void HorizonView::packetReceived(const meshtastic_MeshPacket &p)
 {
+    // Только декодированный, действительно полученный пакет: чужие
+    // зашифрованные ретрансляции не делают узел контактом «в сети».
+    if (p.from && p.from != ownNode && p.from != 0xFFFFFFFFu && p.channel < c_max_channels &&
+        p.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+        const NodeRecord *r = nodeStore.find(p.from);
+        bool added = contacts.heard(p.from, (uint8_t)p.channel,
+                                    r && r->hasUser ? r->user.long_name : nullptr,
+                                    millis(), trustedContactTime());
+        if (added) nodesDirty = true;
+    }
     syncGroupContacts();
     // Только реально декодированный пакет на локальном групповом канале.
     // Досье, имя узла и номер его последнего канала этого НЕ доказывают.
@@ -617,7 +646,9 @@ const char *HorizonView::nodeShortName(uint32_t nodeNum) const
     const NodeRecord *r = nodeStore.find(nodeNum);
     if (r && r->hasUser && r->user.short_name[0])
         return r->user.short_name;
-    return "?";
+    static char fallback[8];
+    snprintf(fallback, sizeof(fallback), "!%04X", (unsigned)(nodeNum & 0xFFFF));
+    return fallback;
 }
 
 const char *HorizonView::displayName(uint32_t nodeNum) const
@@ -626,12 +657,11 @@ const char *HorizonView::displayName(uint32_t nodeNum) const
     if (d && d->callsign[0])
         return d->callsign;
     const NodeRecord *r = nodeStore.find(nodeNum);
-    if (r && r->hasUser) {
-        if (r->user.long_name[0])
-            return r->user.long_name;
-        if (r->user.short_name[0])
-            return r->user.short_name;
-    }
+    if (r && r->hasUser && r->user.hw_model != meshtastic_HardwareModel_UNSET && r->user.long_name[0])
+        return r->user.long_name;
+    const HzContact *c = contacts.find(nodeNum);
+    if (c && c->name[0]) return c->name;
+    if (r && r->hasUser && r->user.short_name[0]) return r->user.short_name;
     // Узла ещё нет в справочниках: стабильный короткий фолбэк вместо «?».
     static char fb[4][8];
     static uint8_t fi = 0;
@@ -640,31 +670,38 @@ const char *HorizonView::displayName(uint32_t nodeNum) const
     return fb[fi];
 }
 
+uint32_t HorizonView::trustedContactTime(void) const
+{
+    uint32_t t = getActTime();
+    return !timeStale && t >= HzContacts::kMinEpoch && t < 2082758400u ? t : 0;
+}
+
+bool HorizonView::contactAge(uint32_t node, uint32_t &seconds) const
+{
+    return contacts.age(node, millis(), trustedContactTime(), seconds);
+}
+
+bool HorizonView::contactOnline(uint32_t node) const
+{
+    return contacts.online(node, millis(), trustedContactTime());
+}
+
 bool HorizonView::isNodeHeardWithin(uint32_t nodeNum, uint32_t windowSec) const
 {
-    const NodeRecord *r = nodeStore.find(nodeNum);
-    if (!r || r->lastHeard == 0)
-        return false;
-    time_t now;
-    time(&now);
-    uint32_t ref = now > 1000000 ? (uint32_t)now : getActTime();
-    if (ref < 1000000)
-        ref = r->lastHeard;
-    return (ref - r->lastHeard) <= windowSec;
+    uint32_t seconds;
+    return contactAge(nodeNum, seconds) && seconds <= windowSec;
 }
 
 bool HorizonView::isNodeOnline(uint32_t nodeNum) const
 {
-    return isNodeHeardWithin(nodeNum, secs_until_offline);
+    return contactOnline(nodeNum);
 }
 
 uint32_t HorizonView::onlineCount(void) const
 {
     uint32_t n = 0;
-    for (auto &kv : nodeStore.records()) {
-        if (kv.first != ownNode && isNodeOnline(kv.first))
-            n++;
-    }
+    for (const auto &kv : contacts.records())
+        if (kv.first != ownNode && contactOnline(kv.first)) ++n;
     return n;
 }
 
@@ -721,7 +758,9 @@ bool HorizonView::takeChannelsDirty(void)
 uint8_t HorizonView::nodeChannel(uint32_t nodeNum) const
 {
     const NodeRecord *r = nodeStore.find(nodeNum);
-    return r ? r->channel : 0;
+    if (r) return r->channel;
+    const HzContact *c = contacts.find(nodeNum);
+    return c ? c->channel : HorizonConfig::instance().generalCh;
 }
 
 bool HorizonView::nodeHasKey(uint32_t nodeNum) const
@@ -899,6 +938,10 @@ void HorizonView::handleDossierBeacon(uint32_t from, const char *msg, bool canRe
     }
     bool known = store.findDossier(from) != nullptr;
     store.upsertDossier(from, callsign, (uint8_t)rank, (uint8_t)group, getActTime());
+    if (canReply) {
+        contacts.heard(from, HorizonConfig::instance().generalCh, callsign, millis(), trustedContactTime());
+        nodesDirty = true;
+    }
     // Время от маяка: свои часы не выставлены или протухли - принять время
     // отправителя, если оно валидно и идёт вперёд. Назад - никогда.
     if (epoch > 1000000 && epoch > getActTime() && (getActTime() < 1000000 || timeStale)) {
@@ -1335,22 +1378,15 @@ void HorizonView::sendDirectMessage(uint32_t peer, const char *text)
     uint8_t ch = nodeChannel(peer);
     uint32_t reqId = requests.addRequest(peer, ResponseHandler::TextMessageRequest, nullptr, nullptr);
     controller->sendTextMessage(peer, ch, nodeHopLimit(peer), getActTime(), reqId, nodeHasKey(peer), s.c_str());
-    uint8_t st;
-    uint32_t track = 0;
-    if (onlineCount() == 0) {
-        st = kHzSendFailed; // в эфире никого - доставка невозможна
-        requests.removeRequest(reqId);
-    } else {
-        st = kHzSendPending; // ждём ACK (резолв в handleResponse/pollTools)
-        track = reqId;
-        pendingTexts.push_back({reqId, millis()});
-        while (pendingTexts.size() > 16) {
-            store.markTextDelivered(pendingTexts.front().reqId, false);
-            requests.removeRequest(pendingTexts.front().reqId);
-            pendingTexts.erase(pendingTexts.begin());
-        }
+    // «Не в сети» означает лишь отсутствие недавних пакетов. Нельзя объявлять
+    // ЛС недоставленным до ACK/таймаута только потому, что маяк пропущен.
+    pendingTexts.push_back({reqId, millis()});
+    while (pendingTexts.size() > 16) {
+        store.markTextDelivered(pendingTexts.front().reqId, false);
+        requests.removeRequest(pendingTexts.front().reqId);
+        pendingTexts.erase(pendingTexts.begin());
     }
-    store.addMessage(ownNode, peer, ch, getActTime(), s.c_str(), false, st, track);
+    store.addMessage(ownNode, peer, ch, getActTime(), s.c_str(), false, kHzSendPending, reqId);
     msgsDirty = true;
 }
 

@@ -320,6 +320,7 @@ class HorizonUI
     uint32_t lastTouchMs = 0; // также обновляется при удержании; после отпускания таймер начинается заново
     uint32_t lastSlowMs = 0;
     uint32_t lastContactsMs = 0;
+    bool contactsRefreshPending = false;
     uint32_t lastDetectorMs = 0;
     uint32_t chatRevShown = 0; // ревизия открытого диалога, отрисованная в списке
     uint32_t openRevShown = 0; // ревизия личек, отрисованная в открытых чатах

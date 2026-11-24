@@ -1440,20 +1440,19 @@ void HorizonUI::tick(void)
             }
             refreshMenuBadges();
         }
-        if (view->takeNodesDirty() || view->takeChannelsDirty()) {
-            if (current == Screen::CONTACTS && now - lastContactsMs >= 3000) {
+        bool changedNodes = view->takeNodesDirty();
+        bool changedChannels = view->takeChannelsDirty();
+        if (changedNodes || changedChannels) contactsRefreshPending = true;
+        if (current == Screen::CONTACTS && now - lastContactsMs >= 3000 &&
+            (contactsRefreshPending || now - lastContactsMs >= 10000)) {
+            // Не теряем обновление при throttling и не удаляем строку под пальцем.
+            // Таймер нужен, чтобы статус стал «не в сети» без новых пакетов.
+            if (!fingerDown()) {
+                rebuildContactsList();
                 lastContactsMs = now;
-                // Не пересобирать список под пальцем: кнопка удаляется между
-                // press и release, tap теряется и контакт открывается только
-                // со второго нажатия. Пропускаем этот цикл, попробуем через 3 с.
-                // Старый гард через lv_indev_get_act() был no-op (в тике он NULL):
-                // опрашиваем indev напрямую через fingerDown().
-                if (!fingerDown())
-                    rebuildContactsList();
-                else
-                    view->pokeNodesDirty(); // флаг съеден выше - вернуть, попробуем позже
+                contactsRefreshPending = false;
             }
-            else if (current == Screen::CHAT && !chatIsChannel) {
+        } else if ((changedNodes || changedChannels) && current == Screen::CHAT && !chatIsChannel) {
                 // обновить подпись лички (last heard)
                 if (chatSub && lv_obj_is_valid(chatSub)) {
                     char buf[64];
@@ -1467,7 +1466,6 @@ void HorizonUI::tick(void)
                     }
                     lv_label_set_text(chatSub, buf);
                 }
-            }
         }
     }
 }
@@ -1515,17 +1513,21 @@ void HorizonUI::fmtLastHeard(HorizonView *v, uint32_t lh, char *out, size_t cap)
         snprintf(out, cap, "не слышно");
         return;
     }
-    time_t now;
-    time(&now);
-    uint32_t ref = now > 1000000 ? (uint32_t)now : v->getActTime();
-    if (ref < lh || ref - lh < 90) {
+    // Не смешивать epoch и uptime: именно так появлялись десятки тысяч «дней».
+    uint32_t trusted = v->trustedContactTime();
+    bool epoch = lh >= HzContacts::kMinEpoch && lh < 2082758400u;
+    uint32_t ref = epoch ? trusted : (trusted ? 0 : millis() / 1000u);
+    if (!ref || (epoch && !trusted) || (!epoch && lh >= 1000000u) ||
+        (ref < lh && lh - ref > 120u)) {
+        snprintf(out, cap, "неизвестно");
+    } else if (ref <= lh || ref - lh < 90u) {
         snprintf(out, cap, "сейчас");
-    } else if (ref - lh < 3600) {
+    } else if (ref - lh > HzContacts::kKeepSec) {
+        snprintf(out, cap, "давно не слышно");
+    } else if (ref - lh < 3600u) {
         snprintf(out, cap, "%u мин назад", (unsigned)((ref - lh) / 60));
-    } else if (ref - lh < 86400) {
-        snprintf(out, cap, "%u ч назад", (unsigned)((ref - lh) / 3600));
     } else {
-        snprintf(out, cap, "%u д назад", (unsigned)((ref - lh) / 86400));
+        snprintf(out, cap, "%u ч назад", (unsigned)((ref - lh) / 3600));
     }
 }
 

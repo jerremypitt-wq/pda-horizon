@@ -55,4 +55,4 @@ python tools/tests/run_all.py
 Штатные окружения MUI под другие платы из `platformio.ini` удалены —
 осталось только `elecrow-adv-35-horizon`.
 
-**Отдельный редактор карт с вкладками** (HorizonMapStudio 1.13.0; прошивка от 1.12.0.ZI, текущая 1.15.2 без встроенной карты): сборка Windows `tools\flasher\build_map_studio.bat`, инструкция — [`tools/flasher/README-MAP-STUDIO.md`](tools/flasher/README-MAP-STUDIO.md). Существующий флешер и его редактор одной карты сохранены.
+**Отдельный редактор карт с вкладками** (HorizonMapStudio 1.13.0; прошивка от 1.12.0.ZI, текущая 1.15.3 без встроенной карты): сборка Windows `tools\flasher\build_map_studio.bat`, инструкция — [`tools/flasher/README-MAP-STUDIO.md`](tools/flasher/README-MAP-STUDIO.md). Существующий флешер и его редактор одной карты сохранены.

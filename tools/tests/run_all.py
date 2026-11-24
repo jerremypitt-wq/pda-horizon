@@ -27,7 +27,8 @@ def main():
     for folder in ("tools/build/tests", "tools/flasher/tests"):
         out = run(folder, [sys.executable, "-m", "unittest", "discover", "-s", folder, "-q"])
         print("  " + next((line for line in out.splitlines() if line.startswith("Ran ")), ""))
-    for name in ("test_group_contacts_ui_contract.py", "test_security_ui_contract.py",
+    for name in ("test_group_contacts_ui_contract.py", "test_contacts_ui_contract.py",
+                 "test_security_ui_contract.py",
                  "test_firmware_changelog.py"):
         run(name, [sys.executable, str(HOST / name)])
 
@@ -36,6 +37,7 @@ def main():
         raise SystemExit("Host C++ checks require g++ (no compiler found)")
     cases = {
         "group_contacts": (),
+        "contacts": ("HorizonContacts.cpp",),
         "max17048": ("HorizonBattery.cpp",),
         "poi_presentation": (),
         "security_battery_stats": ("HorizonBatteryStats.cpp",),

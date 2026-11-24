@@ -55,7 +55,7 @@ with open(os.path.join(hdr, "HorizonStrings.h"), "w") as f:
     f.write('constexpr const char *kFirmwareVersion = "1.7.0";\n')
 check("version-read", build.read_version(TMP) == "1.7.0")
 check("version-missing", build.read_version(os.path.join(TMP, "nope")) is None)
-check("current-version-without-game-suffix", build.read_version(REPO) == "1.15.2")
+check("current-version-without-game-suffix", build.read_version(REPO) == "1.15.3")
 
 print("== build.py: чистая FS без игровой карты ==")
 neutral = os.path.join(TMP, "neutral-fw")

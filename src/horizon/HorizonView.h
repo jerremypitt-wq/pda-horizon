@@ -14,6 +14,7 @@
 #include "horizon/HorizonBattery.h"
 #include "horizon/HorizonBatteryStats.h"
 #include "horizon/HorizonConfig.h"
+#include "horizon/HorizonContacts.h"
 #include "horizon/HorizonGroupContacts.h"
 #include "horizon/HorizonMap.h"
 #include "horizon/HorizonStore.h"
@@ -159,6 +160,10 @@ class HorizonView : public MeshtasticView
     // --- Доступ для интерфейса ---
     HorizonStore &getStore(void) { return store; }
     NodeStore &getNodes(void) { return nodeStore; }
+    const HzContacts &getContacts(void) const { return contacts; }
+    bool contactOnline(uint32_t node) const;
+    bool contactAge(uint32_t node, uint32_t &seconds) const;
+    uint32_t trustedContactTime(void) const;
     ViewController *getController(void) { return controller; }
     HorizonUI *getUI(void) { return ui; }
 
@@ -254,6 +259,9 @@ class HorizonView : public MeshtasticView
     HorizonUI *ui = nullptr;
     NodeStore nodeStore;
     HorizonStore store;
+    HzContacts contacts;
+    uint32_t lastContactsSaveMs = 0;
+    uint32_t lastContactsPruneMs = 0;
     HzGroupContacts groupContacts;
     void syncGroupContacts(void);
 
